@@ -6,12 +6,20 @@ set -e
 
 DIFF_OBJ=0
 IGNORE_REGS=0
+MAKE=0
 
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
 case "$1" in
     -o)
+        # Diff .o files rather than a whole binary. This makes it possible to
+        # see relocations, which is helpful for navigating in the diff.
         DIFF_OBJ=1
+        shift
+        ;;
+    -m)
+        # Run "make" on the .o file or binary before diffing.
+        MAKE=1
         shift
         ;;
     -r)
@@ -62,6 +70,9 @@ set -e
 DIFF_ARGS=
 
 if [[ $DIFF_OBJ = 1 ]]; then
+    if [[ $MAKE = 1 ]]; then
+        make $MAKEFLAGS "$OBJFILE"
+    fi
     if [[ ! -f "$OBJFILE" ]]; then
         echo Not able to find .o file for function.
         exit 1
@@ -77,6 +88,9 @@ if [[ $DIFF_OBJ = 1 ]]; then
     $OBJDUMP $OBJFILE | grep "<$1>:" -A1000 > $MYDUMP
     DIFF_ARGS+=--diff-obj
 else
+    if [[ $MAKE = 1 ]]; then
+        make $MAKEFLAGS "$MYIMG"
+    fi
     END="$START + 0x1000"
     if [[ $# -ge 2 ]]; then
         END="$2"
