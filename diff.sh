@@ -119,7 +119,7 @@ import string
 from signal import signal, SIGPIPE, SIG_DFL
 
 # Fixes pipe error
-signal(SIGPIPE,SIG_DFL) 
+signal(SIGPIPE,SIG_DFL)
 
 # Alignment with ANSI colors is just broken, let's fix it. 
 def ansi_ljust(s, width):
