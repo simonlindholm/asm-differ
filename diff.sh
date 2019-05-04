@@ -7,6 +7,7 @@ set -e
 DIFF_OBJ=0
 IGNORE_REGS=0
 MAKE=0
+DIFF_ARGS="-l"
 
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,10 @@ case "$1" in
         ;;
     -r)
         IGNORE_REGS=1
+        shift
+        ;;
+    -s)
+        DIFF_ARGS+=" --stop-jr-ra"
         shift
         ;;
     *)
@@ -67,8 +72,6 @@ fi
 
 set -e
 
-DIFF_ARGS=
-
 if [[ $DIFF_OBJ = 1 ]]; then
     if [[ $MAKE = 1 ]]; then
         make $MAKEFLAGS "$OBJFILE"
@@ -86,7 +89,7 @@ if [[ $DIFF_OBJ = 1 ]]; then
     OBJDUMP="mips-linux-gnu-objdump -drz"
     $OBJDUMP $REFOBJFILE | grep "<$1>:" -A1000 > $BASEDUMP
     $OBJDUMP $OBJFILE | grep "<$1>:" -A1000 > $MYDUMP
-    DIFF_ARGS+=--diff-obj
+    DIFF_ARGS+=" -o"
 else
     if [[ $MAKE = 1 ]]; then
         make $MAKEFLAGS "$MYIMG"
@@ -118,12 +121,10 @@ import re
 import string
 from signal import signal, SIGPIPE, SIG_DFL
 
-leftright_spacing = 40
-
 # Fixes pipe error
 signal(SIGPIPE,SIG_DFL)
 
-# Alignment with ANSI colors is just broken, let's fix it.
+# Alignment with ANSI colors is just broken, let's fix it. 
 def ansi_ljust(s, width):
     needed = width - ansiwrap.ansilen(s)
     if needed > 0:
@@ -138,9 +139,9 @@ class Options:
     diff_obj: bool = attr.ib()
     line_nums: bool = attr.ib()
     reg_diff: bool = attr.ib()
-
-# Skip branch-likely delay slots. (They aren't interesting on IDO.)
-skip_bl_delay_slots = True
+    column_width: int = attr.ib()
+    stop_jrra: bool = attr.ib()
+    skip_bl_delay: bool = attr.ib()
 
 r = re.compile(r'[0-9]+')
 comments = re.compile(r'<.*?>')
@@ -205,6 +206,7 @@ def process(lines, options):
     diff_rows = []
     skip_next = False
     originals = []
+    line_nums = []
     skip_lines = 1 if options.diff_obj else 7
 
     for index, row in enumerate(lines):
@@ -221,22 +223,20 @@ def process(lines, options):
             diff_rows[-1] = process_reloc(row, diff_rows[-1])
             originals[-1] = process_reloc(row, originals[-1])
             continue
-
+        
         row = re.sub(comments, '', row)
         row = row.rstrip()
         tabs = row.split('\t')
         row = '\t'.join(tabs[2:]) # [20:]
-        if options.line_nums:
-            original = '\t'.join([tabs[0]] + tabs[2:]) # [20:]
-        else:
-            original = row
+        line_num = tabs[0].strip()
+        original = row
         mnemonic = row.split('\t')[0].strip()
         if mnemonic not in branch_instructions:
             row = re.sub(r, lambda s: fn(row, s), row)
         if skip_next:
             skip_next = False
             row = '<skipped>'
-        if mnemonic in branch_likely_instructions and skip_bl_delay_slots:
+        if mnemonic in branch_likely_instructions and options.skip_bl_delay:
             skip_next = True
         if options.reg_diff:
             row = re.sub(regs, '<reg>', row)
@@ -245,15 +245,18 @@ def process(lines, options):
         # Replace tabs with spaces
         diff_rows.append(row)
         originals.append(original)
+        line_nums.append(line_num)
+        if options.stop_jrra and mnemonic == 'jr' and row.split('\t')[1].strip() == 'ra':
+            break
 
     # Cleanup whitespace
     originals = [original.strip() for original in originals]
     originals = [''.join(f'{o:<8s}' for o in original.split('\t')) for original in originals]
-    return diff_rows, originals
+    return diff_rows, originals, line_nums
 
 regs_after = re.compile(r'<reg>')
-def print_single_line_diff(line1, line2):
-    print(f"{ansi_ljust(line1,leftright_spacing)}{ansi_ljust(line2,leftright_spacing)}")
+def print_single_line_diff(line1, line2, column_width):
+    print(f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}")
 
 color_rotation = [
     Fore.MAGENTA,
@@ -271,7 +274,7 @@ color_index = [0, 0]
 symbol_colors = [{}, {}]
 
 def color_symbol(s, i):
-    global color_rotation
+    global color_rotation 
     global color_index
     global symbol_colors
     s = s.group()
@@ -290,49 +293,79 @@ def main(options):
     asm1_lines = asm1.split('\n')
     asm2_lines = asm2.split('\n')
 
-    asm1_lines, originals1 = process(asm1_lines, options)
-    asm2_lines, originals2 = process(asm2_lines, options)
+    asm1_lines, originals1, line_nums1 = process(asm1_lines, options)
+    asm2_lines, originals2, line_nums2 = process(asm2_lines, options)
 
     differ: SequenceMatcher = SequenceMatcher(a=asm1_lines, b=asm2_lines, autojunk=True)
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
         lines1 = asm1_lines[i1:i2]
         lines2 = asm2_lines[j1:j2]
-
+        
         for k, (line1, line2) in enumerate(itertools.zip_longest(lines1, lines2)):
+            if tag == 'replace':
+                if line1 == None:
+                    tag = 'insert'
+                elif line2 == None:
+                    tag = 'delete'
+            
             try:
                 original1 = originals1[i1+k]
+                line_num1 = line_nums1[i1+k]
             except:
-                pass
+                original1 = ''
+                line_num1 = ''
             try:
                 original2 = originals2[j1+k]
+                line_num2 = line_nums2[j1+k]
             except:
-                pass
+                original2 = ''
+                line_num2 = ''
 
-            if tag == 'equal':
-                if original1 != original2 and options.reg_diff:
+            line_color = Fore.RESET
+            line_prefix = ' '
+            if tag == 'equal' or line1 == line2:
+                if (line1 == '<skipped>'):
+                    pass
+                elif original1 != original2 and options.reg_diff:
+                    line_color = Fore.YELLOW
+                    line_prefix = 'r'
                     line1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
-                    line2 = f'{Fore.YELLOW}r {original2}{Style.RESET_ALL}'
+                    line2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
                     line1 = re.sub(regs, lambda s: color_symbol(s, 0), line1)
                     line2 = re.sub(regs, lambda s: color_symbol(s, 1), line2)
                     line1 = re.sub(sprel, lambda s: color_symbol(s, 0), line1)
                     line2 = re.sub(sprel, lambda s: color_symbol(s, 1), line2)
                 else:
                     line1 = f'{original1}'
-                    line2 = f'  {original2}'
+                    line2 = f'{original2}'
             elif tag == 'replace':
+                line_prefix = '|'
+                line_color = Fore.BLUE
                 line1 = f"{Fore.BLUE}{original1}{Style.RESET_ALL}"
-                line2 = f"{Fore.BLUE}| {original2}{Style.RESET_ALL}"
+                line2 = f"{Fore.BLUE}{original2}{Style.RESET_ALL}"
             elif tag == 'delete':
+                line_prefix = '<'
+                line_color = Fore.RED
                 line1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
-                line2 = f"{Fore.RED}<{Style.RESET_ALL}"
             elif tag == 'insert':
-                line2 = f"{Fore.GREEN}> {original2}{Style.RESET_ALL}"
+                line_prefix = '>'
+                line_color = Fore.GREEN
+                line2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
 
             line1 = line1 or ''
             line2 = line2 or ''
 
-            print_single_line_diff(line1, line2)
+            line_num1 = line_num1 if line1 else ''
+            line_num2 = line_num2 if line2 else ''
 
+            if not options.line_nums:
+                line_num1 = ''
+                line_num2 = ''
+
+            line1 =               f"{line_color}{line_num1}    {line1}{Style.RESET_ALL}"
+            line2 = f"{line_color}{line_prefix} {line_num2}    {line2}{Style.RESET_ALL}"
+            print_single_line_diff(line1, line2, options.column_width)
+            
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -341,16 +374,25 @@ if __name__ == "__main__":
             help="The base file to compare")
     parser.add_argument('file2',
             help="The modified version to compare to")
-    parser.add_argument('--diff-obj', dest='diff_obj', action='store_true',
-            help="The modified version to compare to",)
+    parser.add_argument('-o', dest='diff_obj', action='store_true',
+            help="Perform an object file diff")
+    parser.add_argument('-l', dest='line_nums', action='store_true',
+            help="Show line numbers")
+    parser.add_argument('--stop-jr-ra', dest='stop_jrra', action='store_true',
+            help="Stop at the first 'jr ra'")
+    parser.add_argument('--column', dest='column_width', type=int, default=50,
+            help="Sets the width of the left and right view column")
     args = parser.parse_args()
 
     options = Options(
         file1 = args.file1,
         file2 = args.file2,
         reg_diff = True,
-        line_nums = False,
-        diff_obj = args.diff_obj
+        line_nums = args.line_nums,
+        diff_obj = args.diff_obj,
+        column_width = args.column_width,
+        stop_jrra = args.stop_jrra,
+        skip_bl_delay = True
     )
     main(options)
 EOM
