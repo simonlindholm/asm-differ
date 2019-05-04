@@ -7,6 +7,7 @@ set -e
 DIFF_OBJ=0
 IGNORE_REGS=0
 MAKE=0
+DIFF_ARGS="-l"
 
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,10 @@ case "$1" in
         ;;
     -r)
         IGNORE_REGS=1
+        shift
+        ;;
+    -s)
+        DIFF_ARGS+=" --stop-jr-ra"
         shift
         ;;
     *)
@@ -66,8 +71,6 @@ if [ -n "$MAPFILE" ]; then
 fi
 
 set -e
-
-DIFF_ARGS="-l"
 
 if [[ $DIFF_OBJ = 1 ]]; then
     if [[ $MAKE = 1 ]]; then
