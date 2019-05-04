@@ -86,7 +86,7 @@ if [[ $DIFF_OBJ = 1 ]]; then
     OBJDUMP="mips-linux-gnu-objdump -drz"
     $OBJDUMP $REFOBJFILE | grep "<$1>:" -A1000 > $BASEDUMP
     $OBJDUMP $OBJFILE | grep "<$1>:" -A1000 > $MYDUMP
-    DIFF_ARGS+=" -o --stop-jr-ra"
+    DIFF_ARGS+=" -o"
 else
     if [[ $MAKE = 1 ]]; then
         make $MAKEFLAGS "$MYIMG"
