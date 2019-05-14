@@ -39,7 +39,7 @@ esac
 done
 set -- "${POSITIONAL[@]}"
 
-# Set $BASEIMG, $BASEDUMP, $MYIMP, $MYDUMP, $MAPFILE in a project-specific manner.
+# Set $BASEIMG, $BASEDUMP, $MYIMG, $MYDUMP, $MAPFILE, $MAKEFLAGS in a project-specific manner.
 . diff-settings.sh
 
 # ==== LOGIC ====
