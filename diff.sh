@@ -49,6 +49,12 @@ if [[ $# -lt 1 ]]; then
     exit 1
 fi
 
+PYTHON_VERSION=$(python3 --version | cut -d'.' -f2)
+if [[ $PYTHON_VERSION -lt 6 ]]; then
+    echo "$0 requires at least Python 3.6" >&2
+    exit 1
+fi
+
 START="$1"
 BASE=0
 
@@ -110,16 +116,22 @@ set +e
 # sed -i "1s;^;$(sha1sum $MYDUMP)\n;" $MYDUMP
 
 read -r -d '' DIFF_SCRIPT << EOM
-import argparse
-import attr
-from difflib import SequenceMatcher
-from pathlib import Path
-import itertools
-from colorama import Fore, Style, Back
-import ansiwrap
-import re
-import string
-from signal import signal, SIGPIPE, SIG_DFL
+try:
+    import argparse
+    import attr
+    from difflib import SequenceMatcher
+    from pathlib import Path
+    import itertools
+    from colorama import Fore, Style, Back
+    import ansiwrap
+    import re
+    import string
+    from signal import signal, SIGPIPE, SIG_DFL
+except ModuleNotFoundError as e:
+    # Exit nicely and print to stdout, because less will be sad otherwise.
+    print("Missing prerequisite python module " + e.name +
+        ". Run \`python3 -m pip install --user colorama ansiwrap attrs\` to install prerequisites.")
+    exit(0)
 
 # Fixes pipe error
 signal(SIGPIPE,SIG_DFL)
