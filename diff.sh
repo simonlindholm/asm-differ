@@ -136,7 +136,7 @@ except ModuleNotFoundError as e:
 # Fixes pipe error
 signal(SIGPIPE,SIG_DFL)
 
-# Alignment with ANSI colors is just broken, let's fix it. 
+# Alignment with ANSI colors is just broken, let's fix it.
 def ansi_ljust(s, width):
     needed = width - ansiwrap.ansilen(s)
     if needed > 0:
@@ -235,7 +235,7 @@ def process(lines, options):
             diff_rows[-1] = process_reloc(row, diff_rows[-1])
             originals[-1] = process_reloc(row, originals[-1])
             continue
-        
+
         row = re.sub(comments, '', row)
         row = row.rstrip()
         tabs = row.split('\t')
@@ -286,7 +286,7 @@ color_index = [0, 0]
 symbol_colors = [{}, {}]
 
 def color_symbol(s, i):
-    global color_rotation 
+    global color_rotation
     global color_index
     global symbol_colors
     s = s.group()
@@ -312,14 +312,14 @@ def main(options):
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
         lines1 = asm1_lines[i1:i2]
         lines2 = asm2_lines[j1:j2]
-        
+
         for k, (line1, line2) in enumerate(itertools.zip_longest(lines1, lines2)):
             if tag == 'replace':
                 if line1 == None:
                     tag = 'insert'
                 elif line2 == None:
                     tag = 'delete'
-            
+
             try:
                 original1 = originals1[i1+k]
                 line_num1 = line_nums1[i1+k]
@@ -377,7 +377,7 @@ def main(options):
             line1 =               f"{line_color}{line_num1}    {line1}{Style.RESET_ALL}"
             line2 = f"{line_color}{line_prefix} {line_num2}    {line2}{Style.RESET_ALL}"
             print_single_line_diff(line1, line2, options.column_width)
-            
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
