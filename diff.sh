@@ -5,8 +5,8 @@ set -e
 # ==== CONFIG ====
 
 DIFF_OBJ=0
-IGNORE_REGS=0
 MAKE=0
+BASE_SHIFT=0
 DIFF_ARGS="-l"
 
 POSITIONAL=()
@@ -23,12 +23,19 @@ case "$1" in
         MAKE=1
         shift
         ;;
-    -r)
-        IGNORE_REGS=1
+    -s)
+        # Stop disassembling at the first "jr ra".
+        DIFF_ARGS+=" --stop-jr-ra"
         shift
         ;;
-    -s)
-        DIFF_ARGS+=" --stop-jr-ra"
+    -S)
+        # Diff position X in our ROM against position X + shift in the base ROM.
+        # Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable
+        # flag to pass if it is known that position 0x1234 in the base ROM syncs
+        # up with position 0x4321 in our.
+        # Not supported together with -o.
+        shift
+        BASE_SHIFT="$1"
         shift
         ;;
     *)
@@ -106,9 +113,10 @@ else
     fi
 
     OBJDUMP="mips-linux-gnu-objdump -D -z -bbinary -mmips -EB"
-    OPTIONS="--start-address=$(($START - ($BASE))) --stop-address=$(($END - ($BASE)))"
-    $OBJDUMP $OPTIONS $BASEIMG > $BASEDUMP
-    $OBJDUMP $OPTIONS $MYIMG > $MYDUMP
+    OPTIONS1="--start-address=$(($START - ($BASE) + ($BASE_SHIFT))) --stop-address=$(($END - ($BASE) + ($BASE_SHIFT)))"
+    OPTIONS2="--start-address=$(($START - ($BASE))) --stop-address=$(($END - ($BASE)))"
+    $OBJDUMP $OPTIONS1 $BASEIMG > $BASEDUMP
+    $OBJDUMP $OPTIONS2 $MYIMG > $MYDUMP
 fi
 
 set +e
