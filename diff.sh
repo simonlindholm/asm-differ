@@ -317,6 +317,11 @@ def color_symbol(s, i):
 
     return f'{color}{s}{Fore.RESET}'
 
+def norm(row):
+    if options.ignore_large_imms:
+        row = re.sub(large_imm, '<imm>', row)
+    return row
+
 def main(options):
     asm1: str = Path(options.file1).read_text()
     asm2: str = Path(options.file2).read_text()
@@ -356,7 +361,7 @@ def main(options):
             if tag == 'equal' or line1 == line2:
                 if (line1 == '<skipped>'):
                     pass
-                elif original1 != original2 and options.reg_diff:
+                elif norm(original1) != norm(original2) and options.reg_diff:
                     line_color = Fore.YELLOW
                     line_prefix = 'r'
                     line1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
