@@ -171,7 +171,7 @@ class Options:
 
 r = re.compile(r'[0-9]+')
 comments = re.compile(r'<.*?>')
-regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01])\b')
+regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b')
 sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\(sp\)')
 large_imm = re.compile(r'-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}')
 forbidden = set(string.ascii_letters + '_')
