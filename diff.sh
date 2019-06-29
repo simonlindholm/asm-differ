@@ -70,6 +70,10 @@ fi
 START="$1"
 BASE=0
 
+if [ $DIFF_OBJ != 1 -a $MAKE = 1 ]; then
+    make $MAKEFLAGS "$MYIMG"
+fi
+
 set +e
 
 if [ -n "$MAPFILE" ]; then
@@ -86,6 +90,11 @@ if [ -n "$MAPFILE" ]; then
             BASE="$RAM - $ROM"
         fi
     fi
+fi
+
+if ! [[ $yournumber =~ '^[0-9]' ]]; then
+    echo "Function $1 not found in map file." >&2
+    exit 1
 fi
 
 set -e
@@ -109,9 +118,6 @@ if [[ $DIFF_OBJ = 1 ]]; then
     $OBJDUMP $OBJFILE | grep "<$1>:" -A1000 > $MYDUMP
     DIFF_ARGS+=" -o"
 else
-    if [[ $MAKE = 1 ]]; then
-        make $MAKEFLAGS "$MYIMG"
-    fi
     END="$START + 0x1000"
     if [[ $# -ge 2 ]]; then
         END="$2"
