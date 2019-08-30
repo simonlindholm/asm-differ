@@ -76,9 +76,9 @@ fi
 
 set +e
 
-if [ -n "$MAPFILE" ]; then
+if [ -n "$MAPFILE" -a "${START:0:2}" != "0x" ]; then
     LINE=$(grep "$1$" $MAPFILE)
-    if [[ -n "$LINE" && "${1:0:2}" != "0x" ]]; then
+    if [ -n "$LINE" ]; then
         START=$(echo $LINE | cut -d' ' -f1)
         if [[ $DIFF_OBJ = 1 ]]; then
             LINE2=$(grep "$1$\|^ .text" $MAPFILE | grep "$1$" -B1 | head -n1)
@@ -92,7 +92,7 @@ if [ -n "$MAPFILE" ]; then
     fi
 fi
 
-if ! [[ $yournumber =~ '^[0-9]' ]]; then
+if ! [[ "$START" =~ ^[0-9] ]]; then
     echo "Function $1 not found in map file." >&2
     exit 1
 fi
