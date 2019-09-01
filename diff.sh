@@ -70,13 +70,13 @@ fi
 START="$1"
 BASE=0
 
-if [ $DIFF_OBJ != 1 -a $MAKE = 1 ]; then
+if [ $DIFF_OBJ != 1 ] && [ $MAKE = 1 ]; then
     make $MAKEFLAGS "$MYIMG"
 fi
 
 set +e
 
-if [ -n "$MAPFILE" -a "${START:0:2}" != "0x" ]; then
+if [ -n "$MAPFILE" ] && [ "${START:0:2}" != "0x" ]; then
     LINE=$(grep "$1$" $MAPFILE)
     if [ -n "$LINE" ]; then
         START=$(echo $LINE | cut -d' ' -f1)
