@@ -175,11 +175,11 @@ class Options:
     ignore_large_imms: bool = attr.ib()
     skip_bl_delay: bool = attr.ib()
 
-r = re.compile(r'[0-9]+')
-comments = re.compile(r'<.*?>')
-regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b')
-sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\(sp\)')
-large_imm = re.compile(r'-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}')
+re_int = re.compile(r'[0-9]+')
+re_comments = re.compile(r'<.*?>')
+re_regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b')
+re_sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\(sp\)')
+re_large_imm = re.compile(r'-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}')
 forbidden = set(string.ascii_letters + '_')
 branch_likely_instructions = [
     'beql', 'bnel', 'beqzl', 'bnezl', 'bgezl', 'bgtzl', 'blezl', 'bltzl',
@@ -190,9 +190,10 @@ branch_instructions = [
     'bc1t', 'bc1f'
 ] + branch_likely_instructions
 
-def fn(row, pat):
+def hexify_int(row, pat):
     full = pat.group(0)
     if len(full) <= 1:
+        # leave one-digit ints alone
         return full
     start, end = pat.span()
     if start and row[start - 1] in forbidden:
@@ -257,25 +258,25 @@ def process(lines, options):
             originals[-1] = process_reloc(row, originals[-1])
             continue
 
-        row = re.sub(comments, '', row)
+        row = re.sub(re_comments, '', row)
         row = row.rstrip()
         tabs = row.split('\t')
-        row = '\t'.join(tabs[2:]) # [20:]
+        row = '\t'.join(tabs[2:])
         line_num = tabs[0].strip()
         original = row
         mnemonic = row.split('\t')[0].strip()
         if mnemonic not in branch_instructions:
-            row = re.sub(r, lambda s: fn(row, s), row)
+            row = re.sub(re_int, lambda s: hexify_int(row, s), row)
         if skip_next:
             skip_next = False
             row = '<skipped>'
         if mnemonic in branch_likely_instructions and options.skip_bl_delay:
             skip_next = True
         if options.reg_diff:
-            row = re.sub(regs, '<reg>', row)
-            row = re.sub(sprel, ',addr(sp)', row)
+            row = re.sub(re_regs, '<reg>', row)
+            row = re.sub(re_sprel, ',addr(sp)', row)
         if options.ignore_large_imms:
-            row = re.sub(large_imm, '<imm>', row)
+            row = re.sub(re_large_imm, '<imm>', row)
 
         # Replace tabs with spaces
         diff_rows.append(row)
@@ -325,7 +326,7 @@ def color_symbol(s, i):
 
 def norm(row):
     if options.ignore_large_imms:
-        row = re.sub(large_imm, '<imm>', row)
+        row = re.sub(re_large_imm, '<imm>', row)
     return row
 
 def main(options):
@@ -372,10 +373,10 @@ def main(options):
                     line_prefix = 'r'
                     line1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
                     line2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
-                    line1 = re.sub(regs, lambda s: color_symbol(s, 0), line1)
-                    line2 = re.sub(regs, lambda s: color_symbol(s, 1), line2)
-                    line1 = re.sub(sprel, lambda s: color_symbol(s, 0), line1)
-                    line2 = re.sub(sprel, lambda s: color_symbol(s, 1), line2)
+                    line1 = re.sub(re_regs, lambda s: color_symbol(s, 0), line1)
+                    line2 = re.sub(re_regs, lambda s: color_symbol(s, 1), line2)
+                    line1 = re.sub(re_sprel, lambda s: color_symbol(s, 0), line1)
+                    line2 = re.sub(re_sprel, lambda s: color_symbol(s, 1), line2)
                 else:
                     line1 = f'{original1}'
                     line2 = f'{original2}'
