@@ -251,10 +251,8 @@ def process(lines, options):
             continue
 
         if 'R_MIPS_' in row:
-            if diff_rows[-1] == '<skipped>':
-                continue
-
-            diff_rows[-1] = process_reloc(row, diff_rows[-1])
+            if diff_rows[-1] != '<skipped>':
+                diff_rows[-1] = process_reloc(row, diff_rows[-1])
             originals[-1] = process_reloc(row, originals[-1])
             continue
 
@@ -366,8 +364,9 @@ def main(options):
             line_color = Fore.RESET
             line_prefix = ' '
             if tag == 'equal' or line1 == line2:
-                if (line1 == '<skipped>'):
-                    pass
+                if line1 == '<skipped>' and norm(original1) != norm(original2):
+                    line1 = f'{Style.DIM}{original1}'
+                    line2 = f'{Style.DIM}{original2}'
                 elif norm(original1) != norm(original2) and options.reg_diff:
                     line_color = Fore.YELLOW
                     line_prefix = 'r'
