@@ -263,10 +263,10 @@ def process(lines, options):
         tabs = row.split('\t')
         row = '\t'.join(tabs[2:])
         line_num = tabs[0].strip()
-        original = row
         mnemonic = row.split('\t')[0].strip()
         if mnemonic not in branch_instructions:
             row = re.sub(re_int, lambda s: hexify_int(row, s), row)
+        original = row
         if skip_next:
             skip_next = False
             row = '<skipped>'
