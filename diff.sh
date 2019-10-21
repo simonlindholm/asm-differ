@@ -45,6 +45,12 @@ case "$1" in
         DIFF_ARGS+=" --ignore-large-imms"
         shift
         ;;
+    -l)
+        # Skip the first N lines of output
+        shift
+        DIFF_ARGS+=" --skip-lines $1"
+        shift
+        ;;
     -S)
         # Diff position X in our ROM against position X + shift in the base ROM.
         # Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable
@@ -190,10 +196,11 @@ class Options:
     diff_obj: bool = attr.ib()
     line_nums: bool = attr.ib()
     reg_diff: bool = attr.ib()
-    column_width: int = attr.ib()
     stop_jrra: bool = attr.ib()
     ignore_large_imms: bool = attr.ib()
     skip_bl_delay: bool = attr.ib()
+    column_width: int = attr.ib()
+    skip_lines: int = attr.ib()
 
 re_int = re.compile(r'[0-9]+')
 re_comments = re.compile(r'<.*?>')
@@ -353,6 +360,8 @@ def main(options):
     asm1_lines = asm1.split('\n')
     asm2_lines = asm2.split('\n')
 
+    line_index = 0
+
     asm1_lines, originals1, line_nums1 = process(asm1_lines, options)
     asm2_lines, originals2, line_nums2 = process(asm2_lines, options)
 
@@ -425,7 +434,9 @@ def main(options):
 
             line1 =               f"{line_color}{line_num1}    {line1}{Style.RESET_ALL}"
             line2 = f"{line_color}{line_prefix} {line_num2}    {line2}{Style.RESET_ALL}"
-            print_single_line_diff(line1, line2, options.column_width)
+            if line_index >= options.skip_lines:
+                print_single_line_diff(line1, line2, options.column_width)
+            line_index += 1
 
 
 if __name__ == "__main__":
@@ -439,6 +450,8 @@ if __name__ == "__main__":
             help="Perform an object file diff")
     parser.add_argument('-l', dest='line_nums', action='store_true',
             help="Show line numbers")
+    parser.add_argument('--skip-lines', dest='skip_lines', type=int, default=0,
+            help="Skip the first N lines of output")
     parser.add_argument('--stop-jr-ra', dest='stop_jrra', action='store_true',
             help="Stop at the first 'jr ra'")
     parser.add_argument('--ignore-large-imms', dest='ignore_large_imms', action='store_true',
@@ -450,13 +463,14 @@ if __name__ == "__main__":
     options = Options(
         file1 = args.file1,
         file2 = args.file2,
-        reg_diff = True,
-        line_nums = args.line_nums,
         diff_obj = args.diff_obj,
-        column_width = args.column_width,
+        line_nums = args.line_nums,
+        reg_diff = True,
         stop_jrra = args.stop_jrra,
         ignore_large_imms = args.ignore_large_imms,
-        skip_bl_delay = True
+        skip_bl_delay = True,
+        column_width = args.column_width,
+        skip_lines = args.skip_lines,
     )
     main(options)
 EOM
