@@ -18,6 +18,12 @@ fi
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
 case "$1" in
+    -a)
+        # Use an alternative dump file as the base.
+        shift
+        ALT_DUMP="$1"
+        shift
+        ;;
     -o)
         # Diff .o files rather than a whole binary. This makes it possible to
         # see relocations, which is helpful for navigating in the diff.
@@ -73,6 +79,10 @@ if [[ $PYTHON_VERSION -lt 6 ]]; then
     exit 1
 fi
 
+if [[ -n "$ALT_DUMP" ]]; then
+    BASEDUMP="$ALT_DUMP"
+fi
+
 START="$1"
 BASE=0
 
@@ -120,7 +130,9 @@ if [[ $DIFF_OBJ = 1 ]]; then
     fi
 
     OBJDUMP="${CROSS}objdump -drz"
-    $OBJDUMP $REFOBJFILE | grep "<$1>:" -A1000 > $BASEDUMP
+    if [[ -z "$ALT_DUMP" ]]; then
+        $OBJDUMP $REFOBJFILE | grep "<$1>:" -A1000 > $BASEDUMP
+    fi
     $OBJDUMP $OBJFILE | grep "<$1>:" -A1000 > $MYDUMP
     DIFF_ARGS+=" -o"
 else
@@ -132,7 +144,9 @@ else
     OBJDUMP="${CROSS}objdump -D -z -bbinary -mmips -EB"
     OPTIONS1="--start-address=$(($START - ($BASE) + ($BASE_SHIFT))) --stop-address=$(($END - ($BASE) + ($BASE_SHIFT)))"
     OPTIONS2="--start-address=$(($START - ($BASE))) --stop-address=$(($END - ($BASE)))"
-    $OBJDUMP $OPTIONS1 $BASEIMG > $BASEDUMP
+    if [[ -z "$ALT_DUMP" ]]; then
+        $OBJDUMP $OPTIONS1 $BASEIMG > $BASEDUMP
+    fi
     $OBJDUMP $OPTIONS2 $MYIMG > $MYDUMP
 fi
 
