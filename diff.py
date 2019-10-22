@@ -103,12 +103,6 @@ for binutils_cand in ['mips-linux-gnu-', 'mips64-elf-']:
 if not binutils_prefix:
     fail("Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist.")
 
-def run_make(target):
-    subprocess.check_call(["make"] + makeflags + [target])
-
-def run_objdump(flags, target):
-    return subprocess.check_output([binutils_prefix + "objdump"] + flags + [target], universal_newlines=True)
-
 def eval_int(expr, emsg=None):
     try:
         ret = ast.literal_eval(expr)
@@ -120,7 +114,8 @@ def eval_int(expr, emsg=None):
             fail(emsg)
         return None
 
-base_shift = eval_int(args.base_shift, "Failed to parse --base-shift (-S) argument as an integer.")
+def run_make(target):
+    subprocess.check_call(["make"] + makeflags + [target])
 
 def restrict_to_function(dump, fn_name):
     out = []
@@ -134,6 +129,15 @@ def restrict_to_function(dump, fn_name):
         elif search in line:
             found = True
     return '\n'.join(out)
+
+def run_objdump(cmd):
+    flags, target, restrict = cmd
+    out = subprocess.check_output([binutils_prefix + "objdump"] + flags + [target], universal_newlines=True)
+    if restrict is not None:
+        return restrict_to_function(out, restrict)
+    return out
+
+base_shift = eval_int(args.base_shift, "Failed to parse --base-shift (-S) argument as an integer.")
 
 def search_map_file(fn_name):
     if not mapfile:
@@ -197,12 +201,10 @@ def dump_objfile():
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
     objdump_flags = ["-drz"]
-    if args.base_asm is None:
-        basedump = run_objdump(objdump_flags, refobjfile)
-        basedump = restrict_to_function(basedump, args.start)
-    mydump = run_objdump(objdump_flags, objfile)
-    mydump = restrict_to_function(mydump, args.start)
-    return basedump, mydump
+    return (
+        (objdump_flags, refobjfile, args.start),
+        (objdump_flags, objfile, args.start)
+    )
 
 def dump_binary():
     if not baseimg or not myimg:
@@ -221,10 +223,10 @@ def dump_binary():
     objdump_flags = ['-Dz', '-bbinary', '-mmips', '-EB']
     flags1 = [f"--start-address={start_addr + base_shift}", f"--stop-address={end_addr + base_shift}"]
     flags2 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
-    if args.base_asm is None:
-        basedump = run_objdump(objdump_flags + flags1, baseimg)
-    mydump = run_objdump(objdump_flags + flags2, myimg)
-    return basedump, mydump
+    return (
+        (objdump_flags + flags1, baseimg, None),
+        (objdump_flags + flags1, myimg, None)
+    )
 
 # Alignment with ANSI colors is broken, let's fix it.
 def ansi_ljust(s, width):
@@ -370,7 +372,7 @@ def norm(row):
         row = re.sub(re_large_imm, '<imm>', row)
     return row
 
-def run(basedump, mydump):
+def do_diff(basedump, mydump):
     asm1_lines = basedump.split('\n')
     asm2_lines = mydump.split('\n')
 
@@ -456,11 +458,12 @@ def run(basedump, mydump):
 
 def main():
     if args.diff_obj:
-        basedump, mydump = dump_objfile()
+        basecmd, mycmd = dump_objfile()
     else:
-        basedump, mydump = dump_binary()
+        basecmd, mycmd = dump_binary()
 
     if args.write_asm is not None:
+        mydump = run_objdump(mycmd)
         with open(args.write_asm) as f:
             f.write(mydump)
         print(f"Wrote assembly to {args.write_asm}.")
@@ -469,8 +472,12 @@ def main():
     if args.base_asm is not None:
         with open(args.base_asm) as f:
             basedump = f.read()
+    else:
+        basedump = run_objdump(basecmd)
 
-    output = '\n'.join(run(basedump, mydump))
+    mydump = run_objdump(mycmd)
+
+    output = '\n'.join(do_diff(basedump, mydump))
     # output = sha1sum(mydump) + '\n' + output
 
     subprocess.run(["less", "-Ric"], input=output.encode('utf-8'))
