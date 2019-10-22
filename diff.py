@@ -349,8 +349,8 @@ def format_single_line_diff(line1, line2, column_width):
     return f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}"
 
 class SymbolColorer:
-    def __init__(self):
-        self.color_index = 0
+    def __init__(self, base_index):
+        self.color_index = base_index
         self.symbol_colors = {}
 
     def color_symbol(self, s):
@@ -377,8 +377,10 @@ def run(basedump, mydump):
     asm1_lines, originals1, line_nums1 = process(asm1_lines)
     asm2_lines, originals2, line_nums2 = process(asm2_lines)
 
-    sc1 = SymbolColorer()
-    sc2 = SymbolColorer()
+    sc1 = SymbolColorer(0)
+    sc2 = SymbolColorer(0)
+    sc3 = SymbolColorer(4)
+    sc4 = SymbolColorer(4)
 
     differ: difflib.SequenceMatcher = difflib.SequenceMatcher(a=asm1_lines, b=asm2_lines, autojunk=True)
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
@@ -418,8 +420,8 @@ def run(basedump, mydump):
                     line2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
                     line1 = re.sub(re_regs, lambda s: sc1.color_symbol(s), line1)
                     line2 = re.sub(re_regs, lambda s: sc2.color_symbol(s), line2)
-                    line1 = re.sub(re_sprel, lambda s: sc1.color_symbol(s), line1)
-                    line2 = re.sub(re_sprel, lambda s: sc2.color_symbol(s), line2)
+                    line1 = re.sub(re_sprel, lambda s: sc3.color_symbol(s), line1)
+                    line2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s), line2)
                 else:
                     line1 = f'{original1}'
                     line2 = f'{original2}'
