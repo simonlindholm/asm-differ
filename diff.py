@@ -76,6 +76,18 @@ makeflags = config.get('makeflags', [])
 MAX_FUNCTION_SIZE_LINES = 1024
 MAX_FUNCTION_SIZE_BYTES = 1024 * 4
 
+COLOR_ROTATION = [
+    Fore.MAGENTA,
+    Fore.CYAN,
+    Fore.GREEN,
+    Fore.RED,
+    Fore.LIGHTYELLOW_EX,
+    Fore.LIGHTMAGENTA_EX,
+    Fore.LIGHTCYAN_EX,
+    Fore.LIGHTGREEN_EX,
+    Fore.LIGHTBLACK_EX,
+]
+
 # ==== LOGIC ====
 
 binutils_prefix = None
@@ -333,37 +345,23 @@ def process(lines):
     # return diff_rows, diff_rows, line_nums
     return diff_rows, originals, line_nums
 
-regs_after = re.compile(r'<reg>')
 def format_single_line_diff(line1, line2, column_width):
     return f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}"
 
-color_rotation = [
-    Fore.MAGENTA,
-    Fore.CYAN,
-    Fore.GREEN,
-    Fore.RED,
-    Fore.LIGHTYELLOW_EX,
-    Fore.LIGHTMAGENTA_EX,
-    Fore.LIGHTCYAN_EX,
-    Fore.LIGHTGREEN_EX,
-    Fore.LIGHTBLACK_EX,
-]
-color_index = [0, 0]
-symbol_colors = [{}, {}]
+class SymbolColorer:
+    def __init__(self):
+        self.color_index = 0
+        self.symbol_colors = {}
 
-def color_symbol(s, i):
-    global color_rotation
-    global color_index
-    global symbol_colors
-    s = s.group()
-    try:
-        color = symbol_colors[i][s]
-    except:
-        color = color_rotation[color_index[i]]
-        color_index[i] = (color_index[i] + 1) % len(color_rotation)
-        symbol_colors[i][s] = color
-
-    return f'{color}{s}{Fore.RESET}'
+    def color_symbol(self, s):
+        s = s.group()
+        try:
+            color = self.symbol_colors[s]
+        except:
+            color = COLOR_ROTATION[self.color_index % len(COLOR_ROTATION)]
+            self.color_index += 1
+            self.symbol_colors[s] = color
+        return f'{color}{s}{Fore.RESET}'
 
 def norm(row):
     if args.ignore_large_imms:
@@ -378,6 +376,9 @@ def run(basedump, mydump):
 
     asm1_lines, originals1, line_nums1 = process(asm1_lines)
     asm2_lines, originals2, line_nums2 = process(asm2_lines)
+
+    sc1 = SymbolColorer()
+    sc2 = SymbolColorer()
 
     differ: difflib.SequenceMatcher = difflib.SequenceMatcher(a=asm1_lines, b=asm2_lines, autojunk=True)
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
@@ -415,10 +416,10 @@ def run(basedump, mydump):
                     line_prefix = 'r'
                     line1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
                     line2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
-                    line1 = re.sub(re_regs, lambda s: color_symbol(s, 0), line1)
-                    line2 = re.sub(re_regs, lambda s: color_symbol(s, 1), line2)
-                    line1 = re.sub(re_sprel, lambda s: color_symbol(s, 0), line1)
-                    line2 = re.sub(re_sprel, lambda s: color_symbol(s, 1), line2)
+                    line1 = re.sub(re_regs, lambda s: sc1.color_symbol(s), line1)
+                    line2 = re.sub(re_regs, lambda s: sc2.color_symbol(s), line2)
+                    line1 = re.sub(re_sprel, lambda s: sc1.color_symbol(s), line1)
+                    line2 = re.sub(re_sprel, lambda s: sc2.color_symbol(s), line2)
                 else:
                     line1 = f'{original1}'
                     line2 = f'{original2}'
