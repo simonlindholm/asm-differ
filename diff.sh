@@ -1,206 +1,224 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
+import sys
+import re
+import os
+import ast
+import argparse
+import subprocess
+import difflib
+import string
+import itertools
 
-set -e
+def fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+try:
+    import attr
+    from colorama import Fore, Style, Back
+    import ansiwrap
+except ModuleNotFoundError as e:
+    fail(f"Missing prerequisite python module {e.name}. "
+        "Run `python3 -m pip install --user colorama ansiwrap attrs` to install prerequisites.")
+
+# Prefer to use diff_settings.py from the current working directory
+sys.path.insert(0, '.')
+try:
+    import diff_settings
+except ModuleNotFoundError:
+    fail("Unable to find diff_settings.py in the same directory.")
 
 # ==== CONFIG ====
 
-DIFF_OBJ=0
-MAKE=0
-BASE_SHIFT=0
-DIFF_ARGS="-l"
+parser = argparse.ArgumentParser(
+        description="Diff mips assembly")
+parser.add_argument('start',
+        help="Function name or address to start diffing from.")
+parser.add_argument('end', nargs='?',
+        help="Address to end diff at.")
+parser.add_argument('-o', dest='diff_obj', action='store_true',
+        help="Diff .o files rather than a whole binary. This makes it possible to see symbol names.")
+parser.add_argument('--base-asm', dest='base_asm',
+        help="Read assembly from given file instead of configured base img.")
+parser.add_argument('--write-asm', dest='write_asm',
+        help="Write the current assembly output to file, e.g. for use with --base-asm.")
+parser.add_argument('-m', '--make', dest='make', action='store_true',
+        help="Automatically run 'make' on the .o file or binary before diffing.")
+parser.add_argument('-l', '--skip-lines', dest='skip_lines', type=int, default=0,
+        help="Skip the first N lines of output.")
+parser.add_argument('-s', '--stop-jr-ra', dest='stop_jrra', action='store_true',
+        help="Stop disassembling at the first 'jr ra'. Some functions have multiple return points, so use with care!")
+parser.add_argument('-i', '--ignore-large-imms', dest='ignore_large_imms', action='store_true',
+        help="Pretend all large enough immediates are the same.")
+parser.add_argument('-S', '--base-shift', dest='base_shift', type=str, default='0',
+        help="Diff position X in our img against position X + shift in the base img. "
+        "Arithmetic is allowed, so e.g. |-S \"0x1234 - 0x4321\"| is a reasonable "
+        "flag to pass if it is known that position 0x1234 in the base img syncs "
+        "up with position 0x4321 in our img. Not supported together with -o.")
+parser.add_argument('--width', dest='column_width', type=int, default=50,
+        help="Sets the width of the left and right view column.")
 
-if type mips-linux-gnu-ld >/dev/null 2>/dev/null; then
-    CROSS=mips-linux-gnu-
-else
-    CROSS=mips64-elf-
-fi
+# Project-specific flags, e.g. different versions/make arguments.
+if hasattr(diff_settings, "add_custom_arguments"):
+    diff_settings.add_custom_arguments(parser)
 
-POSITIONAL=()
-while [[ $# -gt 0 ]]; do
-case "$1" in
-    -a)
-        # Use an alternative dump file as the base.
-        shift
-        ALT_DUMP="$1"
-        shift
-        ;;
-    -o)
-        # Diff .o files rather than a whole binary. This makes it possible to
-        # see relocations, which is helpful for navigating in the diff.
-        DIFF_OBJ=1
-        shift
-        ;;
-    -m)
-        # Run "make" on the .o file or binary before diffing.
-        MAKE=1
-        shift
-        ;;
-    -s)
-        # Stop disassembling at the first "jr ra".
-        DIFF_ARGS+=" --stop-jr-ra"
-        shift
-        ;;
-    -i)
-        # Treat all large immediates the same for diffing purposes.
-        DIFF_ARGS+=" --ignore-large-imms"
-        shift
-        ;;
-    -l)
-        # Skip the first N lines of output
-        shift
-        DIFF_ARGS+=" --skip-lines $1"
-        shift
-        ;;
-    -S)
-        # Diff position X in our ROM against position X + shift in the base ROM.
-        # Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable
-        # flag to pass if it is known that position 0x1234 in the base ROM syncs
-        # up with position 0x4321 in our.
-        # Not supported together with -o.
-        shift
-        BASE_SHIFT="$1"
-        shift
-        ;;
-    *)
-        POSITIONAL+=("$1")
-        shift
-        ;;
-esac
-done
-set -- "${POSITIONAL[@]}"
+args = parser.parse_args()
 
-# Set $BASEIMG, $BASEDUMP, $MYIMG, $MYDUMP, $MAPFILE, $MAKEFLAGS in a project-specific manner.
-. diff-settings.sh
+# Set imgs, map file and make flags in a project-specific manner.
+config = {}
+diff_settings.apply(config, args)
+
+baseimg = config['baseimg']
+myimg = config['myimg']
+mapfile = config.get('mapfile', None)
+makeflags = config.get('makeflags', [])
+
+MAX_FUNCTION_SIZE_LINES = 1024
+MAX_FUNCTION_SIZE_BYTES = 1024 * 4
 
 # ==== LOGIC ====
 
-if [[ $# -lt 1 ]]; then
-    echo "Usage: ./diff.sh [flags] (function|rom addr) [end rom addr]" >&2
-    exit 1
-fi
+binutils_prefix = None
 
-PYTHON_VERSION=$(python3 --version | cut -d'.' -f2)
-if [[ $PYTHON_VERSION -lt 6 ]]; then
-    echo "$0 requires at least Python 3.6" >&2
-    exit 1
-fi
+for binutils_cand in ['mips-linux-gnu-', 'mips64-elf-']:
+    try:
+        subprocess.check_call([binutils_cand + "objdump", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        binutils_prefix = binutils_cand
+        break
+    except subprocess.CalledProcessError:
+        pass
 
-if [[ -n "$ALT_DUMP" ]]; then
-    BASEDUMP="$ALT_DUMP"
-fi
+if not binutils_prefix:
+    fail("Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist.")
 
-START="$1"
-BASE=0
+def run_make(target):
+    subprocess.check_call(["make"] + makeflags + [target])
 
-if [ $DIFF_OBJ != 1 ] && [ $MAKE = 1 ]; then
-    make $MAKEFLAGS "$MYIMG"
-fi
+def run_objdump(flags, target):
+    return subprocess.check_output([binutils_prefix + "objdump"] + flags + [target], universal_newlines=True)
 
-set +e
+def eval_int(expr, emsg=None):
+    try:
+        ret = ast.literal_eval(expr)
+        if not isinstance(ret, int):
+            raise Exception("not an integer")
+        return ret
+    except Exception:
+        if emsg is not None:
+            fail(emsg)
+        return None
 
-if [ -n "$MAPFILE" ] && [ "${START:0:2}" != "0x" ]; then
-    LINE=$(grep "$1$" $MAPFILE)
-    if [ -n "$LINE" ]; then
-        START=$(echo $LINE | cut -d' ' -f1)
-        if [[ $DIFF_OBJ = 1 ]]; then
-            LINE2=$(grep "$1$\|^ .text" $MAPFILE | grep "$1$" -B1 | head -n1)
-            OBJFILE=$(echo $LINE2 | cut -d' ' -f4)
-        else
-            LINE2=$(grep "$1$\|load address" $MAPFILE | grep "$1$" -B1 | head -n1)
-            RAM=$(echo $LINE2 | cut -d' ' -f2)
-            ROM=$(echo $LINE2 | cut -d' ' -f6)
-            BASE="$RAM - $ROM"
-        fi
-    fi
-fi
+base_shift = eval_int(args.base_shift, "Failed to parse --base-shift (-S) argument as an integer.")
 
-if ! [[ "$START" =~ ^[0-9] ]]; then
-    echo "Function $1 not found in map file." >&2
-    exit 1
-fi
+def restrict_to_function(dump, fn_name):
+    out = []
+    search = f'<{fn_name}>:'
+    found = False
+    for line in dump.split('\n'):
+        if found:
+            if len(out) >= MAX_FUNCTION_SIZE_LINES:
+                break
+            out.append(line)
+        elif search in line:
+            found = True
+    return '\n'.join(out)
 
-set -e
+def search_map_file(fn_name):
+    if not mapfile:
+        fail(f"No map file configured; cannot find function {fn_name}.")
 
-if [[ $DIFF_OBJ = 1 ]]; then
-    if [[ $MAKE = 1 ]]; then
-        make $MAKEFLAGS "$OBJFILE"
-    fi
-    if [[ ! -f "$OBJFILE" ]]; then
-        echo Not able to find .o file for function.
-        exit 1
-    fi
-    REFOBJFILE="expected/$OBJFILE"
-    if [[ ! -f "$REFOBJFILE" ]]; then
-        echo Please ensure an OK .o file exists at "$REFOBJFILE".
-        exit 1
-    fi
+    try:
+        with open(mapfile) as f:
+            lines = f.read().split('\n')
+    except Exception:
+        fail(f"Failed to open map file {mapfile} for reading.")
 
-    OBJDUMP="${CROSS}objdump -drz"
-    if [[ -z "$ALT_DUMP" ]]; then
-        $OBJDUMP $REFOBJFILE | grep "<$1>:" -A1000 > $BASEDUMP
-    fi
-    $OBJDUMP $OBJFILE | grep "<$1>:" -A1000 > $MYDUMP
-    DIFF_ARGS+=" -o"
-else
-    END="$START + 0x1000"
-    if [[ $# -ge 2 ]]; then
-        END="$2"
-    fi
+    try:
+        cur_objfile = None
+        ram_to_rom = None
+        cands = []
+        last_line = ''
+        for line in lines:
+            if line.startswith(' .text'):
+                cur_objfile = line.split()[3]
+            if 'load address' in line:
+                tokens = last_line.split() + line.split()
+                ram = int(tokens[1], 0)
+                rom = int(tokens[5], 0)
+                ram_to_rom = rom - ram
+            if line.endswith(' ' + fn_name):
+                ram = int(line.split()[0], 0)
+                if cur_objfile is not None and ram_to_rom is not None:
+                    cands.append((cur_objfile, ram + ram_to_rom))
+            last_line = line
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        fail(f"Internal error while parsing map file")
 
-    OBJDUMP="${CROSS}objdump -D -z -bbinary -mmips -EB"
-    OPTIONS1="--start-address=$(($START - ($BASE) + ($BASE_SHIFT))) --stop-address=$(($END - ($BASE) + ($BASE_SHIFT)))"
-    OPTIONS2="--start-address=$(($START - ($BASE))) --stop-address=$(($END - ($BASE)))"
-    if [[ -z "$ALT_DUMP" ]]; then
-        $OBJDUMP $OPTIONS1 $BASEIMG > $BASEDUMP
-    fi
-    $OBJDUMP $OPTIONS2 $MYIMG > $MYDUMP
-fi
+    if len(cands) > 1:
+        fail(f"Found multiple occurrences of function {fn_name} in map file.")
+    if len(cands) == 1:
+        return cands[0]
+    return None, None
 
-set +e
+def dump_objfile():
+    if base_shift:
+        fail("--base-shift not compatible with -o")
+    if args.end is not None:
+        fail("end address not supported together with -o")
+    if args.start.startswith('0'):
+        fail("numerical start address not supported with -o; pass a function name")
 
-# sed -i "1s;^;$(sha1sum $MYDUMP)\n;" $MYDUMP
+    objfile, _ = search_map_file(args.start)
+    if not objfile:
+        fail("Not able to find .o file for function.")
 
-read -r -d '' DIFF_SCRIPT << EOM
-try:
-    import argparse
-    import attr
-    from difflib import SequenceMatcher
-    from pathlib import Path
-    import itertools
-    from colorama import Fore, Style, Back
-    import ansiwrap
-    import re
-    import string
-    from signal import signal, SIGPIPE, SIG_DFL
-except ModuleNotFoundError as e:
-    # Exit nicely and print to stdout, because less will be sad otherwise.
-    print("Missing prerequisite python module " + e.name +
-        ". Run \`python3 -m pip install --user colorama ansiwrap attrs\` to install prerequisites.")
-    exit(0)
+    if args.make:
+        run_make(objfile)
 
-# Fixes pipe error
-signal(SIGPIPE,SIG_DFL)
+    if not os.path.isfile(objfile):
+        fail("Not able to find .o file for function.")
 
-# Alignment with ANSI colors is just broken, let's fix it.
+    refobjfile = "expected/" + objfile
+    if not os.path.isfile(refobjfile):
+        fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
+
+    objdump_flags = ["-drz"]
+    if args.base_asm is None:
+        basedump = run_objdump(objdump_flags, refobjfile)
+        basedump = restrict_to_function(basedump, args.start)
+    mydump = run_objdump(objdump_flags, objfile)
+    mydump = restrict_to_function(mydump, args.start)
+    return basedump, mydump
+
+def dump_binary():
+    if args.make:
+        run_make(myimg)
+    start_addr = eval_int(args.start)
+    if start_addr is None:
+        _, start_addr = search_map_file(args.start)
+        if start_addr is None:
+            fail("Not able to find function in map file.")
+    if args.end is not None:
+        end_addr = eval_int(args.end, "End address must be an integer expression.")
+    else:
+        end_addr = start_addr + MAX_FUNCTION_SIZE_BYTES
+    objdump_flags = ['-Dz', '-bbinary', '-mmips', '-EB']
+    flags1 = [f"--start-address={start_addr + base_shift}", f"--stop-address={end_addr + base_shift}"]
+    flags2 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
+    if args.base_asm is None:
+        basedump = run_objdump(objdump_flags + flags1, baseimg)
+    mydump = run_objdump(objdump_flags + flags2, myimg)
+    return basedump, mydump
+
+# Alignment with ANSI colors is broken, let's fix it.
 def ansi_ljust(s, width):
     needed = width - ansiwrap.ansilen(s)
     if needed > 0:
         return s + ' ' * needed
     else:
         return s
-
-@attr.s
-class Options:
-    file1: str = attr.ib()
-    file2: str = attr.ib()
-    diff_obj: bool = attr.ib()
-    line_nums: bool = attr.ib()
-    reg_diff: bool = attr.ib()
-    stop_jrra: bool = attr.ib()
-    ignore_large_imms: bool = attr.ib()
-    skip_bl_delay: bool = attr.ib()
-    column_width: int = attr.ib()
-    skip_lines: int = attr.ib()
 
 re_int = re.compile(r'[0-9]+')
 re_comments = re.compile(r'<.*?>')
@@ -263,18 +281,18 @@ def process_reloc(row, prev):
         assert 'R_MIPS_26' in row, f"unknown relocation type '{row}'"
     return before + repl + after
 
-def process(lines, options):
+def process(lines):
     diff_rows = []
     skip_next = False
     originals = []
     line_nums = []
-    skip_lines = 1 if options.diff_obj else 7
+    if not args.diff_obj:
+        lines = lines[7:]
+        if lines and not lines[-1]:
+            lines.pop()
 
-    for index, row in enumerate(lines):
-        if index < skip_lines:
-            continue
-
-        if options.diff_obj and ('>:' in row or not row):
+    for row in lines:
+        if args.diff_obj and ('>:' in row or not row):
             continue
 
         if 'R_MIPS_' in row:
@@ -295,19 +313,18 @@ def process(lines, options):
         if skip_next:
             skip_next = False
             row = '<skipped>'
-        if mnemonic in branch_likely_instructions and options.skip_bl_delay:
+        if mnemonic in branch_likely_instructions:
             skip_next = True
-        if options.reg_diff:
-            row = re.sub(re_regs, '<reg>', row)
-            row = re.sub(re_sprel, ',addr(sp)', row)
-        if options.ignore_large_imms:
+        row = re.sub(re_regs, '<reg>', row)
+        row = re.sub(re_sprel, ',addr(sp)', row)
+        if args.ignore_large_imms:
             row = re.sub(re_large_imm, '<imm>', row)
 
         # Replace tabs with spaces
         diff_rows.append(row)
         originals.append(original)
         line_nums.append(line_num)
-        if options.stop_jrra and mnemonic == 'jr' and row.split('\t')[1].strip() == 'ra':
+        if args.stop_jrra and mnemonic == 'jr' and row.split('\t')[1].strip() == 'ra':
             break
 
     # Cleanup whitespace
@@ -317,8 +334,8 @@ def process(lines, options):
     return diff_rows, originals, line_nums
 
 regs_after = re.compile(r'<reg>')
-def print_single_line_diff(line1, line2, column_width):
-    print(f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}")
+def format_single_line_diff(line1, line2, column_width):
+    return f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}"
 
 color_rotation = [
     Fore.MAGENTA,
@@ -329,7 +346,6 @@ color_rotation = [
     Fore.LIGHTMAGENTA_EX,
     Fore.LIGHTCYAN_EX,
     Fore.LIGHTGREEN_EX,
-    #Fore.LIGHTRED_EX, (This is hard to distinguish (I'm not even colorblind))
     Fore.LIGHTBLACK_EX,
 ]
 color_index = [0, 0]
@@ -350,22 +366,20 @@ def color_symbol(s, i):
     return f'{color}{s}{Fore.RESET}'
 
 def norm(row):
-    if options.ignore_large_imms:
+    if args.ignore_large_imms:
         row = re.sub(re_large_imm, '<imm>', row)
     return row
 
-def main(options):
-    asm1: str = Path(options.file1).read_text()
-    asm2: str = Path(options.file2).read_text()
-    asm1_lines = asm1.split('\n')
-    asm2_lines = asm2.split('\n')
+def run(basedump, mydump):
+    asm1_lines = basedump.split('\n')
+    asm2_lines = mydump.split('\n')
 
-    line_index = 0
+    output = []
 
-    asm1_lines, originals1, line_nums1 = process(asm1_lines, options)
-    asm2_lines, originals2, line_nums2 = process(asm2_lines, options)
+    asm1_lines, originals1, line_nums1 = process(asm1_lines)
+    asm2_lines, originals2, line_nums2 = process(asm2_lines)
 
-    differ: SequenceMatcher = SequenceMatcher(a=asm1_lines, b=asm2_lines, autojunk=True)
+    differ: difflib.SequenceMatcher = difflib.SequenceMatcher(a=asm1_lines, b=asm2_lines, autojunk=True)
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
         lines1 = asm1_lines[i1:i2]
         lines2 = asm2_lines[j1:j2]
@@ -396,7 +410,7 @@ def main(options):
                 if line1 == '<skipped>' and norm(original1) != norm(original2):
                     line1 = f'{Style.DIM}{original1}'
                     line2 = f'{Style.DIM}{original2}'
-                elif norm(original1) != norm(original2) and options.reg_diff:
+                elif norm(original1) != norm(original2):
                     line_color = Fore.YELLOW
                     line_prefix = 'r'
                     line1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
@@ -428,53 +442,32 @@ def main(options):
             line_num1 = line_num1 if line1 else ''
             line_num2 = line_num2 if line2 else ''
 
-            if not options.line_nums:
-                line_num1 = ''
-                line_num2 = ''
-
             line1 =               f"{line_color}{line_num1}    {line1}{Style.RESET_ALL}"
             line2 = f"{line_color}{line_prefix} {line_num2}    {line2}{Style.RESET_ALL}"
-            if line_index >= options.skip_lines:
-                print_single_line_diff(line1, line2, options.column_width)
-            line_index += 1
+            output.append(format_single_line_diff(line1, line2, args.column_width))
+
+    return output[args.skip_lines:]
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-            description="Diff mips data")
-    parser.add_argument('file1',
-            help="The base file to compare")
-    parser.add_argument('file2',
-            help="The modified version to compare to")
-    parser.add_argument('-o', dest='diff_obj', action='store_true',
-            help="Perform an object file diff")
-    parser.add_argument('-l', dest='line_nums', action='store_true',
-            help="Show line numbers")
-    parser.add_argument('--skip-lines', dest='skip_lines', type=int, default=0,
-            help="Skip the first N lines of output")
-    parser.add_argument('--stop-jr-ra', dest='stop_jrra', action='store_true',
-            help="Stop at the first 'jr ra'")
-    parser.add_argument('--ignore-large-imms', dest='ignore_large_imms', action='store_true',
-            help="Pretend all 'large' immediates are the same")
-    parser.add_argument('--column', dest='column_width', type=int, default=50,
-            help="Sets the width of the left and right view column")
-    args = parser.parse_args()
+def main():
+    if args.diff_obj:
+        basedump, mydump = dump_objfile()
+    else:
+        basedump, mydump = dump_binary()
 
-    options = Options(
-        file1 = args.file1,
-        file2 = args.file2,
-        diff_obj = args.diff_obj,
-        line_nums = args.line_nums,
-        reg_diff = True,
-        stop_jrra = args.stop_jrra,
-        ignore_large_imms = args.ignore_large_imms,
-        skip_bl_delay = True,
-        column_width = args.column_width,
-        skip_lines = args.skip_lines,
-    )
-    main(options)
-EOM
+    if args.write_asm is not None:
+        with open(args.write_asm) as f:
+            f.write(mydump)
+        print(f"Wrote assembly to {args.write_asm}.")
+        sys.exit(0)
 
-set -e
+    if args.base_asm is not None:
+        with open(args.base_asm) as f:
+            basedump = f.read()
 
-python3 -c "$DIFF_SCRIPT" "$BASEDUMP" "$MYDUMP" $DIFF_ARGS | less -Ric
+    output = '\n'.join(run(basedump, mydump))
+    # output = sha1sum(mydump) + '\n' + output
+
+    subprocess.run(["less", "-Ric"], input=output.encode('utf-8'))
+
+main()
