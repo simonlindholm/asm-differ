@@ -68,8 +68,8 @@ args = parser.parse_args()
 config = {}
 diff_settings.apply(config, args)
 
-baseimg = config['baseimg']
-myimg = config['myimg']
+baseimg = config.get('baseimg', None)
+myimg = config.get('myimg', None)
 mapfile = config.get('mapfile', None)
 makeflags = config.get('makeflags', [])
 
@@ -205,6 +205,8 @@ def dump_objfile():
     return basedump, mydump
 
 def dump_binary():
+    if not baseimg or not myimg:
+        fail("Missing myimg/baseimg in config.")
     if args.make:
         run_make(myimg)
     start_addr = eval_int(args.start)
