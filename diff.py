@@ -35,16 +35,16 @@ except ModuleNotFoundError:
 # ==== CONFIG ====
 
 parser = argparse.ArgumentParser(
-        description="Diff mips assembly")
+        description="Diff MIPS assembly.")
 parser.add_argument('start',
         help="Function name or address to start diffing from.")
 parser.add_argument('end', nargs='?',
         help="Address to end diff at.")
 parser.add_argument('-o', dest='diff_obj', action='store_true',
-        help="Diff .o files rather than a whole binary. This makes it possible to see symbol names.")
-parser.add_argument('--base-asm', dest='base_asm',
+        help="Diff .o files rather than a whole binary. This makes it possible to see symbol names. (Recommended)")
+parser.add_argument('--base-asm', dest='base_asm', metavar='FILE',
         help="Read assembly from given file instead of configured base img.")
-parser.add_argument('--write-asm', dest='write_asm',
+parser.add_argument('--write-asm', dest='write_asm', metavar='FILE',
         help="Write the current assembly output to file, e.g. for use with --base-asm.")
 parser.add_argument('-m', '--make', dest='make', action='store_true',
         help="Automatically run 'make' on the .o file or binary before diffing.")
@@ -60,7 +60,8 @@ parser.add_argument('-S', '--base-shift', dest='base_shift', type=str, default='
         "flag to pass if it is known that position 0x1234 in the base img syncs "
         "up with position 0x4321 in our img. Not supported together with -o.")
 parser.add_argument('-w', '--watch', dest='watch', action='store_true',
-        help="Automatically update when source/object files change.")
+        help="Automatically update when source/object files change. "
+        "Recommended in combination with -m.")
 parser.add_argument('--width', dest='column_width', type=int, default=50,
         help="Sets the width of the left and right view column.")
 
