@@ -8,6 +8,9 @@ import subprocess
 import difflib
 import string
 import itertools
+import threading
+import queue
+import time
 
 def fail(msg):
     print(msg, file=sys.stderr)
@@ -17,9 +20,10 @@ try:
     import attr
     from colorama import Fore, Style, Back
     import ansiwrap
+    import watchdog
 except ModuleNotFoundError as e:
     fail(f"Missing prerequisite python module {e.name}. "
-        "Run `python3 -m pip install --user colorama ansiwrap attrs` to install prerequisites.")
+        "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog` to install prerequisites.")
 
 # Prefer to use diff_settings.py from the current working directory
 sys.path.insert(0, '.')
@@ -55,6 +59,8 @@ parser.add_argument('-S', '--base-shift', dest='base_shift', type=str, default='
         "Arithmetic is allowed, so e.g. |-S \"0x1234 - 0x4321\"| is a reasonable "
         "flag to pass if it is known that position 0x1234 in the base img syncs "
         "up with position 0x4321 in our img. Not supported together with -o.")
+parser.add_argument('-w', '--watch', dest='watch', action='store_true',
+        help="Automatically update when source/object files change.")
 parser.add_argument('--width', dest='column_width', type=int, default=50,
         help="Sets the width of the left and right view column.")
 
@@ -72,6 +78,7 @@ baseimg = config.get('baseimg', None)
 myimg = config.get('myimg', None)
 mapfile = config.get('mapfile', None)
 makeflags = config.get('makeflags', [])
+source_directories = config.get('source_directories', None)
 
 MAX_FUNCTION_SIZE_LINES = 1024
 MAX_FUNCTION_SIZE_BYTES = 1024 * 4
@@ -87,6 +94,12 @@ COLOR_ROTATION = [
     Fore.LIGHTGREEN_EX,
     Fore.LIGHTBLACK_EX,
 ]
+
+BUFFER_CMD = ["tail", "-c", str(10**9)]
+LESS_CMD = ["less", "-Ric"]
+
+DEBOUNCE_DELAY = 0.1
+FS_WATCH_EXTENSIONS = ['.c', '.h']
 
 # ==== LOGIC ====
 
@@ -114,8 +127,11 @@ def eval_int(expr, emsg=None):
             fail(emsg)
         return None
 
-def run_make(target):
-    subprocess.check_call(["make"] + makeflags + [target])
+def run_make(target, capture_output=False):
+    if capture_output:
+        return subprocess.run(["make"] + makeflags + [target], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+    else:
+        subprocess.check_call(["make"] + makeflags + [target])
 
 def restrict_to_function(dump, fn_name):
     out = []
@@ -202,6 +218,7 @@ def dump_objfile():
 
     objdump_flags = ["-drz"]
     return (
+        objfile,
         (objdump_flags, refobjfile, args.start),
         (objdump_flags, objfile, args.start)
     )
@@ -224,6 +241,7 @@ def dump_binary():
     flags1 = [f"--start-address={start_addr + base_shift}", f"--stop-address={end_addr + base_shift}"]
     flags2 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
     return (
+        myimg,
         (objdump_flags + flags1, baseimg, None),
         (objdump_flags + flags1, myimg, None)
     )
@@ -378,6 +396,9 @@ def do_diff(basedump, mydump):
 
     output = []
 
+    # TODO: status line?
+    # output.append(sha1sum(mydump))
+
     asm1_lines, originals1, line_nums1 = process(asm1_lines)
     asm2_lines, originals2, line_nums2 = process(asm2_lines)
 
@@ -456,11 +477,161 @@ def do_diff(basedump, mydump):
     return output[args.skip_lines:]
 
 
+def debounced_fs_watch(targets, outq, debounce_delay):
+    import watchdog.events
+    import watchdog.observers
+
+    class WatchEventHandler(watchdog.events.FileSystemEventHandler):
+        def __init__(self, queue, file_targets):
+            self.queue = queue
+            self.file_targets = file_targets
+
+        def on_modified(self, ev):
+            if isinstance(ev, watchdog.events.FileModifiedEvent):
+                self.changed(ev.src_path)
+
+        def on_moved(self, ev):
+            if isinstance(ev, watchdog.events.FileMovedEvent):
+                self.changed(ev.dest_path)
+
+        def should_notify(self, path):
+            for target in self.file_targets:
+                if path == target:
+                    return True
+            if args.make and any(path.endswith(suffix) for suffix in FS_WATCH_EXTENSIONS):
+                return True
+            return False
+
+        def changed(self, path):
+            if self.should_notify(path):
+                self.queue.put(time.time())
+
+    def debounce_thread():
+        listenq = queue.Queue()
+        file_targets = []
+        event_handler = WatchEventHandler(listenq, file_targets)
+        observer = watchdog.observers.Observer()
+        observed = set()
+        for target in targets:
+            if os.path.isdir(target):
+                observer.schedule(event_handler, target, recursive=True)
+            else:
+                file_targets.append(target)
+                target = os.path.dirname(target)
+                if target not in observed:
+                    observed.add(target)
+                    observer.schedule(event_handler, target)
+        observer.start()
+        while True:
+            t = listenq.get()
+            more = True
+            while more:
+                delay = t + debounce_delay - time.time()
+                if delay > 0:
+                    time.sleep(delay)
+                # consume entire queue
+                more = False
+                try:
+                    while True:
+                        t = listenq.get(block=False)
+                        more = True
+                except queue.Empty:
+                    pass
+            outq.put(t)
+    th = threading.Thread(target=debounce_thread, daemon=True)
+    th.start()
+
+
+class Display():
+    def __init__(self, basedump, mydump):
+        self.basedump = basedump
+        self.mydump = mydump
+        self.emsg = None
+
+    def run_less(self):
+        if self.emsg is not None:
+            output = self.emsg
+        else:
+            output = '\n'.join(do_diff(self.basedump, self.mydump))
+
+        # Pipe the output through 'tail' and only then to less, to ensure the
+        # write call doesn't block. ('tail' has to buffer all its input before
+        # it starts writing.) This also means we don't have to deal with pipe
+        # closure errors.
+        buffer_proc = subprocess.Popen(BUFFER_CMD, stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE)
+        less_proc = subprocess.Popen(LESS_CMD, stdin=buffer_proc.stdout)
+        buffer_proc.stdin.write(output.encode())
+        buffer_proc.stdin.close()
+        buffer_proc.stdout.close()
+        return (buffer_proc, less_proc)
+
+    def run_sync(self):
+        proca, procb = self.run_less()
+        procb.wait()
+        proca.wait()
+
+    def run_async(self, watch_queue):
+        self.watch_queue = watch_queue
+        self.ready_queue = queue.Queue()
+        self.pending_update = None
+        dthread = threading.Thread(target=self.display_thread)
+        dthread.start()
+        self.ready_queue.get()
+
+    def display_thread(self):
+        proca, procb = self.run_less()
+        self.less_proc = procb
+        self.ready_queue.put(0)
+        while True:
+            ret = procb.wait()
+            proca.wait()
+            self.less_proc = None
+            if ret != 0:
+                # fix the terminal
+                os.system("tput reset")
+            if ret != 0 and self.pending_update is not None:
+                # killed by program with the intent to refresh
+                msg, error = self.pending_update
+                self.pending_update = None
+                if not error:
+                    self.mydump = msg
+                    self.emsg = None
+                else:
+                    self.emsg = msg
+                proca, procb = self.run_less()
+                self.less_proc = procb
+                self.ready_queue.put(0)
+            else:
+                # terminated by user, or killed
+                self.watch_queue.put(None)
+                self.ready_queue.put(0)
+                break
+
+    def progress(self, msg):
+        # Write message to top-left corner
+        sys.stdout.write("\x1b7\x1b[1;1f{}\x1b8".format(msg + " "))
+        sys.stdout.flush()
+
+    def update(self, text, error):
+        self.pending_update = (text, error)
+        if not self.less_proc:
+            return
+        self.less_proc.kill()
+        self.ready_queue.get()
+
+    def terminate(self):
+        if not self.less_proc:
+            return
+        self.less_proc.kill()
+        self.ready_queue.get()
+
+
 def main():
     if args.diff_obj:
-        basecmd, mycmd = dump_objfile()
+        make_target, basecmd, mycmd = dump_objfile()
     else:
-        basecmd, mycmd = dump_binary()
+        make_target, basecmd, mycmd = dump_binary()
 
     if args.write_asm is not None:
         mydump = run_objdump(mycmd)
@@ -477,9 +648,45 @@ def main():
 
     mydump = run_objdump(mycmd)
 
-    output = '\n'.join(do_diff(basedump, mydump))
-    # output = sha1sum(mydump) + '\n' + output
+    display = Display(basedump, mydump)
 
-    subprocess.run(["less", "-Ric"], input=output.encode('utf-8'))
+    if not args.watch:
+        display.run_sync()
+    else:
+        if not args.make:
+            yn = input("Warning: watch-mode (-w) enabled without auto-make (-m). You will have to run make manually. Ok? (Y/n) ")
+            if yn.lower() == 'n':
+                return
+        if args.make:
+            watch_sources = None
+            if hasattr(diff_settings, "watch_sources_for_target"):
+                watch_sources = diff_settings.watch_sources_for_target(make_target)
+            watch_sources = watch_sources or source_directories
+            if not watch_sources:
+                fail("Missing source_directories config, don't know what to watch.")
+        else:
+            watch_sources = [make_target]
+        q = queue.Queue()
+        debounced_fs_watch(watch_sources, q, DEBOUNCE_DELAY)
+        display.run_async(q)
+        last_build = 0
+        try:
+            while True:
+                t = q.get()
+                if t is None:
+                    break
+                if t < last_build:
+                    continue
+                last_build = time.time()
+                if args.make:
+                    display.progress("Building...")
+                    ret = run_make(make_target, capture_output=True)
+                    if ret.returncode != 0:
+                        display.update(ret.stderr.decode() or ret.stdout.decode(), error=True)
+                        continue
+                mydump = run_objdump(mycmd)
+                display.update(mydump, error=False)
+        except KeyboardInterrupt:
+            display.terminate()
 
 main()
