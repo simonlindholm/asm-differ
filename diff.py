@@ -615,6 +615,9 @@ class Display():
         sys.stdout.flush()
 
     def update(self, text, error):
+        if not error and not self.emsg and text == self.mydump:
+            self.progress("Unchanged. ")
+            return
         self.pending_update = (text, error)
         if not self.less_proc:
             return
