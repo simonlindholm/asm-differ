@@ -317,6 +317,7 @@ def process_reloc(row, prev):
     return before + repl + after
 
 def process(lines):
+    mnemonics = []
     diff_rows = []
     skip_next = False
     originals = []
@@ -331,7 +332,7 @@ def process(lines):
             continue
 
         if 'R_MIPS_' in row:
-            if diff_rows[-1] != '<skipped>':
+            if diff_rows[-1] != '<delay-slot>':
                 diff_rows[-1] = process_reloc(row, diff_rows[-1])
             originals[-1] = process_reloc(row, originals[-1])
             continue
@@ -347,7 +348,8 @@ def process(lines):
         original = row
         if skip_next:
             skip_next = False
-            row = '<skipped>'
+            row = '<delay-slot>'
+            mnemonic = '<delay-slot>'
         if mnemonic in branch_likely_instructions:
             skip_next = True
         row = re.sub(re_regs, '<reg>', row)
@@ -356,6 +358,7 @@ def process(lines):
             row = re.sub(re_large_imm, '<imm>', row)
 
         # Replace tabs with spaces
+        mnemonics.append(mnemonic)
         diff_rows.append(row)
         originals.append(original)
         line_nums.append(line_num)
@@ -366,7 +369,7 @@ def process(lines):
     originals = [original.strip() for original in originals]
     originals = [''.join(f'{o:<8s}' for o in original.split('\t')) for original in originals]
     # return diff_rows, diff_rows, line_nums
-    return diff_rows, originals, line_nums
+    return mnemonics, diff_rows, originals, line_nums
 
 def format_single_line_diff(line1, line2, column_width):
     return f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}"
@@ -386,38 +389,38 @@ class SymbolColorer:
             self.symbol_colors[s] = color
         return f'{color}{s}{Fore.RESET}'
 
-def norm(row):
+def normalize_large_imms(row):
     if args.ignore_large_imms:
         row = re.sub(re_large_imm, '<imm>', row)
     return row
 
 def do_diff(basedump, mydump):
-    asm1_lines = basedump.split('\n')
-    asm2_lines = mydump.split('\n')
+    asm_lines1 = basedump.split('\n')
+    asm_lines2 = mydump.split('\n')
 
     output = []
 
     # TODO: status line?
     # output.append(sha1sum(mydump))
 
-    asm1_lines, originals1, line_nums1 = process(asm1_lines)
-    asm2_lines, originals2, line_nums2 = process(asm2_lines)
+    mnemonics1, asm_lines1, originals1, line_nums1 = process(asm_lines1)
+    mnemonics2, asm_lines2, originals2, line_nums2 = process(asm_lines2)
 
     sc1 = SymbolColorer(0)
     sc2 = SymbolColorer(0)
     sc3 = SymbolColorer(4)
     sc4 = SymbolColorer(4)
 
-    differ: difflib.SequenceMatcher = difflib.SequenceMatcher(a=asm1_lines, b=asm2_lines, autojunk=True)
+    differ: difflib.SequenceMatcher = difflib.SequenceMatcher(a=mnemonics1, b=mnemonics2, autojunk=False)
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
-        lines1 = asm1_lines[i1:i2]
-        lines2 = asm2_lines[j1:j2]
+        lines1 = asm_lines1[i1:i2]
+        lines2 = asm_lines2[j1:j2]
 
         for k, (line1, line2) in enumerate(itertools.zip_longest(lines1, lines2)):
             if tag == 'replace':
-                if line1 == None:
+                if line1 is None:
                     tag = 'insert'
-                elif line2 == None:
+                elif line2 is None:
                     tag = 'delete'
 
             try:
@@ -435,45 +438,44 @@ def do_diff(basedump, mydump):
 
             line_color = Fore.RESET
             line_prefix = ' '
-            if tag == 'equal' or line1 == line2:
-                if line1 == '<skipped>' and norm(original1) != norm(original2):
-                    line1 = f'{Style.DIM}{original1}'
-                    line2 = f'{Style.DIM}{original2}'
-                elif norm(original1) != norm(original2):
+            if line1 == line2:
+                if normalize_large_imms(original1) == normalize_large_imms(original2):
+                    out1 = f'{original1}'
+                    out2 = f'{original2}'
+                elif line1 == '<delay-slot>':
+                    out1 = f'{Style.DIM}{original1}'
+                    out2 = f'{Style.DIM}{original2}'
+                else:
                     line_color = Fore.YELLOW
                     line_prefix = 'r'
-                    line1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
-                    line2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
-                    line1 = re.sub(re_regs, lambda s: sc1.color_symbol(s), line1)
-                    line2 = re.sub(re_regs, lambda s: sc2.color_symbol(s), line2)
-                    line1 = re.sub(re_sprel, lambda s: sc3.color_symbol(s), line1)
-                    line2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s), line2)
-                else:
-                    line1 = f'{original1}'
-                    line2 = f'{original2}'
-            elif tag == 'replace':
+                    out1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
+                    out2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
+                    out1 = re.sub(re_regs, lambda s: sc1.color_symbol(s), out1)
+                    out2 = re.sub(re_regs, lambda s: sc2.color_symbol(s), out2)
+                    out1 = re.sub(re_sprel, lambda s: sc3.color_symbol(s), out1)
+                    out2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s), out2)
+            elif tag in ['replace', 'equal']:
                 line_prefix = '|'
                 line_color = Fore.BLUE
-                line1 = f"{Fore.BLUE}{original1}{Style.RESET_ALL}"
-                line2 = f"{Fore.BLUE}{original2}{Style.RESET_ALL}"
+                out1 = f"{Fore.BLUE}{original1}{Style.RESET_ALL}"
+                out2 = f"{Fore.BLUE}{original2}{Style.RESET_ALL}"
             elif tag == 'delete':
                 line_prefix = '<'
                 line_color = Fore.RED
-                line1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
+                out1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
+                out2 = ''
             elif tag == 'insert':
                 line_prefix = '>'
                 line_color = Fore.GREEN
-                line2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
+                out1 = ''
+                out2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
 
-            line1 = line1 or ''
-            line2 = line2 or ''
+            line_num1 = line_num1 if out1 else ''
+            line_num2 = line_num2 if out2 else ''
 
-            line_num1 = line_num1 if line1 else ''
-            line_num2 = line_num2 if line2 else ''
-
-            line1 =               f"{line_color}{line_num1}    {line1}{Style.RESET_ALL}"
-            line2 = f"{line_color}{line_prefix} {line_num2}    {line2}{Style.RESET_ALL}"
-            output.append(format_single_line_diff(line1, line2, args.column_width))
+            out1 =               f"{line_color}{line_num1}    {out1}{Style.RESET_ALL}"
+            out2 = f"{line_color}{line_prefix} {line_num2}    {out2}{Style.RESET_ALL}"
+            output.append(format_single_line_diff(out1, out2, args.column_width))
 
     return output[args.skip_lines:]
 
