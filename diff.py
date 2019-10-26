@@ -54,6 +54,8 @@ parser.add_argument('-s', '--stop-jr-ra', dest='stop_jrra', action='store_true',
         help="Stop disassembling at the first 'jr ra'. Some functions have multiple return points, so use with care!")
 parser.add_argument('-i', '--ignore-large-imms', dest='ignore_large_imms', action='store_true',
         help="Pretend all large enough immediates are the same.")
+parser.add_argument('-B', '--no-show-branches', dest='show_branches', action='store_false',
+        help="Don't visualize branches/branch targets.")
 parser.add_argument('-S', '--base-shift', dest='base_shift', type=str, default='0',
         help="Diff position X in our img against position X + shift in the base img. "
         "Arithmetic is allowed, so e.g. |-S \"0x1234 - 0x4321\"| is a reasonable "
@@ -261,14 +263,14 @@ re_regs = re.compile(r'\b(a[0-3]|t[0-9]|s[0-7]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b
 re_sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\(sp\)')
 re_large_imm = re.compile(r'-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}')
 forbidden = set(string.ascii_letters + '_')
-branch_likely_instructions = [
+branch_likely_instructions = set([
     'beql', 'bnel', 'beqzl', 'bnezl', 'bgezl', 'bgtzl', 'blezl', 'bltzl',
     'bc1tl', 'bc1fl'
-]
-branch_instructions = [
+])
+branch_instructions = set([
     'b', 'beq', 'bne', 'beqz', 'bnez', 'bgez', 'bgtz', 'blez', 'bltz',
     'bc1t', 'bc1f'
-] + branch_likely_instructions
+] + list(branch_likely_instructions))
 
 def hexify_int(row, pat):
     full = pat.group(0)
@@ -322,6 +324,7 @@ def process(lines):
     skip_next = False
     originals = []
     line_nums = []
+    branch_targets = []
     if not args.diff_obj:
         lines = lines[7:]
         if lines and not lines[-1]:
@@ -342,7 +345,8 @@ def process(lines):
         tabs = row.split('\t')
         row = '\t'.join(tabs[2:])
         line_num = tabs[0].strip()
-        mnemonic = row.split('\t')[0].strip()
+        row_parts = row.split('\t', 1)
+        mnemonic = row_parts[0].strip()
         if mnemonic not in branch_instructions:
             row = re.sub(re_int, lambda s: hexify_int(row, s), row)
         original = row
@@ -362,14 +366,21 @@ def process(lines):
         diff_rows.append(row)
         originals.append(original)
         line_nums.append(line_num)
-        if args.stop_jrra and mnemonic == 'jr' and row.split('\t')[1].strip() == 'ra':
+        if mnemonic in branch_instructions:
+            target = row_parts[1].strip().split(',')[-1]
+            if mnemonic in branch_likely_instructions:
+                target = hex(int(target, 16) - 4)[2:]
+            branch_targets.append(target)
+        else:
+            branch_targets.append(None)
+        if args.stop_jrra and mnemonic == 'jr' and row_parts[1].strip() == 'ra':
             break
 
     # Cleanup whitespace
     originals = [original.strip() for original in originals]
     originals = [''.join(f'{o:<8s}' for o in original.split('\t')) for original in originals]
     # return diff_rows, diff_rows, line_nums
-    return mnemonics, diff_rows, originals, line_nums
+    return mnemonics, diff_rows, originals, line_nums, branch_targets
 
 def format_single_line_diff(line1, line2, column_width):
     return f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}"
@@ -379,15 +390,15 @@ class SymbolColorer:
         self.color_index = base_index
         self.symbol_colors = {}
 
-    def color_symbol(self, s):
-        s = s.group()
+    def color_symbol(self, s, t=None):
         try:
             color = self.symbol_colors[s]
         except:
             color = COLOR_ROTATION[self.color_index % len(COLOR_ROTATION)]
             self.color_index += 1
             self.symbol_colors[s] = color
-        return f'{color}{s}{Fore.RESET}'
+        t = t or s
+        return f'{color}{t}{Fore.RESET}'
 
 def normalize_large_imms(row):
     if args.ignore_large_imms:
@@ -403,13 +414,24 @@ def do_diff(basedump, mydump):
     # TODO: status line?
     # output.append(sha1sum(mydump))
 
-    mnemonics1, asm_lines1, originals1, line_nums1 = process(asm_lines1)
-    mnemonics2, asm_lines2, originals2, line_nums2 = process(asm_lines2)
+    mnemonics1, asm_lines1, originals1, line_nums1, branch_targets1 = process(asm_lines1)
+    mnemonics2, asm_lines2, originals2, line_nums2, branch_targets2 = process(asm_lines2)
 
     sc1 = SymbolColorer(0)
     sc2 = SymbolColorer(0)
     sc3 = SymbolColorer(4)
     sc4 = SymbolColorer(4)
+    sc5 = SymbolColorer(0)
+    sc6 = SymbolColorer(0)
+    bts1 = set()
+    bts2 = set()
+
+    if args.show_branches:
+        for (bts, btset, sc) in [(branch_targets1, bts1, sc5), (branch_targets2, bts2, sc6)]:
+            for bt in bts:
+                if bt is not None:
+                    btset.add(bt + ":")
+                    sc.color_symbol(bt + ":")
 
     differ: difflib.SequenceMatcher = difflib.SequenceMatcher(a=mnemonics1, b=mnemonics2, autojunk=False)
     for (tag, i1, i2, j1, j2) in differ.get_opcodes():
@@ -450,10 +472,10 @@ def do_diff(basedump, mydump):
                     line_prefix = 'r'
                     out1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
                     out2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
-                    out1 = re.sub(re_regs, lambda s: sc1.color_symbol(s), out1)
-                    out2 = re.sub(re_regs, lambda s: sc2.color_symbol(s), out2)
-                    out1 = re.sub(re_sprel, lambda s: sc3.color_symbol(s), out1)
-                    out2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s), out2)
+                    out1 = re.sub(re_regs, lambda s: sc1.color_symbol(s.group()), out1)
+                    out2 = re.sub(re_regs, lambda s: sc2.color_symbol(s.group()), out2)
+                    out1 = re.sub(re_sprel, lambda s: sc3.color_symbol(s.group()), out1)
+                    out2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s.group()), out2)
             elif tag in ['replace', 'equal']:
                 line_prefix = '|'
                 line_color = Fore.BLUE
@@ -470,11 +492,26 @@ def do_diff(basedump, mydump):
                 out1 = ''
                 out2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
 
+            in_arrow1 = '  '
+            in_arrow2 = '  '
+            out_arrow1 = ''
+            out_arrow2 = ''
             line_num1 = line_num1 if out1 else ''
             line_num2 = line_num2 if out2 else ''
 
-            out1 =               f"{line_color}{line_num1}    {out1}{Style.RESET_ALL}"
-            out2 = f"{line_color}{line_prefix} {line_num2}    {out2}{Style.RESET_ALL}"
+            if args.show_branches and out1:
+                if line_num1 in bts1:
+                    in_arrow1 = sc5.color_symbol(line_num1, '~>')
+                if branch_targets1[i1+k] is not None:
+                    out_arrow1 = ' ' + sc5.color_symbol(branch_targets1[i1+k] + ":", '~>')
+            if args.show_branches and out2:
+                if line_num2 in bts2:
+                    in_arrow2 = sc6.color_symbol(line_num2, '~>')
+                if branch_targets2[j1+k] is not None:
+                    out_arrow2 = ' ' + sc6.color_symbol(branch_targets2[j1+k] + ":", '~>')
+
+            out1 =               f"{line_color}{line_num1} {in_arrow1} {out1}{Style.RESET_ALL}{out_arrow1}"
+            out2 = f"{line_color}{line_prefix} {line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
             output.append(format_single_line_diff(out1, out2, args.column_width))
 
     return output[args.skip_lines:]
