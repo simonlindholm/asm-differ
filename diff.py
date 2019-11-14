@@ -213,7 +213,7 @@ def dump_objfile():
         run_make(objfile)
 
     if not os.path.isfile(objfile):
-        fail("Not able to find .o file for function.")
+        fail(f"Not able to find .o file for function: {objfile} is not a file.")
 
     refobjfile = "expected/" + objfile
     if not os.path.isfile(refobjfile):
