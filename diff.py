@@ -557,7 +557,7 @@ def debounced_fs_watch(targets, outq, debounce_delay):
                 observer.schedule(event_handler, target, recursive=True)
             else:
                 file_targets.append(target)
-                target = os.path.dirname(target)
+                target = os.path.dirname(target) or '.'
                 if target not in observed:
                     observed.add(target)
                     observer.schedule(event_handler, target)
