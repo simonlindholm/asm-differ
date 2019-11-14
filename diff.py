@@ -246,7 +246,7 @@ def dump_binary():
     return (
         myimg,
         (objdump_flags + flags1, baseimg, None),
-        (objdump_flags + flags1, myimg, None)
+        (objdump_flags + flags2, myimg, None)
     )
 
 # Alignment with ANSI colors is broken, let's fix it.
