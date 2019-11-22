@@ -115,6 +115,8 @@ for binutils_cand in ['mips-linux-gnu-', 'mips64-elf-']:
         break
     except subprocess.CalledProcessError:
         pass
+    except FileNotFoundError:
+        pass
 
 if not binutils_prefix:
     fail("Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist.")
