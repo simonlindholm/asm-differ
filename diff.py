@@ -460,7 +460,7 @@ def do_diff(basedump, mydump):
                 original2 = ''
                 line_num2 = ''
 
-            line_color = Fore.RESET
+            line_color1 = line_color2 = Fore.RESET
             line_prefix = ' '
             if line1 == line2:
                 if normalize_large_imms(original1) == normalize_large_imms(original2):
@@ -470,7 +470,7 @@ def do_diff(basedump, mydump):
                     out1 = f'{Style.DIM}{original1}'
                     out2 = f'{Style.DIM}{original2}'
                 else:
-                    line_color = Fore.YELLOW
+                    line_color1 = line_color2 = Fore.YELLOW
                     line_prefix = 'r'
                     out1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
                     out2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
@@ -480,17 +480,18 @@ def do_diff(basedump, mydump):
                     out2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s.group()), out2)
             elif tag in ['replace', 'equal']:
                 line_prefix = '|'
-                line_color = Fore.BLUE
-                out1 = f"{Fore.BLUE}{original1}{Style.RESET_ALL}"
-                out2 = f"{Fore.BLUE}{original2}{Style.RESET_ALL}"
+                line_color1 = Fore.RED
+                line_color2 = Fore.GREEN
+                out1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
+                out2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
             elif tag == 'delete':
                 line_prefix = '<'
-                line_color = Fore.RED
+                line_color1 = line_color2 = Fore.RED
                 out1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
                 out2 = ''
             elif tag == 'insert':
                 line_prefix = '>'
-                line_color = Fore.GREEN
+                line_color1 = line_color2 = Fore.GREEN
                 out1 = ''
                 out2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
 
@@ -512,8 +513,8 @@ def do_diff(basedump, mydump):
                 if branch_targets2[j1+k] is not None:
                     out_arrow2 = ' ' + sc6.color_symbol(branch_targets2[j1+k] + ":", '~>')
 
-            out1 =               f"{line_color}{line_num1} {in_arrow1} {out1}{Style.RESET_ALL}{out_arrow1}"
-            out2 = f"{line_color}{line_prefix} {line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
+            out1 =               f"{line_color1}{line_num1} {in_arrow1} {out1}{Style.RESET_ALL}{out_arrow1}"
+            out2 = f"{line_color2}{line_prefix} {line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
             output.append(format_single_line_diff(out1, out2, args.column_width))
 
     return output[args.skip_lines:]
