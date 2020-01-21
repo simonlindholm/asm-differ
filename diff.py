@@ -264,7 +264,7 @@ re_comments = re.compile(r'<.*?>')
 re_regs = re.compile(r'\$?\b(a[0-3]|t[0-9]|s[0-7]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b')
 re_sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\(sp\)')
 re_large_imm = re.compile(r'-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}')
-re_imm = re.compile(r'\b-?([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)')
+re_imm = re.compile(r'(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)')
 forbidden = set(string.ascii_letters + '_')
 branch_likely_instructions = {
     'beql', 'bnel', 'beqzl', 'bnezl', 'bgezl', 'bgtzl', 'blezl', 'bltzl',
@@ -342,8 +342,9 @@ def process(lines):
             continue
 
         if 'R_MIPS_' in row:
-            if diff_rows[-1] != '<delay-slot>':
-                diff_rows[-1] = process_reloc(row, rows_with_imms[-1])
+            # N.B. Don't transform the diff rows, they already ignore immediates
+            # if diff_rows[-1] != '<delay-slot>':
+                # diff_rows[-1] = process_reloc(row, rows_with_imms[-1])
             originals[-1] = process_reloc(row, originals[-1])
             continue
 
@@ -367,12 +368,12 @@ def process(lines):
         row = re.sub(re_sprel, ',addr(sp)', row)
         row_with_imm = row
         if mnemonic in jump_instructions:
+            row = row.strip()
             row, _ = split_off_branch(row)
             row += '<imm>'
         else:
             row = re.sub(re_imm, '<imm>', row)
 
-        # Replace tabs with spaces
         mnemonics.append(mnemonic)
         rows_with_imms.append(row_with_imm)
         diff_rows.append(row)
