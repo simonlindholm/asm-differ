@@ -274,6 +274,9 @@ branch_instructions = branch_likely_instructions.union({
     'b', 'beq', 'bne', 'beqz', 'bnez', 'bgez', 'bgtz', 'blez', 'bltz',
     'bc1t', 'bc1f'
 })
+jump_instructions = branch_instructions.union({
+    'jal', 'j'
+})
 
 def hexify_int(row, pat):
     full = pat.group(0)
@@ -351,7 +354,7 @@ def process(lines):
         line_num = tabs[0].strip()
         row_parts = row.split('\t', 1)
         mnemonic = row_parts[0].strip()
-        if mnemonic not in branch_instructions:
+        if mnemonic not in jump_instructions:
             row = re.sub(re_int, lambda s: hexify_int(row, s), row)
         original = row
         if skip_next:
@@ -363,7 +366,11 @@ def process(lines):
         row = re.sub(re_regs, '<reg>', row)
         row = re.sub(re_sprel, ',addr(sp)', row)
         row_with_imm = row
-        row = re.sub(re_imm, '<imm>', row)
+        if mnemonic in jump_instructions:
+            row, _ = split_off_branch(row)
+            row += '<imm>'
+        else:
+            row = re.sub(re_imm, '<imm>', row)
 
         # Replace tabs with spaces
         mnemonics.append(mnemonic)
@@ -413,6 +420,13 @@ def maybe_normalize_large_imms(row):
 def normalize_imms(row):
     return re.sub(re_imm, '<imm>', row)
 
+def split_off_branch(line):
+    parts = line.split(',')
+    if len(parts) < 2:
+        parts = line.split()
+    off = len(line) - len(parts[-1])
+    return line[:off], line[off:]
+
 def color_imms(out1, out2):
     g1 = []
     g2 = []
@@ -427,6 +441,12 @@ def color_imms(out1, out2):
         it = iter(diffs)
         out2 = re.sub(re_imm, lambda s: maybe_color(s.group()), out2)
     return out1, out2
+
+def color_branch_imms(br1, br2):
+    if br1 != br2:
+        br1 = f'{Fore.LIGHTBLUE_EX}{br1}{Style.RESET_ALL}'
+        br2 = f'{Fore.LIGHTBLUE_EX}{br2}{Style.RESET_ALL}'
+    return br1, br2
 
 def do_diff(basedump, mydump):
     asm_lines1 = basedump.split('\n')
@@ -491,8 +511,19 @@ def do_diff(basedump, mydump):
                     out1 = f'{Style.DIM}{original1}'
                     out2 = f'{Style.DIM}{original2}'
                 else:
-                    out1, out2 = color_imms(original1, original2)
-                    if normalize_imms(original1) == normalize_imms(original2):
+                    mnemonic = original1.split()[0]
+                    out1, out2 = original1, original2
+                    branch1 = branch2 = ''
+                    if mnemonic in jump_instructions:
+                        out1, branch1 = split_off_branch(original1)
+                        out2, branch2 = split_off_branch(original2)
+                    branchless1 = out1
+                    branchless2 = out2
+                    out1, out2 = color_imms(out1, out2)
+                    branch1, branch2 = color_branch_imms(branch1, branch2)
+                    out1 += branch1
+                    out2 += branch2
+                    if normalize_imms(branchless1) == normalize_imms(branchless2):
                         # only imms differences
                         sym_color = Fore.LIGHTBLUE_EX
                         line_prefix = 'i'
