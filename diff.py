@@ -491,24 +491,21 @@ def do_diff(basedump, mydump):
                     out1 = f'{Style.DIM}{original1}'
                     out2 = f'{Style.DIM}{original2}'
                 else:
+                    out1, out2 = color_imms(original1, original2)
                     if normalize_imms(original1) == normalize_imms(original2):
                         # only imms differences
                         sym_color = Fore.LIGHTBLUE_EX
                         line_prefix = 'i'
-                        out1 = f'{original1}'
-                        out2 = f'{original2}'
-                        out1, out2 = color_imms(out1, out2)
                     else:
                         # regs differences and maybe imms as well
                         line_color1 = line_color2 = sym_color = Fore.YELLOW
                         line_prefix = 'r'
-                        out1 = f'{Fore.YELLOW}{original1}{Style.RESET_ALL}'
-                        out2 = f'{Fore.YELLOW}{original2}{Style.RESET_ALL}'
-                        out1, out2 = color_imms(out1, out2)
                         out1 = re.sub(re_regs, lambda s: sc1.color_symbol(s.group()), out1)
                         out2 = re.sub(re_regs, lambda s: sc2.color_symbol(s.group()), out2)
                         out1 = re.sub(re_sprel, lambda s: sc3.color_symbol(s.group()), out1)
                         out2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s.group()), out2)
+                        out1 = f'{Fore.YELLOW}{out1}{Style.RESET_ALL}'
+                        out2 = f'{Fore.YELLOW}{out2}{Style.RESET_ALL}'
             elif tag in ['replace', 'equal']:
                 line_prefix = '|'
                 line_color1 = Fore.LIGHTBLUE_EX
