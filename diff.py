@@ -264,7 +264,7 @@ re_comments = re.compile(r'<.*?>')
 re_regs = re.compile(r'\$?\b(a[0-3]|t[0-9]|s[0-7]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b')
 re_sprel = re.compile(r',([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\(sp\)')
 re_large_imm = re.compile(r'-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}')
-re_imm = re.compile(r'\b-?([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)')
+re_imm = re.compile(r'\b-?([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)')
 forbidden = set(string.ascii_letters + '_')
 branch_likely_instructions = {
     'beql', 'bnel', 'beqzl', 'bnezl', 'bgezl', 'bgtzl', 'blezl', 'bltzl',
