@@ -422,7 +422,7 @@ def color_imms(out1, out2):
         diffs = [x != y for (x, y) in zip(g1, g2)]
         it = iter(diffs)
         def maybe_color(s):
-            return f'{Fore.BLUE}{s}{Style.RESET_ALL}' if next(it) else s
+            return f'{Fore.LIGHTBLUE_EX}{s}{Style.RESET_ALL}' if next(it) else s
         out1 = re.sub(re_imm, lambda s: maybe_color(s.group()), out1)
         it = iter(diffs)
         out2 = re.sub(re_imm, lambda s: maybe_color(s.group()), out2)
@@ -493,7 +493,7 @@ def do_diff(basedump, mydump):
                 else:
                     if normalize_imms(original1) == normalize_imms(original2):
                         # only imms differences
-                        sym_color = Fore.BLUE
+                        sym_color = Fore.LIGHTBLUE_EX
                         line_prefix = 'i'
                         out1 = f'{original1}'
                         out2 = f'{original2}'
@@ -511,11 +511,11 @@ def do_diff(basedump, mydump):
                         out2 = re.sub(re_sprel, lambda s: sc4.color_symbol(s.group()), out2)
             elif tag in ['replace', 'equal']:
                 line_prefix = '|'
-                line_color1 = Fore.RED
-                line_color2 = Fore.GREEN
-                sym_color = Fore.GREEN
-                out1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
-                out2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
+                line_color1 = Fore.LIGHTBLUE_EX
+                line_color2 = Fore.LIGHTBLUE_EX
+                sym_color = Fore.LIGHTBLUE_EX
+                out1 = f"{Fore.LIGHTBLUE_EX}{original1}{Style.RESET_ALL}"
+                out2 = f"{Fore.LIGHTBLUE_EX}{original2}{Style.RESET_ALL}"
             elif tag == 'delete':
                 line_prefix = '<'
                 line_color1 = line_color2 = sym_color = Fore.RED
