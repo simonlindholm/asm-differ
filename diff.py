@@ -791,7 +791,7 @@ def main():
                     display.progress("Building...")
                     ret = run_make(make_target, capture_output=True)
                     if ret.returncode != 0:
-                        display.update(ret.stderr.decode() or ret.stdout.decode(), error=True)
+                        display.update(ret.stderr.decode('utf-8-sig', 'replace') or ret.stdout.decode('utf-8-sig', 'replace'), error=True)
                         continue
                 mydump = run_objdump(mycmd)
                 display.update(mydump, error=False)
