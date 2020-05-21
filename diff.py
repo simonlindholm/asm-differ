@@ -88,7 +88,7 @@ makeflags = config.get('makeflags', [])
 source_directories = config.get('source_directories', None)
 
 MAX_FUNCTION_SIZE_LINES = 1024
-MAX_FUNCTION_SIZE_BYTES = 1024 * 4
+MAX_FUNCTION_SIZE_BYTES = MAX_FUNCTION_SIZE_LINES * 4
 
 COLOR_ROTATION = [
     Fore.MAGENTA,
