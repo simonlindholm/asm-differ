@@ -160,6 +160,7 @@ myimg = config.get("myimg", None)
 mapfile = config.get("mapfile", None)
 makeflags = config.get("makeflags", [])
 source_directories = config.get("source_directories", None)
+objdump_executable = config.get("objdump_executable", None)
 
 MAX_FUNCTION_SIZE_LINES = args.max_lines
 MAX_FUNCTION_SIZE_BYTES = MAX_FUNCTION_SIZE_LINES * 4
@@ -190,25 +191,24 @@ if args.algorithm == "levenshtein":
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
 
-binutils_prefix = None
+if objdump_executable is None:
+    for objdump_cand in ["mips-linux-gnu-objdump", "mips64-elf-objdump"]:
+        try:
+            subprocess.check_call(
+                [objdump_cand, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            objdump_executable = objdump_cand
+            break
+        except subprocess.CalledProcessError:
+            pass
+        except FileNotFoundError:
+            pass
 
-for binutils_cand in ["mips-linux-gnu-", "mips64-elf-"]:
-    try:
-        subprocess.check_call(
-            [binutils_cand + "objdump", "--version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        binutils_prefix = binutils_cand
-        break
-    except subprocess.CalledProcessError:
-        pass
-    except FileNotFoundError:
-        pass
-
-if not binutils_prefix:
+if not objdump_executable:
     fail(
-        "Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist."
+        "Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist, or configure objdump_executable."
     )
 
 
@@ -252,7 +252,7 @@ def restrict_to_function(dump, fn_name):
 def run_objdump(cmd):
     flags, target, restrict = cmd
     out = subprocess.check_output(
-        [binutils_prefix + "objdump"] + flags + [target], universal_newlines=True
+        [objdump_executable] + flags + [target], universal_newlines=True
     )
     if restrict is not None:
         return restrict_to_function(out, restrict)
