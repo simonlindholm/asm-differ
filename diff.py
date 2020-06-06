@@ -21,7 +21,7 @@ def fail(msg):
 
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
-    "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog python-Levenshtein` to install prerequisites (python-Levenshtein only needed for --algorithm=levenshtein)."
+    "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog python-Levenshtein cxxfilt` to install prerequisites (python-Levenshtein only needed for --algorithm=levenshtein, cxxfilt only needed with --source)."
 )
 
 try:
@@ -195,6 +195,12 @@ FS_WATCH_EXTENSIONS = [".c", ".h"]
 if args.algorithm == "levenshtein":
     try:
         import Levenshtein
+    except ModuleNotFoundError as e:
+        fail(MISSING_PREREQUISITES.format(e.name))
+
+if args.source:
+    try:
+        import cxxfilt
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
 
@@ -867,6 +873,14 @@ def do_diff(basedump, mydump):
                 # File names and function names
                 if source_line and source_line[0] != "|":
                     color += Style.BRIGHT
+                    # Function names
+                    if source_line.endswith("():"):
+                        # Underline. Colorama does not provide this feature, unfortunately.
+                        color += "\u001b[4m"
+                        try:
+                            source_line = cxxfilt.demangle(source_line[:-3], external_only=False)
+                        except:
+                            pass
                 output.append(format_single_line_diff("", f"  {color}{source_line}{Style.RESET_ALL}", args.column_width))
 
             output.append(format_single_line_diff(out1, mid + out2, args.column_width))
