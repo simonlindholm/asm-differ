@@ -237,6 +237,10 @@ def eval_int(expr, emsg=None):
         return None
 
 
+def eval_line_num(expr):
+    return int(expr.strip().replace(":", ""), 16)
+
+
 def run_make(target, capture_output=False):
     if capture_output:
         return subprocess.run(
@@ -782,13 +786,23 @@ def do_diff(basedump, mydump):
                     branchless1 = out1
                     branchless2 = out2
                     out1, out2 = color_imms(out1, out2)
-                    branch1, branch2 = color_branch_imms(branch1, branch2)
+
+                    same_relative_target = False
+                    if branch_targets1[i1 + k] is not None and branch_targets2[j1 + k] is not None:
+                        relative_target1 = eval_line_num(branch_targets1[i1 + k]) - eval_line_num(line_num1)
+                        relative_target2 = eval_line_num(branch_targets2[j1 + k]) - eval_line_num(line_num2)
+                        same_relative_target = relative_target1 == relative_target2
+
+                    if not same_relative_target:
+                        branch1, branch2 = color_branch_imms(branch1, branch2)
+
                     out1 += branch1
                     out2 += branch2
                     if normalize_imms(branchless1) == normalize_imms(branchless2):
-                        # only imms differences
-                        sym_color = Fore.LIGHTBLUE_EX
-                        line_prefix = "i"
+                        if not same_relative_target:
+                            # only imms differences
+                            sym_color = Fore.LIGHTBLUE_EX
+                            line_prefix = "i"
                     else:
                         out1 = re.sub(
                             re_sprel,
