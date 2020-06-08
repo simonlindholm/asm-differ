@@ -137,7 +137,7 @@ parser.add_argument(
     dest="max_lines",
     type=int,
     default=1024,
-    help="The maximum length of the diff, in lines. Not recommended when -f is used.",
+    help="The maximum length of the diff, in lines.",
 )
 
 # Project-specific flags, e.g. different versions/make arguments.
