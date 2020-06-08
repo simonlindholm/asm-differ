@@ -404,7 +404,7 @@ def ansi_ljust(s, width):
 re_int = re.compile(r"[0-9]+")
 re_comments = re.compile(r"<.*?>")
 re_regs = re.compile(r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b")
-re_sprel = re.compile(r",([0-9]+|0x[0-9a-f]+)\(sp\)")
+re_sprel = re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)")
 re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
 re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)")
 forbidden = set(string.ascii_letters + "_")
@@ -516,7 +516,7 @@ def process(lines):
         if mnemonic in branch_likely_instructions:
             skip_next = True
         row = re.sub(re_regs, "<reg>", row)
-        row = re.sub(re_sprel, ",addr(sp)", row)
+        row = re.sub(re_sprel, "addr(sp)", row)
         row_with_imm = row
         if mnemonic in jump_instructions:
             row = row.strip()
@@ -580,7 +580,7 @@ def normalize_imms(row):
 
 
 def normalize_stack(row):
-    return re.sub(re_sprel, ",addr(sp)", row)
+    return re.sub(re_sprel, "addr(sp)", row)
 
 
 def split_off_branch(line):
@@ -741,12 +741,12 @@ def do_diff(basedump, mydump):
                     else:
                         out1 = re.sub(
                             re_sprel,
-                            lambda s: "," + sc3.color_symbol(s.group()[1:]),
+                            lambda s: sc3.color_symbol(s.group()),
                             out1,
                         )
                         out2 = re.sub(
                             re_sprel,
-                            lambda s: "," + sc4.color_symbol(s.group()[1:]),
+                            lambda s: sc4.color_symbol(s.group()),
                             out2,
                         )
                         if normalize_stack(branchless1) == normalize_stack(branchless2):
