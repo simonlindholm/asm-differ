@@ -659,14 +659,17 @@ def do_diff(basedump, mydump):
                 original2 = ""
                 line_num2 = ""
 
+            has1 = has2 = True
             line_color1 = line_color2 = sym_color = Fore.RESET
             line_prefix = " "
             if line1 == line2:
+                if not line1:
+                    has1 = has2 = False
                 if maybe_normalize_large_imms(original1) == maybe_normalize_large_imms(
                     original2
                 ):
-                    out1 = f"{original1}"
-                    out2 = f"{original2}"
+                    out1 = original1
+                    out2 = original2
                 elif line1 == "<delay-slot>":
                     out1 = f"{Style.DIM}{original1}"
                     out2 = f"{Style.DIM}{original2}"
@@ -703,53 +706,55 @@ def do_diff(basedump, mydump):
                         out2 = re.sub(
                             re_sprel, lambda s: sc4.color_symbol(s.group()), out2
                         )
-                        out1 = f"{Fore.YELLOW}{out1}{Style.RESET_ALL}"
-                        out2 = f"{Fore.YELLOW}{out2}{Style.RESET_ALL}"
             elif tag in ["replace", "equal"]:
                 line_prefix = "|"
                 line_color1 = Fore.LIGHTBLUE_EX
                 line_color2 = Fore.LIGHTBLUE_EX
                 sym_color = Fore.LIGHTBLUE_EX
-                out1 = f"{Fore.LIGHTBLUE_EX}{original1}{Style.RESET_ALL}"
-                out2 = f"{Fore.LIGHTBLUE_EX}{original2}{Style.RESET_ALL}"
+                out1 = original1
+                out2 = original2
             elif tag == "delete":
                 line_prefix = "<"
                 line_color1 = line_color2 = sym_color = Fore.RED
-                out1 = f"{Fore.RED}{original1}{Style.RESET_ALL}"
+                has2 = False
+                out1 = original1
                 out2 = ""
             elif tag == "insert":
                 line_prefix = ">"
                 line_color1 = line_color2 = sym_color = Fore.GREEN
+                has1 = False
                 out1 = ""
-                out2 = f"{Fore.GREEN}{original2}{Style.RESET_ALL}"
+                out2 = original2
 
             in_arrow1 = "  "
             in_arrow2 = "  "
             out_arrow1 = ""
             out_arrow2 = ""
-            line_num1 = line_num1 if out1 else ""
-            line_num2 = line_num2 if out2 else ""
+            line_num1 = line_num1 if has1 else ""
+            line_num2 = line_num2 if has2 else ""
 
-            if args.show_branches and out1:
+            if sym_color == line_color2:
+                line_color2 = ""
+
+            if args.show_branches and has1:
                 if line_num1 in bts1:
-                    in_arrow1 = sc5.color_symbol(line_num1, "~>")
+                    in_arrow1 = sc5.color_symbol(line_num1, "~>") + line_color1
                 if branch_targets1[i1 + k] is not None:
                     out_arrow1 = " " + sc5.color_symbol(
                         branch_targets1[i1 + k] + ":", "~>"
                     )
-            if args.show_branches and out2:
+            if args.show_branches and has2:
                 if line_num2 in bts2:
-                    in_arrow2 = sc6.color_symbol(line_num2, "~>")
+                    in_arrow2 = sc6.color_symbol(line_num2, "~>") + line_color2
                 if branch_targets2[j1 + k] is not None:
                     out_arrow2 = " " + sc6.color_symbol(
                         branch_targets2[j1 + k] + ":", "~>"
                     )
 
-            if sym_color == line_color2:
-                line_color2 = ""
             out1 = f"{line_color1}{line_num1} {in_arrow1} {out1}{Style.RESET_ALL}{out_arrow1}"
-            out2 = f"{sym_color}{line_prefix} {line_color2}{line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
-            output.append(format_single_line_diff(out1, out2, args.column_width))
+            out2 = f"{line_color2}{line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
+            mid = f"{sym_color}{line_prefix} "
+            output.append(format_single_line_diff(out1, mid + out2, args.column_width))
 
     return output[args.skip_lines :]
 
