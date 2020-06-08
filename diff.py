@@ -50,6 +50,11 @@ parser.add_argument(
     help="Diff .o files rather than a whole binary. This makes it possible to see symbol names. (Recommended)",
 )
 parser.add_argument(
+    "-e",
+    dest="diff_elf_symbol",
+    help="Diff a given function in two ELFs, one being stripped and the other one non-stripped. Requires objdump from binutils 2.33+.",
+)
+parser.add_argument(
     "--base-asm",
     dest="base_asm",
     metavar="FILE",
@@ -289,6 +294,36 @@ def search_map_file(fn_name):
     if len(cands) == 1:
         return cands[0]
     return None, None
+
+
+def dump_elf():
+    if not baseimg or not myimg:
+        fail("Missing myimg/baseimg in config.")
+    if base_shift:
+        fail("--base-shift not compatible with -e")
+
+    start_addr = eval_int(args.start, "Start address must be an integer expression.")
+
+    if args.end is not None:
+        end_addr = eval_int(args.end, "End address must be an integer expression.")
+    else:
+        end_addr = start_addr + MAX_FUNCTION_SIZE_BYTES
+
+    flags1 = [
+        f"--start-address={start_addr}",
+        f"--stop-address={end_addr}",
+    ]
+
+    flags2 = [
+        f"--disassemble={args.diff_elf_symbol}",
+    ]
+
+    objdump_flags = ["-drz", "-j", ".text"]
+    return (
+        myimg,
+        (objdump_flags + flags1, baseimg, None),
+        (objdump_flags + flags2, myimg, None),
+    )
 
 
 def dump_objfile():
@@ -932,7 +967,9 @@ class Display:
 
 
 def main():
-    if args.diff_obj:
+    if args.diff_elf_symbol:
+        make_target, basecmd, mycmd = dump_elf()
+    elif args.diff_obj:
         make_target, basecmd, mycmd = dump_objfile()
     else:
         make_target, basecmd, mycmd = dump_binary()
