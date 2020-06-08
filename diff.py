@@ -535,6 +535,10 @@ def normalize_imms(row):
     return re.sub(re_imm, "<imm>", row)
 
 
+def normalize_stack(row):
+    return re.sub(re_sprel, ",addr(sp)", row)
+
+
 def split_off_branch(line):
     parts = line.split(",")
     if len(parts) < 2:
@@ -691,21 +695,28 @@ def do_diff(basedump, mydump):
                         sym_color = Fore.LIGHTBLUE_EX
                         line_prefix = "i"
                     else:
-                        # regs differences and maybe imms as well
-                        line_color1 = line_color2 = sym_color = Fore.YELLOW
-                        line_prefix = "r"
-                        out1 = re.sub(
-                            re_regs, lambda s: sc1.color_symbol(s.group()), out1
-                        )
-                        out2 = re.sub(
-                            re_regs, lambda s: sc2.color_symbol(s.group()), out2
-                        )
                         out1 = re.sub(
                             re_sprel, lambda s: "," + sc3.color_symbol(s.group()[1:]), out1
                         )
                         out2 = re.sub(
                             re_sprel, lambda s: "," + sc4.color_symbol(s.group()[1:]), out2
                         )
+                        if normalize_stack(branchless1) == normalize_stack(branchless2):
+                            # only stack differences (luckily stack and imm
+                            # differences can't be combined in MIPS, so we
+                            # don't have to think about that case)
+                            sym_color = Fore.YELLOW
+                            line_prefix = "s"
+                        else:
+                            # regs differences and maybe imms as well
+                            out1 = re.sub(
+                                re_regs, lambda s: sc1.color_symbol(s.group()), out1
+                            )
+                            out2 = re.sub(
+                                re_regs, lambda s: sc2.color_symbol(s.group()), out2
+                            )
+                            line_color1 = line_color2 = sym_color = Fore.YELLOW
+                            line_prefix = "r"
             elif tag in ["replace", "equal"]:
                 line_prefix = "|"
                 line_color1 = Fore.LIGHTBLUE_EX
