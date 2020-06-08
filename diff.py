@@ -696,10 +696,14 @@ def do_diff(basedump, mydump):
                         line_prefix = "i"
                     else:
                         out1 = re.sub(
-                            re_sprel, lambda s: "," + sc3.color_symbol(s.group()[1:]), out1
+                            re_sprel,
+                            lambda s: "," + sc3.color_symbol(s.group()[1:]),
+                            out1,
                         )
                         out2 = re.sub(
-                            re_sprel, lambda s: "," + sc4.color_symbol(s.group()[1:]), out2
+                            re_sprel,
+                            lambda s: "," + sc4.color_symbol(s.group()[1:]),
+                            out2,
                         )
                         if normalize_stack(branchless1) == normalize_stack(branchless2):
                             # only stack differences (luckily stack and imm
