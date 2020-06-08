@@ -5,6 +5,7 @@ import os
 import ast
 import argparse
 import subprocess
+import collections
 import difflib
 import string
 import itertools
@@ -20,7 +21,7 @@ def fail(msg):
 
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
-    "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog python-Levenshtein` to install prerequisites (python-Levenshtein only needed for --algorithm=levenshtein)."
+    "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog python-Levenshtein cxxfilt` to install prerequisites (python-Levenshtein only needed for --algorithm=levenshtein, cxxfilt only needed with --source)."
 )
 
 try:
@@ -53,6 +54,11 @@ parser.add_argument(
     "-e",
     dest="diff_elf_symbol",
     help="Diff a given function in two ELFs, one being stripped and the other one non-stripped. Requires objdump from binutils 2.33+.",
+)
+parser.add_argument(
+    "--source",
+    action="store_true",
+    help="Show source code (if possible). Only works with -o and -e.",
 )
 parser.add_argument(
     "--base-asm",
@@ -192,6 +198,12 @@ if args.algorithm == "levenshtein":
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
 
+if args.source:
+    try:
+        import cxxfilt
+    except ModuleNotFoundError as e:
+        fail(MISSING_PREREQUISITES.format(e.name))
+
 if objdump_executable is None:
     for objdump_cand in ["mips-linux-gnu-objdump", "mips64-elf-objdump"]:
         try:
@@ -248,6 +260,17 @@ def restrict_to_function(dump, fn_name):
         elif search in line:
             found = True
     return "\n".join(out)
+
+
+def maybe_get_objdump_source_flags():
+    if not args.source:
+        return []
+
+    return [
+        "--source",
+        "--source-comment=| ",
+        "-l",
+    ]
 
 
 def run_objdump(cmd):
@@ -332,7 +355,7 @@ def dump_elf():
     return (
         myimg,
         (objdump_flags + flags1, baseimg, None),
-        (objdump_flags + flags2, myimg, None),
+        (objdump_flags + flags2 + maybe_get_objdump_source_flags(), myimg, None),
     )
 
 
@@ -362,7 +385,7 @@ def dump_objfile():
     return (
         objfile,
         (objdump_flags, refobjfile, args.start),
-        (objdump_flags, objfile, args.start),
+        (objdump_flags, objfile + maybe_get_objdump_source_flags(), args.start),
     )
 
 
@@ -500,6 +523,8 @@ def process(lines):
     originals = []
     line_nums = []
     branch_targets = []
+    source_lines = collections.defaultdict(list)
+    comments = []
     if not args.diff_obj:
         lines = lines[7:]
         if lines and not lines[-1]:
@@ -507,6 +532,10 @@ def process(lines):
 
     for row in lines:
         if args.diff_obj and (">:" in row or not row):
+            continue
+
+        if args.source and (row and row[0] != " "):
+            source_lines[len(mnemonics)].append(row)
             continue
 
         if "R_AARCH64_" in row:
@@ -520,6 +549,7 @@ def process(lines):
             originals[-1] = process_reloc(row, originals[-1])
             continue
 
+        comments.append(re.search(re_comments, row))
         row = re.sub(re_comments, "", row)
         row = row.rstrip()
         tabs = row.split("\t")
@@ -567,7 +597,7 @@ def process(lines):
         "".join(f"{o:<8s}" for o in original.split("\t")) for original in originals
     ]
     # return diff_rows, diff_rows, line_nums
-    return mnemonics, diff_rows, originals, line_nums, branch_targets
+    return mnemonics, diff_rows, originals, line_nums, branch_targets, source_lines, comments
 
 
 def format_single_line_diff(line1, line2, column_width):
@@ -678,10 +708,10 @@ def do_diff(basedump, mydump):
     # TODO: status line?
     # output.append(sha1sum(mydump))
 
-    mnemonics1, asm_lines1, originals1, line_nums1, branch_targets1 = process(
+    mnemonics1, asm_lines1, originals1, line_nums1, branch_targets1, _, _ = process(
         asm_lines1
     )
-    mnemonics2, asm_lines2, originals2, line_nums2, branch_targets2 = process(
+    mnemonics2, asm_lines2, originals2, line_nums2, branch_targets2, source_lines2, comments2 = process(
         asm_lines2
     )
 
@@ -831,9 +861,28 @@ def do_diff(basedump, mydump):
                         branch_targets2[j1 + k] + ":", "~>"
                     )
 
+            if args.source and has2 and comments2[j1 + k] is not None:
+                out2 += f" {comments2[j1 + k][0]}"
+
             out1 = f"{line_color1}{line_num1} {in_arrow1} {out1}{Style.RESET_ALL}{out_arrow1}"
             out2 = f"{line_color2}{line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
             mid = f"{sym_color}{line_prefix} "
+
+            for source_line in source_lines2[j1 + k]:
+                color = Style.DIM
+                # File names and function names
+                if source_line and source_line[0] != "|":
+                    color += Style.BRIGHT
+                    # Function names
+                    if source_line.endswith("():"):
+                        # Underline. Colorama does not provide this feature, unfortunately.
+                        color += "\u001b[4m"
+                        try:
+                            source_line = cxxfilt.demangle(source_line[:-3], external_only=False)
+                        except:
+                            pass
+                output.append(format_single_line_diff("", f"  {color}{source_line}{Style.RESET_ALL}", args.column_width))
+
             output.append(format_single_line_diff(out1, mid + out2, args.column_width))
 
     return output[args.skip_lines :]
