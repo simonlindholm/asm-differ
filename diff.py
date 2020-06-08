@@ -919,7 +919,7 @@ def main():
 
     if args.write_asm is not None:
         mydump = run_objdump(mycmd)
-        with open(args.write_asm) as f:
+        with open(args.write_asm, "w") as f:
             f.write(mydump)
         print(f"Wrote assembly to {args.write_asm}.")
         sys.exit(0)
