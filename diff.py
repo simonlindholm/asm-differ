@@ -131,6 +131,15 @@ parser.add_argument(
     help="Diff algorithm to use.",
 )
 
+parser.add_argument(
+    "--max-size",
+    "--max-lines",
+    dest="max_lines",
+    type=int,
+    default=1024,
+    help="The maximum length of the diff, in lines. Not recommended when -f is used.",
+)
+
 # Project-specific flags, e.g. different versions/make arguments.
 if hasattr(diff_settings, "add_custom_arguments"):
     diff_settings.add_custom_arguments(parser)
@@ -147,7 +156,7 @@ mapfile = config.get("mapfile", None)
 makeflags = config.get("makeflags", [])
 source_directories = config.get("source_directories", None)
 
-MAX_FUNCTION_SIZE_LINES = 1024
+MAX_FUNCTION_SIZE_LINES = args.max_lines
 MAX_FUNCTION_SIZE_BYTES = MAX_FUNCTION_SIZE_LINES * 4
 
 COLOR_ROTATION = [
