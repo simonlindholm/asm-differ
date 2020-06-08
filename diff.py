@@ -155,11 +155,13 @@ args = parser.parse_args()
 config = {}
 diff_settings.apply(config, args)
 
+arch = config.get("arch", "mips")
 baseimg = config.get("baseimg", None)
 myimg = config.get("myimg", None)
 mapfile = config.get("mapfile", None)
 makeflags = config.get("makeflags", [])
 source_directories = config.get("source_directories", None)
+objdump_executable = config.get("objdump_executable", None)
 
 MAX_FUNCTION_SIZE_LINES = args.max_lines
 MAX_FUNCTION_SIZE_BYTES = MAX_FUNCTION_SIZE_LINES * 4
@@ -190,25 +192,24 @@ if args.algorithm == "levenshtein":
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
 
-binutils_prefix = None
+if objdump_executable is None:
+    for objdump_cand in ["mips-linux-gnu-objdump", "mips64-elf-objdump"]:
+        try:
+            subprocess.check_call(
+                [objdump_cand, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            objdump_executable = objdump_cand
+            break
+        except subprocess.CalledProcessError:
+            pass
+        except FileNotFoundError:
+            pass
 
-for binutils_cand in ["mips-linux-gnu-", "mips64-elf-"]:
-    try:
-        subprocess.check_call(
-            [binutils_cand + "objdump", "--version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        binutils_prefix = binutils_cand
-        break
-    except subprocess.CalledProcessError:
-        pass
-    except FileNotFoundError:
-        pass
-
-if not binutils_prefix:
+if not objdump_executable:
     fail(
-        "Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist."
+        "Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist, or configure objdump_executable."
     )
 
 
@@ -252,7 +253,7 @@ def restrict_to_function(dump, fn_name):
 def run_objdump(cmd):
     flags, target, restrict = cmd
     out = subprocess.check_output(
-        [binutils_prefix + "objdump"] + flags + [target], universal_newlines=True
+        [objdump_executable] + flags + [target], universal_newlines=True
     )
     if restrict is not None:
         return restrict_to_function(out, restrict)
@@ -401,29 +402,45 @@ def ansi_ljust(s, width):
         return s
 
 
-re_int = re.compile(r"[0-9]+")
-re_comments = re.compile(r"<.*?>")
-re_regs = re.compile(r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b")
-re_sprel = re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)")
-re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
-re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)")
-forbidden = set(string.ascii_letters + "_")
-branch_likely_instructions = {
-    "beql",
-    "bnel",
-    "beqzl",
-    "bnezl",
-    "bgezl",
-    "bgtzl",
-    "blezl",
-    "bltzl",
-    "bc1tl",
-    "bc1fl",
-}
-branch_instructions = branch_likely_instructions.union(
-    {"b", "beq", "bne", "beqz", "bnez", "bgez", "bgtz", "blez", "bltz", "bc1t", "bc1f"}
-)
-jump_instructions = branch_instructions.union({"jal", "j"})
+if arch == "mips":
+    re_int = re.compile(r"[0-9]+")
+    re_comments = re.compile(r"<.*?>")
+    re_regs = re.compile(r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|fp)\b")
+    re_sprel = re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)")
+    re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
+    re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)")
+    forbidden = set(string.ascii_letters + "_")
+    branch_likely_instructions = {
+        "beql",
+        "bnel",
+        "beqzl",
+        "bnezl",
+        "bgezl",
+        "bgtzl",
+        "blezl",
+        "bltzl",
+        "bc1tl",
+        "bc1fl",
+    }
+    branch_instructions = branch_likely_instructions.union(
+        {"b", "beq", "bne", "beqz", "bnez", "bgez", "bgtz", "blez", "bltz", "bc1t", "bc1f"}
+    )
+    instructions_with_address_immediates = branch_instructions.union({"jal", "j"})
+elif arch == "aarch64":
+    re_int = re.compile(r"[0-9]+")
+    re_comments = re.compile(r"(<.*?>|//.*$)")
+    # GPRs and FP registers: X0-X30, W0-W30, [DSHQ]0..31
+    # The zero registers and SP should not be in this list.
+    re_regs = re.compile(r"\$?\b([dshq][12]?[0-9]|[dshq]3[01]|[xw][12]?[0-9]|[xw]30)\b")
+    re_sprel = re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b")
+    re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
+    re_imm = re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b")
+    forbidden = set(string.ascii_letters + "_")
+    branch_likely_instructions = set()
+    branch_instructions = {"bl", "b", "b.eq", "b.ne", "b.cs", "b.hs", "b.cc", "b.lo", "b.mi", "b.pl", "b.vs", "b.vc", "b.hi", "b.ls", "b.ge", "b.lt", "b.gt", "b.le", "cbz", "cbnz"}
+    instructions_with_address_immediates = branch_instructions.union({"adrp"})
+else:
+    fail("Unknown architecture.")
 
 
 def hexify_int(row, pat):
@@ -492,6 +509,10 @@ def process(lines):
         if args.diff_obj and (">:" in row or not row):
             continue
 
+        if "R_AARCH64_" in row:
+            # TODO: handle relocation
+            continue
+
         if "R_MIPS_" in row:
             # N.B. Don't transform the diff rows, they already ignore immediates
             # if diff_rows[-1] != '<delay-slot>':
@@ -506,7 +527,7 @@ def process(lines):
         line_num = tabs[0].strip()
         row_parts = row.split("\t", 1)
         mnemonic = row_parts[0].strip()
-        if mnemonic not in jump_instructions:
+        if mnemonic not in instructions_with_address_immediates:
             row = re.sub(re_int, lambda s: hexify_int(row, s), row)
         original = row
         if skip_next:
@@ -518,12 +539,12 @@ def process(lines):
         row = re.sub(re_regs, "<reg>", row)
         row = re.sub(re_sprel, "addr(sp)", row)
         row_with_imm = row
-        if mnemonic in jump_instructions:
+        if mnemonic in instructions_with_address_immediates:
             row = row.strip()
             row, _ = split_off_branch(row)
             row += "<imm>"
         else:
-            row = re.sub(re_imm, "<imm>", row)
+            row = normalize_imms(row)
 
         mnemonics.append(mnemonic)
         rows_with_imms.append(row_with_imm)
@@ -725,7 +746,7 @@ def do_diff(basedump, mydump):
                     mnemonic = original1.split()[0]
                     out1, out2 = original1, original2
                     branch1 = branch2 = ""
-                    if mnemonic in jump_instructions:
+                    if mnemonic in instructions_with_address_immediates:
                         out1, branch1 = split_off_branch(original1)
                         out2, branch2 = split_off_branch(original2)
                     branchless1 = out1
