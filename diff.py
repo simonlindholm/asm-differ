@@ -538,7 +538,7 @@ def normalize_imms(row):
 def split_off_branch(line):
     parts = line.split(",")
     if len(parts) < 2:
-        parts = line.split()
+        parts = line.split(None, 1)
     off = len(line) - len(parts[-1])
     return line[:off], line[off:]
 
