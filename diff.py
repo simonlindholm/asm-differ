@@ -857,9 +857,6 @@ def do_diff(basedump, mydump):
             line_num1 = line_num1 if has1 else ""
             line_num2 = line_num2 if has2 else ""
 
-            if sym_color == line_color2:
-                line_color2 = ""
-
             if args.show_branches and has1:
                 if line_num1 in bts1:
                     in_arrow1 = sc5.color_symbol(line_num1, "~>") + line_color1
