@@ -589,7 +589,7 @@ def process(lines):
             target = row_parts[1].strip().split(",")[-1]
             if mnemonic in branch_likely_instructions:
                 target = hex(int(target, 16) - 4)[2:]
-            branch_targets.append(target)
+            branch_targets.append(target.strip())
         else:
             branch_targets.append(None)
         if args.stop_jrra and mnemonic == "jr" and row_parts[1].strip() == "ra":
