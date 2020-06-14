@@ -389,7 +389,7 @@ def dump_objfile():
     return (
         objfile,
         (objdump_flags, refobjfile, args.start),
-        (objdump_flags, objfile + maybe_get_objdump_source_flags(), args.start),
+        (objdump_flags + maybe_get_objdump_source_flags(), objfile, args.start),
     )
 
 
