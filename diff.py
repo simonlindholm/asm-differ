@@ -774,8 +774,8 @@ def do_diff(basedump, mydump):
                     out1 = original1
                     out2 = original2
                 elif line1 == "<delay-slot>":
-                    out1 = f"{Style.DIM}{original1}"
-                    out2 = f"{Style.DIM}{original2}"
+                    out1 = f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}{original1}"
+                    out2 = f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}{original2}"
                 else:
                     mnemonic = original1.split()[0]
                     out1, out2 = original1, original2
