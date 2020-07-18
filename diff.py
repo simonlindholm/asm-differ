@@ -21,7 +21,7 @@ def fail(msg):
 
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
-    "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog python-Levenshtein cxxfilt` to install prerequisites (python-Levenshtein only needed for --algorithm=levenshtein, cxxfilt only needed with --source)."
+    "Run `python3 -m pip install --user colorama ansiwrap attrs watchdog python-Levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
 )
 
 try:
@@ -137,7 +137,7 @@ parser.add_argument(
 parser.add_argument(
     "--algorithm",
     dest="algorithm",
-    default="difflib",
+    default="levenshtein",
     choices=["levenshtein", "difflib"],
     help="Diff algorithm to use.",
 )
