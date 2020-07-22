@@ -190,7 +190,7 @@ COLOR_ROTATION = [
 ]
 
 BUFFER_CMD = ["tail", "-c", str(10 ** 9)]
-LESS_CMD = ["less", "-SRic"]
+LESS_CMD = ["less", "-SRic", "-#6"]
 
 DEBOUNCE_DELAY = 0.1
 FS_WATCH_EXTENSIONS = [".c", ".h"]
