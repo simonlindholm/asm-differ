@@ -879,20 +879,21 @@ def do_diff(basedump, mydump):
             out2 = f"{line_color2}{line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
             mid = f"{sym_color}{line_prefix} "
 
-            for source_line in source_lines2[j1 + k]:
-                color = Style.DIM
-                # File names and function names
-                if source_line and source_line[0] != "|":
-                    color += Style.BRIGHT
-                    # Function names
-                    if source_line.endswith("():"):
-                        # Underline. Colorama does not provide this feature, unfortunately.
-                        color += "\u001b[4m"
-                        try:
-                            source_line = cxxfilt.demangle(source_line[:-3], external_only=False)
-                        except:
-                            pass
-                output.append(format_single_line_diff("", f"  {color}{source_line}{Style.RESET_ALL}", args.column_width))
+            if has2:
+                for source_line in source_lines2[j1 + k]:
+                    color = Style.DIM
+                    # File names and function names
+                    if source_line and source_line[0] != "|":
+                        color += Style.BRIGHT
+                        # Function names
+                        if source_line.endswith("():"):
+                            # Underline. Colorama does not provide this feature, unfortunately.
+                            color += "\u001b[4m"
+                            try:
+                                source_line = cxxfilt.demangle(source_line[:-3], external_only=False)
+                            except:
+                                pass
+                    output.append(format_single_line_diff("", f"  {color}{source_line}{Style.RESET_ALL}", args.column_width))
 
             output.append(format_single_line_diff(out1, mid + out2, args.column_width))
 
