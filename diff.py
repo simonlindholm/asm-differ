@@ -61,6 +61,11 @@ parser.add_argument(
     help="Show source code (if possible). Only works with -o and -e.",
 )
 parser.add_argument(
+    "--inlines",
+    action="store_true",
+    help="Show inline function calls (if possible). Only works with -o and -e.",
+)
+parser.add_argument(
     "--base-asm",
     dest="base_asm",
     metavar="FILE",
@@ -185,7 +190,7 @@ COLOR_ROTATION = [
 ]
 
 BUFFER_CMD = ["tail", "-c", str(10 ** 9)]
-LESS_CMD = ["less", "-SRic"]
+LESS_CMD = ["less", "-SRic", "-#6"]
 
 DEBOUNCE_DELAY = 0.1
 FS_WATCH_EXTENSIONS = [".c", ".h"]
@@ -270,11 +275,16 @@ def maybe_get_objdump_source_flags():
     if not args.source:
         return []
 
-    return [
+    flags = [
         "--source",
         "--source-comment=| ",
         "-l",
     ]
+
+    if args.inlines:
+        flags.append("--inlines")
+
+    return flags
 
 
 def run_objdump(cmd):
