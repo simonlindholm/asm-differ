@@ -510,11 +510,18 @@ def parse_relocated_line(line):
     return before, imm, after
 
 
-def process_reloc(row, prev):
+def process_mips_reloc(row, prev):
     before, imm, after = parse_relocated_line(prev)
     repl = row.split()[-1]
     if imm != "0":
-        if before.strip() == "jal" and not imm.startswith("0x"):
+        # MIPS uses relocations with addends embedded in the code as immediates.
+        # If there is an immediate, show it as part of the relocation. Ideally
+        # we'd show this addend in both %lo/%hi, but annoyingly objdump's output
+        # doesn't include enough information to pair up %lo's and %hi's...
+        # TODO: handle unambiguous cases where all addends for a symbol are the
+        # same, or show "+???".
+        mnemonic = prev.split()[0]
+        if mnemonic in instructions_with_address_immediates and not imm.startswith("0x"):
             imm = "0x" + imm
         repl += "+" + imm if int(imm, 0) > 0 else imm
     if "R_MIPS_LO16" in row:
@@ -571,8 +578,8 @@ def process(lines):
         if "R_MIPS_" in row:
             # N.B. Don't transform the diff rows, they already ignore immediates
             # if output[-1].diff_row != "<delay-slot>":
-            # output[-1] = output[-1].replace(diff_row=process_reloc(row, output[-1].row_with_imm))
-            new_original = process_reloc(row, output[-1].original)
+            # output[-1] = output[-1].replace(diff_row=process_mips_reloc(row, output[-1].row_with_imm))
+            new_original = process_mips_reloc(row, output[-1].original)
             output[-1] = output[-1]._replace(original=new_original)
             continue
 
