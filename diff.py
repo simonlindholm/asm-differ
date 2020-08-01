@@ -290,7 +290,7 @@ def maybe_get_objdump_source_flags():
 def run_objdump(cmd):
     flags, target, restrict = cmd
     out = subprocess.check_output(
-        [objdump_executable] + flags + [target], universal_newlines=True
+        [objdump_executable] + ["-m", "mips:4300"] + flags + [target], universal_newlines=True
     )
     if restrict is not None:
         return restrict_to_function(out, restrict)
