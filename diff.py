@@ -290,7 +290,7 @@ def maybe_get_objdump_source_flags():
 def run_objdump(cmd):
     flags, target, restrict = cmd
     out = subprocess.check_output(
-        [objdump_executable] + ["-m", "mips:4300"] + flags + [target], universal_newlines=True
+        [objdump_executable] + arch_flags + flags + [target], universal_newlines=True
     )
     if restrict is not None:
         return restrict_to_function(out, restrict)
@@ -447,6 +447,7 @@ if arch == "mips":
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
     re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)")
     forbidden = set(string.ascii_letters + "_")
+    arch_flags = ["-m", "mips:4300"]
     branch_likely_instructions = {
         "beql",
         "bnel",
@@ -472,6 +473,7 @@ elif arch == "aarch64":
     re_sprel = re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b")
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
     re_imm = re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b")
+    arch_flags = []
     forbidden = set(string.ascii_letters + "_")
     branch_likely_instructions = set()
     branch_instructions = {"bl", "b", "b.eq", "b.ne", "b.cs", "b.hs", "b.cc", "b.lo", "b.mi", "b.pl", "b.vs", "b.vc", "b.hi", "b.ls", "b.ge", "b.lt", "b.gt", "b.le", "cbz", "cbnz", "tbz", "tbnz"}
