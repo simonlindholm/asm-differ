@@ -565,6 +565,7 @@ def process(lines):
             lines.pop()
 
     output = []
+    stop_after_delay_slot = False
     for row in lines:
         if args.diff_obj and (">:" in row or not row):
             continue
@@ -634,6 +635,8 @@ def process(lines):
         source_lines = []
 
         if args.stop_jrra and mnemonic == "jr" and row_parts[1].strip() == "ra":
+            stop_after_delay_slot = True
+        elif stop_after_delay_slot:
             break
 
     # Cleanup whitespace, after relocation fixups have happened
