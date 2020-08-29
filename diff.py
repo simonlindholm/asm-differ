@@ -646,7 +646,7 @@ def process(lines):
 
 
 def format_single_line_diff(line1, line2, column_width):
-    return f"{ansi_ljust(line1,column_width)}{ansi_ljust(line2,column_width)}"
+    return f"{ansi_ljust(line1,column_width)}{line2}"
 
 
 class SymbolColorer:
