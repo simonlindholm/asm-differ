@@ -538,8 +538,11 @@ def process_mips_reloc(row, prev):
     return before + repl + after
 
 
-def cleanup_whitespace(line):
-    return "".join(f"{o:<8s}" for o in line.strip().split("\t"))
+def pad_mnemonic(line):
+    if "\t" not in line:
+        return line
+    mn, args = line.split("\t", 1)
+    return f"{mn:<7s} {args}"
 
 
 Line = collections.namedtuple(
@@ -638,11 +641,6 @@ def process(lines):
             stop_after_delay_slot = True
         elif stop_after_delay_slot:
             break
-
-    # Cleanup whitespace, after relocation fixups have happened
-    output = [
-        line._replace(original=cleanup_whitespace(line.original)) for line in output
-    ]
 
     return output
 
@@ -890,6 +888,8 @@ def do_diff(basedump, mydump):
             line_num1 = line1.line_num if line1 else ""
             line_num2 = line2.line_num if line2 else ""
 
+            out1 = pad_mnemonic(out1)
+            out2 = pad_mnemonic(out2)
             out1 = f"{line_color1}{line_num1} {in_arrow1} {out1}{Style.RESET_ALL}{out_arrow1}"
             out2 = f"{line_color2}{line_num2} {in_arrow2} {out2}{Style.RESET_ALL}{out_arrow2}"
             mid = f"{sym_color}{line_prefix} "
