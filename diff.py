@@ -5,13 +5,13 @@ import os
 import ast
 import argparse
 import subprocess
-import collections
 import difflib
 import string
 import itertools
 import threading
 import queue
 import time
+from typing import Any, Dict, List, NamedTuple, Optional, Set
 
 
 def fail(msg):
@@ -25,9 +25,9 @@ MISSING_PREREQUISITES = (
 )
 
 try:
-    from colorama import Fore, Style, Back
-    import ansiwrap
-    import watchdog
+    from colorama import Fore, Style, Back  # type: ignore
+    import ansiwrap  # type: ignore
+    import watchdog  # type: ignore
 except ModuleNotFoundError as e:
     fail(MISSING_PREREQUISITES.format(e.name))
 
@@ -157,12 +157,12 @@ parser.add_argument(
 
 # Project-specific flags, e.g. different versions/make arguments.
 if hasattr(diff_settings, "add_custom_arguments"):
-    diff_settings.add_custom_arguments(parser)
+    diff_settings.add_custom_arguments(parser)  # type: ignore
 
 args = parser.parse_args()
 
 # Set imgs, map file and make flags in a project-specific manner.
-config = {}
+config: Dict[str, Any] = {}
 diff_settings.apply(config, args)
 
 arch = config.get("arch", "mips")
@@ -198,13 +198,13 @@ FS_WATCH_EXTENSIONS = [".c", ".h"]
 
 if args.algorithm == "levenshtein":
     try:
-        import Levenshtein
+        import Levenshtein  # type: ignore
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
 
 if args.source:
     try:
-        import cxxfilt
+        import cxxfilt  # type: ignore
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
 
@@ -544,18 +544,14 @@ def pad_mnemonic(line):
     return f"{mn:<7s} {args}"
 
 
-Line = collections.namedtuple(
-    "Line",
-    [
-        "mnemonic",
-        "diff_row",
-        "original",
-        "line_num",
-        "branch_target",
-        "source_lines",
-        "comment",
-    ],
-)
+class Line(NamedTuple):
+    mnemonic: str
+    diff_row: str
+    original: str
+    line_num: str
+    branch_target: Optional[str]
+    source_lines: List[str]
+    comment: Optional[str]
 
 
 def process(lines):
@@ -758,8 +754,8 @@ def do_diff(basedump, mydump):
     sc4 = SymbolColorer(4)
     sc5 = SymbolColorer(0)
     sc6 = SymbolColorer(0)
-    bts1 = set()
-    bts2 = set()
+    bts1: Set[str] = set()
+    bts2: Set[str] = set()
 
     if args.show_branches:
         for (lines, btset, sc) in [
@@ -923,8 +919,8 @@ def do_diff(basedump, mydump):
 
 
 def debounced_fs_watch(targets, outq, debounce_delay):
-    import watchdog.events
-    import watchdog.observers
+    import watchdog.events  # type: ignore
+    import watchdog.observers  # type: ignore
 
     class WatchEventHandler(watchdog.events.FileSystemEventHandler):
         def __init__(self, queue, file_targets):
