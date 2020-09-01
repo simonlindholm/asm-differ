@@ -16,7 +16,7 @@ sys.path.pop(0)
 # ==== COMMAND-LINE ====
 
 try:
-    import argcomplete
+    import argcomplete  # type: ignore
 except ModuleNotFoundError:
     argcomplete = None
 import argparse
@@ -26,30 +26,34 @@ parser = argparse.ArgumentParser(description="Diff MIPS assembly.")
 start_argument = parser.add_argument("start", help="Function name or address to start diffing from.")
 if argcomplete:
     def complete_symbol(**kwargs):
-        prefix = kwargs['prefix']
-        parsed_args = kwargs['parsed_args']
-        completes = []
-        config = dict()
+        prefix = kwargs["prefix"]
+        parsed_args = kwargs["parsed_args"]
+        config = {}
         diff_settings.apply(config, parsed_args)
-        mapfile = config.get('mapfile')
+        mapfile = config.get("mapfile")
         if not mapfile:
             return []
+        completes = []
         with open(mapfile) as f:
-            for line in f:
-                pos = line.find(prefix)
-                # if found the prefix at start of a word
-                # (start of line or if there's a space before)
-                if pos >= 0 and (pos == 0 or line[pos-1] == ' '):
-                    symbolEndPos = line.find(' ', pos)
-                    if symbolEndPos == -1:
-                        # -1 strips the line return '\n' (assuming Unix)
-                        symbol = line[pos:-1]
-                    else:
-                        symbol = line[pos:symbolEndPos]
-                    completes.append(symbol)
+            data = f.read()
+            if data.startswith(prefix):
+                endPos = data.find(" ")
+                completes.append(data if endPos == -1 else data[:endPos])
+            search = f" {prefix}"
+            pos = data.find(search)
+            while pos != -1:
+                # skip the space character in the search string
+                pos += 1
+                endPos = data.find(" ", pos)
+                if endPos == -1:
+                    match = data[pos:]
+                    pos = -1
+                else:
+                    match = data[pos:endPos]
+                    pos = data.find(search, endPos)
+                completes.append(match.strip())
         return completes
     start_argument.completer = complete_symbol
-del start_argument
 
 parser.add_argument("end", nargs="?", help="Address to end diff at.")
 parser.add_argument(
