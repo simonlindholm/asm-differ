@@ -1,35 +1,9 @@
 #!/usr/bin/env python3
 import sys
-import re
-import os
-import ast
-import argparse
-import subprocess
-import difflib
-import string
-import itertools
-import threading
-import queue
-import time
-from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
-
 
 def fail(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
-
-
-MISSING_PREREQUISITES = (
-    "Missing prerequisite python module {}. "
-    "Run `python3 -m pip install --user colorama ansiwrap watchdog python-Levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
-)
-
-try:
-    from colorama import Fore, Style, Back  # type: ignore
-    import ansiwrap  # type: ignore
-    import watchdog  # type: ignore
-except ModuleNotFoundError as e:
-    fail(MISSING_PREREQUISITES.format(e.name))
 
 # Prefer to use diff_settings.py from the current working directory
 sys.path.insert(0, ".")
@@ -37,11 +11,61 @@ try:
     import diff_settings
 except ModuleNotFoundError:
     fail("Unable to find diff_settings.py in the same directory.")
+sys.path.pop(0)
 
-# ==== CONFIG ====
+# ==== COMMAND-LINE ====
+
+try:
+    import argcomplete  # type: ignore
+except ModuleNotFoundError:
+    argcomplete = None
+import argparse
 
 parser = argparse.ArgumentParser(description="Diff MIPS assembly.")
-parser.add_argument("start", help="Function name or address to start diffing from.")
+
+start_argument = parser.add_argument("start", help="Function name or address to start diffing from.")
+if argcomplete:
+    def complete_symbol(**kwargs):
+        prefix = kwargs["prefix"]
+        if prefix == "":
+            # skip reading the map file, which would
+            # result in a lot of useless completions
+            return []
+        parsed_args = kwargs["parsed_args"]
+        config = {}
+        diff_settings.apply(config, parsed_args)
+        mapfile = config.get("mapfile")
+        if not mapfile:
+            return []
+        completes = []
+        with open(mapfile) as f:
+            data = f.read()
+            # assume symbols are prefixed by a space character
+            search = f" {prefix}"
+            pos = data.find(search)
+            while pos != -1:
+                # skip the space character in the search string
+                pos += 1
+                # assume symbols are suffixed by either a space
+                # character or a (unix-style) line return
+                spacePos = data.find(" ", pos)
+                lineReturnPos = data.find("\n", pos)
+                if lineReturnPos == -1:
+                    endPos = spacePos
+                elif spacePos == -1:
+                    endPos = lineReturnPos
+                else:
+                    endPos = min(spacePos, lineReturnPos)
+                if endPos == -1:
+                    match = data[pos:]
+                    pos = -1
+                else:
+                    match = data[pos:endPos]
+                    pos = data.find(search, endPos)
+                completes.append(match)
+        return completes
+    start_argument.completer = complete_symbol
+
 parser.add_argument("end", nargs="?", help="Address to end diff at.")
 parser.add_argument(
     "-o",
@@ -166,6 +190,38 @@ parser.add_argument(
 # Project-specific flags, e.g. different versions/make arguments.
 if hasattr(diff_settings, "add_custom_arguments"):
     diff_settings.add_custom_arguments(parser)  # type: ignore
+
+if argcomplete:
+    argcomplete.autocomplete(parser)
+
+# ==== IMPORTS ====
+
+import re
+import os
+import ast
+import subprocess
+import difflib
+import string
+import itertools
+import threading
+import queue
+import time
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
+
+
+MISSING_PREREQUISITES = (
+    "Missing prerequisite python module {}. "
+    "Run `python3 -m pip install --user colorama ansiwrap watchdog python-Levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
+)
+
+try:
+    from colorama import Fore, Style, Back  # type: ignore
+    import ansiwrap  # type: ignore
+    import watchdog  # type: ignore
+except ModuleNotFoundError as e:
+    fail(MISSING_PREREQUISITES.format(e.name))
+
+# ==== CONFIG ====
 
 args = parser.parse_args()
 
