@@ -36,3 +36,5 @@ If setup correctly (don't forget to restart the shell), `complete | grep ./diff.
 ```
 complete -o bashdefault -o default -o nospace -F _python_argcomplete ./diff.py
 ```
+
+Note for developers or for general troubleshooting: run `export _ARC_DEBUG=` to enable debug output during tab-completion, it may show otherwise silenced errors. Use `unset _ARC_DEBUG` or restart the terminal to disable.
