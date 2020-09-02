@@ -36,22 +36,22 @@ if argcomplete:
         completes = []
         with open(mapfile) as f:
             data = f.read()
-            if data.startswith(prefix):
-                endPos = data.find(" ")
-                completes.append(data if endPos == -1 else data[:endPos])
+            # assume symbols are prefixed by a space character
             search = f" {prefix}"
             pos = data.find(search)
             while pos != -1:
                 # skip the space character in the search string
                 pos += 1
-                endPos = data.find(" ", pos)
+                # assume symbols are suffixed by either a space
+                # character or a (unix-style) line return
+                endPos = min(data.find(" ", pos), data.find("\n", pos))
                 if endPos == -1:
                     match = data[pos:]
                     pos = -1
                 else:
                     match = data[pos:endPos]
                     pos = data.find(search, endPos)
-                completes.append(match.strip())
+                completes.append(match)
         return completes
     start_argument.completer = complete_symbol
 
