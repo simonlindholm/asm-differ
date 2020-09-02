@@ -48,7 +48,14 @@ if argcomplete:
                 pos += 1
                 # assume symbols are suffixed by either a space
                 # character or a (unix-style) line return
-                endPos = min(data.find(" ", pos), data.find("\n", pos))
+                spacePos = data.find(" ", pos)
+                lineReturnPos = data.find("\n", pos)
+                if lineReturnPos == -1:
+                    endPos = spacePos
+                elif spacePos == -1:
+                    endPos = lineReturnPos
+                else:
+                    endPos = min(spacePos, lineReturnPos)
                 if endPos == -1:
                     match = data[pos:]
                     pos = -1
