@@ -959,7 +959,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
 
             part1 = format_part(out1, line1, line_color1, bts1, sc5)
             part2 = format_part(out2, line2, line_color2, bts2, sc6)
-            key2 = out2 or ""
+            key2 = line2.original if line2 else ""
 
             mid = f"{sym_color}{line_prefix}"
 
