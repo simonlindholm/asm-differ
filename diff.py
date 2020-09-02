@@ -27,6 +27,10 @@ start_argument = parser.add_argument("start", help="Function name or address to 
 if argcomplete:
     def complete_symbol(**kwargs):
         prefix = kwargs["prefix"]
+        if prefix == "":
+            # skip reading the map file, which would
+            # result in a lot of useless completions
+            return []
         parsed_args = kwargs["parsed_args"]
         config = {}
         diff_settings.apply(config, parsed_args)
