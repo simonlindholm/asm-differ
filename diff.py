@@ -64,7 +64,7 @@ if argcomplete:
                     pos = data.find(search, endPos)
                 completes.append(match)
         return completes
-    start_argument.completer = complete_symbol
+    setattr(start_argument, "completer", complete_symbol)
 
 parser.add_argument("end", nargs="?", help="Address to end diff at.")
 parser.add_argument(
