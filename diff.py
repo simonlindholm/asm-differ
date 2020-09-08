@@ -1047,7 +1047,7 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple
         diff_lines = [
             ansi_ljust(base, width) + new.fmt2
             for (base, old, new) in output
-            if base or new
+            if base or new.key2
         ]
     return header_line, diff_lines
 
