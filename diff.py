@@ -822,6 +822,44 @@ class OutputLine:
         return hash(self.key2)
 
 
+def lo_hi_match(old: str, new: str) -> bool:
+    old_lo = old.find("%lo")
+    old_hi = old.find("%hi")
+    new_lo = new.find("%lo")
+    new_hi = new.find("%hi")
+
+    if old_lo != -1 and new_lo != -1:
+        old_idx = old_lo
+        new_idx = new_lo
+    elif old_hi != -1 and new_hi != -1:
+        old_idx = old_hi
+        new_idx = new_hi
+    else:
+        return False
+
+    if old[:old_idx] != new[:new_idx]:
+        return False
+
+    old_inner = old[old_idx + 4 : -1]
+    new_inner = new[new_idx + 4 : -1]
+    return old_inner.startswith(".") or new_inner.startswith(".")
+
+def diff_sameline(old: str, new: str) -> None:
+    if old == new:
+        return 0
+
+    if lo_hi_match(old, new):
+        return 0
+
+    score = 0
+    # Compare each field in order
+    newfields, oldfields = new.split(","), old.split(",")
+    for nf, of in zip(newfields, oldfields):
+        if nf != of:
+            score += 5
+    # Penalize any extra fields
+    return score + abs(len(newfields) - len(oldfields)) * 5
+
 def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
     output: List[OutputLine] = []
 
@@ -848,19 +886,29 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                     btset.add(bt + ":")
                     sc.color_symbol(bt + ":")
 
+    score = 0
+    deletions = []
+    insertions = []
+
     for (tag, i1, i2, j1, j2) in diff_sequences(
         [line.mnemonic for line in lines1], [line.mnemonic for line in lines2]
     ):
         for line1, line2 in itertools.zip_longest(lines1[i1:i2], lines2[j1:j2]):
             if tag == "replace":
                 if line1 is None:
+                    insertions.append(line2.original)
                     tag = "insert"
                 elif line2 is None:
+                    deletions.append(line1.original)
                     tag = "delete"
             elif tag == "insert":
+                insertions.append(line2.original)
                 assert line1 is None
             elif tag == "delete":
+                deletions.append(line1.original)
                 assert line2 is None
+            elif tag == "equal":
+                score += diff_sameline(line1.original, line2.original)
 
             line_color1 = line_color2 = sym_color = Fore.RESET
             line_prefix = " "
@@ -984,7 +1032,16 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
             fmt2 = mid + " " + (part2 or "")
             output.append(OutputLine(part1, fmt2, key2))
 
-    return output
+    common = set(deletions) & set(insertions)
+    score += len(common) * 60
+    for change in deletions:
+        if change not in common:
+            score += 100
+    for change in insertions:
+        if change not in common:
+            score += 100
+
+    return (output, score)
 
 
 def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLine]]:
@@ -1001,12 +1058,14 @@ def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLin
     return chunks
 
 
-def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple[str, List[str]]:
+def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine], score) -> Tuple[str, List[str]]:
+
     old_chunks = chunk_diff(old_diff)
     new_chunks = chunk_diff(new_diff)
     output: List[Tuple[str, OutputLine, OutputLine]] = []
     assert len(old_chunks) == len(new_chunks), "same target"
     empty = OutputLine("", "", "")
+
     for old_chunk, new_chunk in zip(old_chunks, new_chunks):
         if isinstance(old_chunk, list):
             assert isinstance(new_chunk, list)
@@ -1049,6 +1108,8 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple
             for (base, old, new) in output
             if base or new.key2
         ]
+
+    header_line = "Score: {}".format(score)
     return header_line, diff_lines
 
 
@@ -1131,10 +1192,11 @@ class Display:
         if self.emsg is not None:
             output = self.emsg
         else:
-            diff_output = do_diff(self.basedump, self.mydump)
+
+            (diff_output, score) = do_diff(self.basedump, self.mydump)
             last_diff_output = self.last_diff_output or diff_output
             self.last_diff_output = diff_output
-            header, diff_lines = format_diff(last_diff_output, diff_output)
+            header, diff_lines = format_diff(last_diff_output, diff_output, score)
             header_lines = [header] if header else []
             output = "\n".join(header_lines + diff_lines[args.skip_lines :])
 
@@ -1145,6 +1207,7 @@ class Display:
         buffer_proc = subprocess.Popen(
             BUFFER_CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
+
         less_proc = subprocess.Popen(LESS_CMD, stdin=buffer_proc.stdout)
         buffer_proc.stdin.write(output.encode())
         buffer_proc.stdin.close()
@@ -1199,6 +1262,7 @@ class Display:
         sys.stdout.flush()
 
     def update(self, text, error):
+
         if not error and not self.emsg and text == self.mydump:
             self.progress("Unchanged. ")
             return
@@ -1235,6 +1299,7 @@ def main():
             basedump = f.read()
     else:
         basedump = run_objdump(basecmd)
+
 
     mydump = run_objdump(mycmd)
 
