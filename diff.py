@@ -1059,13 +1059,11 @@ def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLin
 
 
 def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine], score) -> Tuple[str, List[str]]:
-
     old_chunks = chunk_diff(old_diff)
     new_chunks = chunk_diff(new_diff)
     output: List[Tuple[str, OutputLine, OutputLine]] = []
     assert len(old_chunks) == len(new_chunks), "same target"
     empty = OutputLine("", "", "")
-
     for old_chunk, new_chunk in zip(old_chunks, new_chunks):
         if isinstance(old_chunk, list):
             assert isinstance(new_chunk, list)
@@ -1102,14 +1100,13 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine], score) -
             for (base, old, new) in output
         ]
     else:
-        header_line = ""
+        header_line = "Score: {}".format(score)
         diff_lines = [
             ansi_ljust(base, width) + new.fmt2
             for (base, old, new) in output
             if base or new.key2
         ]
 
-    header_line = "Score: {}".format(score)
     return header_line, diff_lines
 
 
@@ -1192,7 +1189,6 @@ class Display:
         if self.emsg is not None:
             output = self.emsg
         else:
-
             (diff_output, score) = do_diff(self.basedump, self.mydump)
             last_diff_output = self.last_diff_output or diff_output
             self.last_diff_output = diff_output
@@ -1207,7 +1203,6 @@ class Display:
         buffer_proc = subprocess.Popen(
             BUFFER_CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
-
         less_proc = subprocess.Popen(LESS_CMD, stdin=buffer_proc.stdout)
         buffer_proc.stdin.write(output.encode())
         buffer_proc.stdin.close()
@@ -1262,7 +1257,6 @@ class Display:
         sys.stdout.flush()
 
     def update(self, text, error):
-
         if not error and not self.emsg and text == self.mydump:
             self.progress("Unchanged. ")
             return
@@ -1302,7 +1296,6 @@ def main():
 
 
     mydump = run_objdump(mycmd)
-
     display = Display(basedump, mydump)
 
     if not args.watch:
