@@ -208,6 +208,9 @@ import queue
 import time
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
+import attr
+import hashlib
+
 
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
@@ -822,44 +825,6 @@ class OutputLine:
         return hash(self.key2)
 
 
-def lo_hi_match(old: str, new: str) -> bool:
-    old_lo = old.find("%lo")
-    old_hi = old.find("%hi")
-    new_lo = new.find("%lo")
-    new_hi = new.find("%hi")
-
-    if old_lo != -1 and new_lo != -1:
-        old_idx = old_lo
-        new_idx = new_lo
-    elif old_hi != -1 and new_hi != -1:
-        old_idx = old_hi
-        new_idx = new_hi
-    else:
-        return False
-
-    if old[:old_idx] != new[:new_idx]:
-        return False
-
-    old_inner = old[old_idx + 4 : -1]
-    new_inner = new[new_idx + 4 : -1]
-    return old_inner.startswith(".") or new_inner.startswith(".")
-
-def diff_sameline(old: str, new: str) -> None:
-    if old == new:
-        return 0
-
-    if lo_hi_match(old, new):
-        return 0
-
-    score = 0
-    # Compare each field in order
-    newfields, oldfields = new.split(","), old.split(",")
-    for nf, of in zip(newfields, oldfields):
-        if nf != of:
-            score += 5
-    # Penalize any extra fields
-    return score + abs(len(newfields) - len(oldfields)) * 5
-
 def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
     output: List[OutputLine] = []
 
@@ -886,29 +851,19 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                     btset.add(bt + ":")
                     sc.color_symbol(bt + ":")
 
-    score = 0
-    deletions = []
-    insertions = []
-
     for (tag, i1, i2, j1, j2) in diff_sequences(
         [line.mnemonic for line in lines1], [line.mnemonic for line in lines2]
     ):
         for line1, line2 in itertools.zip_longest(lines1[i1:i2], lines2[j1:j2]):
             if tag == "replace":
                 if line1 is None:
-                    insertions.append(line2.original)
                     tag = "insert"
                 elif line2 is None:
-                    deletions.append(line1.original)
                     tag = "delete"
             elif tag == "insert":
-                insertions.append(line2.original)
                 assert line1 is None
             elif tag == "delete":
-                deletions.append(line1.original)
                 assert line2 is None
-            elif tag == "equal":
-                score += diff_sameline(line1.original, line2.original)
 
             line_color1 = line_color2 = sym_color = Fore.RESET
             line_prefix = " "
@@ -1032,16 +987,12 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
             fmt2 = mid + " " + (part2 or "")
             output.append(OutputLine(part1, fmt2, key2))
 
-    common = set(deletions) & set(insertions)
-    score += len(common) * 60
-    for change in deletions:
-        if change not in common:
-            score += 100
-    for change in insertions:
-        if change not in common:
-            score += 100
+    return output
 
-    return (output, score)
+
+def do_score(base_dump, current_dump):
+    scorer = ScoreCalculator(base_dump)
+    return scorer.score(current_dump)
 
 
 def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLine]]:
@@ -1178,6 +1129,157 @@ def debounced_fs_watch(targets, outq, debounce_delay):
     th.start()
 
 
+@attr.s(init=False, hash=True)
+class DiffAsmLine:
+    line: str = attr.ib(cmp=False)
+    mnemonic: str = attr.ib()
+
+    def __init__(self, line: str) -> None:
+        self.line = line
+        self.mnemonic = line.split("\t")[0]
+
+
+class Scorer:
+    PENALTY_INF = 10 ** 9
+
+    PENALTY_STACKDIFF = 1
+    PENALTY_REGALLOC = 5
+    PENALTY_SPLIT_DIFF = 20
+    PENALTY_REORDERING = 60
+    PENALTY_INSERTION = 100
+    PENALTY_DELETION = 100
+
+    def __init__(self, target_seq, stack_differences: bool = False):
+
+        self.target_seq = target_seq
+        self.stack_differences = stack_differences
+
+        self.differ: difflib.SequenceMatcher[DiffAsmLine] = difflib.SequenceMatcher(
+            autojunk=False
+        )
+
+        self.differ.set_seq2(target_seq)
+
+        pass
+
+    def score(self, current_seq) -> Tuple[int, str]:
+        if not current_seq:
+            return Scorer.PENALTY_INF, ""
+
+        self.differ.set_seq1(current_seq)
+
+        score = 0
+        deletions = []
+        insertions = []
+
+        def lo_hi_match(old: str, new: str) -> bool:
+            old_lo = old.find("%lo")
+            old_hi = old.find("%hi")
+            new_lo = new.find("%lo")
+            new_hi = new.find("%hi")
+
+            if old_lo != -1 and new_lo != -1:
+                old_idx = old_lo
+                new_idx = new_lo
+            elif old_hi != -1 and new_hi != -1:
+                old_idx = old_hi
+                new_idx = new_hi
+            else:
+                return False
+
+            if old[:old_idx] != new[:new_idx]:
+                return False
+
+            old_inner = old[old_idx + 4 : -1]
+            new_inner = new[new_idx + 4 : -1]
+            return old_inner.startswith(".") or new_inner.startswith(".")
+
+        def diff_sameline(old: str, new: str) -> None:
+            nonlocal score
+            if old == new:
+                return
+
+            if lo_hi_match(old, new):
+                return
+
+            if self.stack_differences:
+                oldsp = re.search(sp_offset, old)
+                newsp = re.search(sp_offset, new)
+                if oldsp and newsp:
+                    oldrel = int(oldsp.group(1), 0)
+                    newrel = int(newsp.group(1), 0)
+                    score += abs(oldrel - newrel) * self.PENALTY_STACKDIFF
+                    return
+
+            # Probably regalloc difference, or signed vs unsigned
+
+            # Compare each field in order
+            newfields, oldfields = new.split(","), old.split(",")
+            for nf, of in zip(newfields, oldfields):
+                if nf != of:
+                    score += self.PENALTY_REGALLOC
+            # Penalize any extra fields
+            score += abs(len(newfields) - len(oldfields)) * self.PENALTY_REGALLOC
+
+        def diff_insert(line: str) -> None:
+            # Reordering or totally different codegen.
+            # Defer this until later when we can tell.
+            insertions.append(line)
+
+        def diff_delete(line: str) -> None:
+            deletions.append(line)
+
+        for (tag, i1, i2, j1, j2) in self.differ.get_opcodes():
+            if tag == "equal":
+                for k in range(i2 - i1):
+                    old = self.target_seq[j1 + k].line
+                    new = current_seq[i1 + k].line
+                    diff_sameline(old, new)
+            if tag == "replace" or tag == "delete":
+                for k in range(i1, i2):
+                    diff_insert(current_seq[k].line)
+            if tag == "replace" or tag == "insert":
+                for k in range(j1, j2):
+                    diff_delete(self.target_seq[k].line)
+
+        common = set(deletions) & set(insertions)
+        score += len(common) * self.PENALTY_REORDERING
+        for change in deletions:
+            if change not in common:
+                score += self.PENALTY_DELETION
+        for change in insertions:
+            if change not in common:
+                score += self.PENALTY_INSERTION
+        return score
+
+
+class ScoreCalculator:
+
+    def __init__(self, target_dump, *, stack_differences: bool = False):
+
+        self.target_dump = target_dump
+        self.stack_differences = stack_differences
+
+        lines1 = self._createDiffLines(target_dump.split("\n"))
+
+        self.scorer = Scorer(lines1, stack_differences)
+
+    def _createDiffLines(self, asm_lines) -> Tuple[str, List[DiffAsmLine]]:
+        processed_lines = []
+        for line in asm_lines:
+            split_lines = line.split('\t')
+            if len(split_lines) < 2:
+                continue
+            line = "\t".join(split_lines[2:])
+
+            processed_lines.append(DiffAsmLine(line))
+        return processed_lines
+
+    def score(self, current_dump):
+        lines = self._createDiffLines(current_dump.split("\n"))
+        return self.scorer.score(lines)
+
+
 class Display:
     def __init__(self, basedump, mydump):
         self.basedump = basedump
@@ -1189,7 +1291,8 @@ class Display:
         if self.emsg is not None:
             output = self.emsg
         else:
-            (diff_output, score) = do_diff(self.basedump, self.mydump)
+            diff_output = do_diff(self.basedump, self.mydump)
+            score = do_score(self.basedump, self.mydump)
             last_diff_output = self.last_diff_output or diff_output
             self.last_diff_output = diff_output
             header, diff_lines = format_diff(last_diff_output, diff_output, score)
