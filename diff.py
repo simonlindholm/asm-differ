@@ -991,6 +991,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
 
 
 def do_score(base_dump, current_dump):
+
     scorer = ScoreCalculator(base_dump)
     return scorer.score(current_dump)
 
@@ -1149,6 +1150,8 @@ class Scorer:
     PENALTY_INSERTION = 100
     PENALTY_DELETION = 100
 
+    sp_offset = re.compile(r",([1-9][0-9]*|0x[1-9a-f][0-9a-f]*)\((sp|s8)\)")
+
     def __init__(self, target_seq, stack_differences: bool = False):
 
         self.target_seq = target_seq
@@ -1203,8 +1206,8 @@ class Scorer:
                 return
 
             if self.stack_differences:
-                oldsp = re.search(sp_offset, old)
-                newsp = re.search(sp_offset, new)
+                oldsp = re.search(self.sp_offset, old)
+                newsp = re.search(self.sp_offset, new)
                 if oldsp and newsp:
                     oldrel = int(oldsp.group(1), 0)
                     newrel = int(newsp.group(1), 0)
@@ -1292,7 +1295,12 @@ class Display:
             output = self.emsg
         else:
             diff_output = do_diff(self.basedump, self.mydump)
-            score = do_score(self.basedump, self.mydump)
+            if args.diff_obj or args.diff_elf_symbol:
+                # Generate from binary for the score if not already done
+                make_target, basecmd, mycmd = dump_binary()
+                score = do_score(run_objdump(basecmd), run_objdump(mycmd))
+            else:
+                score = do_score(self.basedump, self.mydump)
             last_diff_output = self.last_diff_output or diff_output
             self.last_diff_output = diff_output
             header, diff_lines = format_diff(last_diff_output, diff_output, score)
@@ -1397,8 +1405,8 @@ def main():
     else:
         basedump = run_objdump(basecmd)
 
-
     mydump = run_objdump(mycmd)
+
     display = Display(basedump, mydump)
 
     if not args.watch:
