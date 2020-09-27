@@ -467,10 +467,10 @@ def dump_objfile():
     )
 
 
-def dump_binary(end_offset=None, make_project=args.make):
+def dump_binary(end_offset=None):
     if not baseimg or not myimg:
         fail("Missing myimg/baseimg in config.")
-    if make_project:
+    if args.make:
         run_make(myimg)
     start_addr = eval_int(args.start)
     if start_addr is None:
@@ -1022,7 +1022,7 @@ def get_score_dumps(function_name):
     if start_addr is None:
         fail("Not able to find function in map file.")
 
-    _, basecmd, mycmd = dump_binary(end_of_function - start_of_function, False)
+    _, basecmd, mycmd = dump_binary(end_of_function - start_of_function)
     
     basedump = run_objdump(basecmd).split('\n')[7:-1]
     mydump = run_objdump(mycmd).split('\n')[7:-1]
