@@ -1022,7 +1022,7 @@ def get_score_dumps(function_name):
     if start_addr is None:
         fail("Not able to find function in map file.")
 
-    _, basecmd, mycmd = dump_binary(end_of_function - start_of_function)
+    _, basecmd, mycmd = dump_binary(end_of_function - start_of_function, False)
     
     basedump = run_objdump(basecmd).split('\n')[7:-1]
     mydump = run_objdump(mycmd).split('\n')[7:-1]
