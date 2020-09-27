@@ -367,7 +367,6 @@ base_shift = eval_int(
     args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
 )
 
-
 def search_map_file(fn_name):
     if not mapfile:
         fail(f"No map file configured; cannot find function {fn_name}.")
@@ -469,20 +468,24 @@ def dump_objfile():
     )
 
 
-def dump_binary():
+def dump_binary(end_offset=None, make_project=args.make):
     if not baseimg or not myimg:
         fail("Missing myimg/baseimg in config.")
-    if args.make:
+    if make_project:
         run_make(myimg)
     start_addr = eval_int(args.start)
     if start_addr is None:
         _, start_addr = search_map_file(args.start)
         if start_addr is None:
             fail("Not able to find function in map file.")
-    if args.end is not None:
-        end_addr = eval_int(args.end, "End address must be an integer expression.")
+    if end_offset:
+        end_addr = start_addr + end_offset
     else:
-        end_addr = start_addr + MAX_FUNCTION_SIZE_BYTES
+        if args.end is not None:
+            end_addr = eval_int(args.end, "End address must be an integer expression.")
+        else:
+            end_addr = start_addr + MAX_FUNCTION_SIZE_BYTES
+
     objdump_flags = ["-Dz", "-bbinary", "-mmips", "-EB"]
     flags1 = [
         f"--start-address={start_addr + base_shift}",
@@ -988,12 +991,51 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
             output.append(OutputLine(part1, fmt2, key2))
 
     return output
+    
 
+def get_score_dumps(function_name):
+    if not mapfile:
+        fail(f"No map file configured; cannot find function {function_name}.")
 
-def do_score(base_dump, current_dump):
+    try:
+        with open(mapfile) as f:
+            lines = f.read().split("\n")
+    except Exception:
+        fail(f"Failed to open map file {mapfile} for reading.")
 
-    scorer = ScoreCalculator(base_dump)
-    return scorer.score(current_dump)
+    try:
+        start_of_function = None
+        end_of_function = None
+
+        for index, line in enumerate(lines):
+            if line.endswith(" " + function_name):
+                start_of_function = int(line.split()[0], 0)
+            elif start_of_function:
+                end_of_function = int(line.split()[0], 0)
+                break
+    except Exception as e:
+        import traceback
+
+        traceback.print_exc()
+        fail(f"Internal error while parsing map file")
+        
+    _, start_addr = search_map_file(function_name)
+    if start_addr is None:
+        fail("Not able to find function in map file.")
+
+    _, basecmd, mycmd = dump_binary(end_of_function - start_of_function)
+    
+    basedump = run_objdump(basecmd).split('\n')[7:-1]
+    mydump = run_objdump(mycmd).split('\n')[7:-1]
+    
+    return basedump, mydump
+
+def do_score(function_name):
+
+    basedump, mydump = get_score_dumps(function_name)
+
+    scorer = ScoreCalculator(basedump)
+    return scorer.score(mydump)
 
 
 def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLine]]:
@@ -1052,7 +1094,10 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine], score) -
             for (base, old, new) in output
         ]
     else:
-        header_line = "Score: {}".format(score)
+        if score is not None:
+            header_line = "Score: {}".format(score).rjust(30)
+        else:
+            header_line = ''
         diff_lines = [
             ansi_ljust(base, width) + new.fmt2
             for (base, old, new) in output
@@ -1259,27 +1304,24 @@ class Scorer:
 class ScoreCalculator:
 
     def __init__(self, target_dump, *, stack_differences: bool = False):
-
         self.target_dump = target_dump
         self.stack_differences = stack_differences
 
-        lines1 = self._createDiffLines(target_dump.split("\n"))
+        lines = self._createDiffLines(target_dump)
 
-        self.scorer = Scorer(lines1, stack_differences)
+        self.scorer = Scorer(lines, stack_differences)
 
     def _createDiffLines(self, asm_lines) -> Tuple[str, List[DiffAsmLine]]:
         processed_lines = []
         for line in asm_lines:
             split_lines = line.split('\t')
-            if len(split_lines) < 2:
-                continue
             line = "\t".join(split_lines[2:])
 
             processed_lines.append(DiffAsmLine(line))
         return processed_lines
 
     def score(self, current_dump):
-        lines = self._createDiffLines(current_dump.split("\n"))
+        lines = self._createDiffLines(current_dump)
         return self.scorer.score(lines)
 
 
@@ -1295,12 +1337,10 @@ class Display:
             output = self.emsg
         else:
             diff_output = do_diff(self.basedump, self.mydump)
-            if args.diff_obj or args.diff_elf_symbol:
-                # Generate from binary for the score if not already done
-                make_target, basecmd, mycmd = dump_binary()
-                score = do_score(run_objdump(basecmd), run_objdump(mycmd))
+            if args.diff_obj:
+                score = do_score(args.start)
             else:
-                score = do_score(self.basedump, self.mydump)
+                score = None
             last_diff_output = self.last_diff_output or diff_output
             self.last_diff_output = diff_output
             header, diff_lines = format_diff(last_diff_output, diff_output, score)
