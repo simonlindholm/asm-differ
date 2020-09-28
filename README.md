@@ -7,7 +7,7 @@ Nice differ for assembly code (currently MIPS, but should be easy to hack to sup
 ## Dependencies
 
 - Python >= 3.6
-- `python3 -m pip install --user colorama ansiwrap attrs watchdog`
+- `python3 -m pip install --user colorama ansiwrap watchdog python-Levenshtein`
 
 ## Usage
 
