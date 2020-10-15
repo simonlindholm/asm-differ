@@ -1088,11 +1088,11 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple
                 if tag in ["equal", "replace"]:
                     for i, j in zip(range(i1, i2), range(j1, j2)):
                         output.append(("", old_chunk[i], new_chunk[j]))
-                elif tag == "insert":
-                    for j in range(j1, j2):
+                if tag in ["insert", "replace"]:
+                    for j in range(j1 + i2 - i1, j2):
                         output.append(("", empty, new_chunk[j]))
-                else:
-                    for i in range(i1, i2):
+                if tag in ["delete", "replace"]:
+                    for i in range(i1 + j2 - j1, i2):
                         output.append(("", old_chunk[i], empty))
         else:
             assert isinstance(new_chunk, OutputLine)
