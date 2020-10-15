@@ -877,9 +877,9 @@ def diff_sequences(seq1, seq2):
 class OutputLine:
     base: Optional[str]
     fmt2: str
-    key2: str
+    key2: Optional[str]
 
-    def __init__(self, base: Optional[str], fmt2: str, key2: str) -> None:
+    def __init__(self, base: Optional[str], fmt2: str, key2: Optional[str]) -> None:
         self.base = base
         self.fmt2 = fmt2
         self.key2 = key2
@@ -1028,7 +1028,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
 
             part1 = format_part(out1, line1, line_color1, bts1, sc5)
             part2 = format_part(out2, line2, line_color2, bts2, sc6)
-            key2 = line2.original if line2 else ""
+            key2 = line2.original if line2 else None
 
             mid = f"{sym_color}{line_prefix}"
 
@@ -1075,7 +1075,7 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple
     new_chunks = chunk_diff(new_diff)
     output: List[Tuple[str, OutputLine, OutputLine]] = []
     assert len(old_chunks) == len(new_chunks), "same target"
-    empty = OutputLine("", "", "")
+    empty = OutputLine("", "", None)
     for old_chunk, new_chunk in zip(old_chunks, new_chunks):
         if isinstance(old_chunk, list):
             assert isinstance(new_chunk, list)
@@ -1096,10 +1096,11 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple
                         output.append(("", old_chunk[i], empty))
         else:
             assert isinstance(new_chunk, OutputLine)
+            assert new_chunk.base
             # old_chunk.base and new_chunk.base have the same text since
             # both diffs are based on the same target, but they might
             # differ in color. Use the new version.
-            output.append((new_chunk.base or "", old_chunk, new_chunk))
+            output.append((new_chunk.base, old_chunk, new_chunk))
 
     # TODO: status line, with e.g. approximate permuter score?
     width = args.column_width
@@ -1116,7 +1117,7 @@ def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple
         diff_lines = [
             ansi_ljust(base, width) + new.fmt2
             for (base, old, new) in output
-            if base or new.key2
+            if base or new.key2 is not None
         ]
     return header_line, diff_lines
 
