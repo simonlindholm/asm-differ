@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
+import argparse
 import sys
+from typing import (
+    Any,
+    Dict,
+    List,
+    Match,
+    NamedTuple,
+    NoReturn,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 
-def fail(msg):
+def fail(msg: str) -> NoReturn:
     print(msg, file=sys.stderr)
     sys.exit(1)
 
@@ -21,7 +34,6 @@ try:
     import argcomplete  # type: ignore
 except ModuleNotFoundError:
     argcomplete = None
-import argparse
 
 parser = argparse.ArgumentParser(description="Diff MIPS assembly.")
 
@@ -32,15 +44,15 @@ start_argument = parser.add_argument(
 
 if argcomplete:
 
-    def complete_symbol(**kwargs):
-        prefix = kwargs["prefix"]
+    def complete_symbol(
+        prefix: str, parsed_args: argparse.Namespace, **kwargs: object
+    ) -> List[str]:
         if prefix == "":
             # skip reading the map file, which would
             # result in a lot of useless completions
             return []
-        parsed_args = kwargs["parsed_args"]
-        config = {}
-        diff_settings.apply(config, parsed_args)
+        config: Dict[str, Any] = {}
+        diff_settings.apply(config, parsed_args)  # type: ignore
         mapfile = config.get("mapfile")
         if not mapfile:
             return []
@@ -216,8 +228,9 @@ parser.add_argument(
 )
 
 # Project-specific flags, e.g. different versions/make arguments.
-if hasattr(diff_settings, "add_custom_arguments"):
-    diff_settings.add_custom_arguments(parser)  # type: ignore
+add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
+if add_custom_arguments_fn:
+    add_custom_arguments_fn(parser)
 
 if argcomplete:
     argcomplete.autocomplete(parser)
@@ -236,7 +249,6 @@ import itertools
 import threading
 import queue
 import time
-from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 
 MISSING_PREREQUISITES = (
@@ -257,20 +269,20 @@ args = parser.parse_args()
 
 # Set imgs, map file and make flags in a project-specific manner.
 config: Dict[str, Any] = {}
-diff_settings.apply(config, args)
+diff_settings.apply(config, args)  # type: ignore
 
-arch = config.get("arch", "mips")
-baseimg = config.get("baseimg", None)
-myimg = config.get("myimg", None)
-mapfile = config.get("mapfile", None)
-makeflags = config.get("makeflags", [])
-source_directories = config.get("source_directories", None)
-objdump_executable = config.get("objdump_executable", None)
+arch: str = config.get("arch", "mips")
+baseimg: Optional[str] = config.get("baseimg")
+myimg: Optional[str] = config.get("myimg")
+mapfile: Optional[str] = config.get("mapfile")
+makeflags: List[str] = config.get("makeflags", [])
+source_directories: Optional[List[str]] = config.get("source_directories")
+objdump_executable: Optional[str] = config.get("objdump_executable")
 
-MAX_FUNCTION_SIZE_LINES = args.max_lines
-MAX_FUNCTION_SIZE_BYTES = MAX_FUNCTION_SIZE_LINES * 4
+MAX_FUNCTION_SIZE_LINES: int = args.max_lines
+MAX_FUNCTION_SIZE_BYTES: int = MAX_FUNCTION_SIZE_LINES * 4
 
-COLOR_ROTATION = [
+COLOR_ROTATION: List[str] = [
     Fore.MAGENTA,
     Fore.CYAN,
     Fore.GREEN,
@@ -282,13 +294,15 @@ COLOR_ROTATION = [
     Fore.LIGHTBLACK_EX,
 ]
 
-BUFFER_CMD = ["tail", "-c", str(10 ** 9)]
-LESS_CMD = ["less", "-SRic", "-#6"]
+BUFFER_CMD: List[str] = ["tail", "-c", str(10 ** 9)]
+LESS_CMD: List[str] = ["less", "-SRic", "-#6"]
 
-DEBOUNCE_DELAY = 0.1
-FS_WATCH_EXTENSIONS = [".c", ".h"]
+DEBOUNCE_DELAY: float = 0.1
+FS_WATCH_EXTENSIONS: List[str] = [".c", ".h"]
 
 # ==== LOGIC ====
+
+ObjdumpCommand = Tuple[List[str], str, Optional[str]]
 
 if args.algorithm == "levenshtein":
     try:
@@ -326,35 +340,41 @@ if not objdump_executable:
     )
 
 
-def eval_int(expr, emsg=None):
+def maybe_eval_int(expr: str) -> Optional[int]:
     try:
         ret = ast.literal_eval(expr)
         if not isinstance(ret, int):
             raise Exception("not an integer")
         return ret
     except Exception:
-        if emsg is not None:
-            fail(emsg)
         return None
 
 
-def eval_line_num(expr):
+def eval_int(expr: str, emsg: str) -> int:
+    ret = maybe_eval_int(expr)
+    if ret is None:
+        fail(emsg)
+    return ret
+
+
+def eval_line_num(expr: str) -> int:
     return int(expr.strip().replace(":", ""), 16)
 
 
-def run_make(target, capture_output=False):
-    if capture_output:
-        return subprocess.run(
-            ["make"] + makeflags + [target],
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-        )
-    else:
-        subprocess.check_call(["make"] + makeflags + [target])
+def run_make(target: str) -> None:
+    subprocess.check_call(["make"] + makeflags + [target])
 
 
-def restrict_to_function(dump, fn_name):
-    out = []
+def run_make_capture_output(target: str) -> "subprocess.CompletedProcess[bytes]":
+    return subprocess.run(
+        ["make"] + makeflags + [target],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+    )
+
+
+def restrict_to_function(dump: str, fn_name: str) -> str:
+    out: List[str] = []
     search = f"<{fn_name}>:"
     found = False
     for line in dump.split("\n"):
@@ -367,7 +387,7 @@ def restrict_to_function(dump, fn_name):
     return "\n".join(out)
 
 
-def maybe_get_objdump_source_flags():
+def maybe_get_objdump_source_flags() -> List[str]:
     if not args.source:
         return []
 
@@ -383,8 +403,9 @@ def maybe_get_objdump_source_flags():
     return flags
 
 
-def run_objdump(cmd):
+def run_objdump(cmd: ObjdumpCommand) -> str:
     flags, target, restrict = cmd
+    assert objdump_executable, "checked previously"
     out = subprocess.check_output(
         [objdump_executable] + arch_flags + flags + [target], universal_newlines=True
     )
@@ -393,12 +414,12 @@ def run_objdump(cmd):
     return out
 
 
-base_shift = eval_int(
+base_shift: int = eval_int(
     args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
 )
 
 
-def search_map_file(fn_name):
+def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
     if not mapfile:
         fail(f"No map file configured; cannot find function {fn_name}.")
 
@@ -439,7 +460,7 @@ def search_map_file(fn_name):
     return None, None
 
 
-def dump_elf():
+def dump_elf() -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
     if not baseimg or not myimg:
         fail("Missing myimg/baseimg in config.")
     if base_shift:
@@ -469,7 +490,7 @@ def dump_elf():
     )
 
 
-def dump_objfile():
+def dump_objfile() -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
     if base_shift:
         fail("--base-shift not compatible with -o")
     if args.end is not None:
@@ -499,12 +520,12 @@ def dump_objfile():
     )
 
 
-def dump_binary():
+def dump_binary() -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
     if not baseimg or not myimg:
         fail("Missing myimg/baseimg in config.")
     if args.make:
         run_make(myimg)
-    start_addr = eval_int(args.start)
+    start_addr = maybe_eval_int(args.start)
     if start_addr is None:
         _, start_addr = search_map_file(args.start)
         if start_addr is None:
@@ -526,9 +547,9 @@ def dump_binary():
     )
 
 
-# Alignment with ANSI colors is broken, let's fix it.
-def ansi_ljust(s, width):
-    needed = width - ansiwrap.ansilen(s)
+def ansi_ljust(s: str, width: int) -> str:
+    """Like s.ljust(width), but accounting for ANSI colors."""
+    needed: int = width - ansiwrap.ansilen(s)
     if needed > 0:
         return s + " " * needed
     else:
@@ -538,7 +559,9 @@ def ansi_ljust(s, width):
 if arch == "mips":
     re_int = re.compile(r"[0-9]+")
     re_comment = re.compile(r"<.*?>")
-    re_reg = re.compile(r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b")
+    re_reg = re.compile(
+        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b"
+    )
     re_sprel = re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)")
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
     re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)")
@@ -613,7 +636,7 @@ else:
     fail("Unknown architecture.")
 
 
-def hexify_int(row, pat):
+def hexify_int(row: str, pat: Match[str]) -> str:
     full = pat.group(0)
     if len(full) <= 1:
         # leave one-digit ints alone
@@ -626,7 +649,7 @@ def hexify_int(row, pat):
     return hex(int(full))
 
 
-def parse_relocated_line(line):
+def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     try:
         ind2 = line.rindex(",")
     except ValueError:
@@ -643,7 +666,7 @@ def parse_relocated_line(line):
     return before, imm, after
 
 
-def process_mips_reloc(row, prev):
+def process_mips_reloc(row: str, prev: str) -> str:
     before, imm, after = parse_relocated_line(prev)
     repl = row.split()[-1]
     if imm != "0":
@@ -669,7 +692,7 @@ def process_mips_reloc(row, prev):
     return before + repl + after
 
 
-def pad_mnemonic(line):
+def pad_mnemonic(line: str) -> str:
     if "\t" not in line:
         return line
     mn, args = line.split("\t", 1)
@@ -795,7 +818,7 @@ def process(lines: List[str]) -> List[Line]:
         row_parts = row.split("\t", 1)
         mnemonic = row_parts[0].strip()
         if mnemonic not in instructions_with_address_immediates:
-            row = re.sub(re_int, lambda s: hexify_int(row, s), row)
+            row = re.sub(re_int, lambda m: hexify_int(row, m), row)
         original = row
         normalized_original = normalizer.normalize(mnemonic, original)
         if skip_next:
@@ -843,16 +866,18 @@ def process(lines: List[str]) -> List[Line]:
     return output
 
 
-def format_single_line_diff(line1, line2, column_width):
-    return f"{ansi_ljust(line1,column_width)}{line2}"
+def format_single_line_diff(line1: str, line2: str, column_width: int) -> str:
+    return ansi_ljust(line1, column_width) + line2
 
 
 class SymbolColorer:
-    def __init__(self, base_index):
+    symbol_colors: Dict[str, str]
+
+    def __init__(self, base_index: int) -> None:
         self.color_index = base_index
         self.symbol_colors = {}
 
-    def color_symbol(self, s, t=None):
+    def color_symbol(self, s: str, t: Optional[str] = None) -> str:
         try:
             color = self.symbol_colors[s]
         except:
@@ -863,15 +888,15 @@ class SymbolColorer:
         return f"{color}{t}{Fore.RESET}"
 
 
-def normalize_imms(row):
+def normalize_imms(row: str) -> str:
     return re.sub(re_imm, "<imm>", row)
 
 
-def normalize_stack(row):
+def normalize_stack(row: str) -> str:
     return re.sub(re_sprel, "addr(sp)", row)
 
 
-def split_off_branch(line):
+def split_off_branch(line: str) -> Tuple[str, str]:
     parts = line.split(",")
     if len(parts) < 2:
         parts = line.split(None, 1)
@@ -879,21 +904,25 @@ def split_off_branch(line):
     return line[:off], line[off:]
 
 
-def color_imms(out1, out2):
+def color_imms(out1: str, out2: str) -> Tuple[str, str]:
+    # Call re_imm.sub() and record the calls made to the callback.
+    # We will assume they happen in the same order further down, when
+    # we do re_imm.sub() on the same input but with a different callback.
+    # (Swithing to re_imm.finditer would be cleaner...)
     g1 = []
     g2 = []
-    re.sub(re_imm, lambda s: g1.append(s.group()), out1)
-    re.sub(re_imm, lambda s: g2.append(s.group()), out2)
+    re_imm.sub(lambda m: g1.append(m.group()) or "", out1)  # type: ignore
+    re_imm.sub(lambda m: g2.append(m.group()) or "", out2)  # type: ignore
     if len(g1) == len(g2):
         diffs = [x != y for (x, y) in zip(g1, g2)]
         it = iter(diffs)
 
-        def maybe_color(s):
+        def maybe_color(s: str) -> str:
             return f"{Fore.LIGHTBLUE_EX}{s}{Style.RESET_ALL}" if next(it) else s
 
-        out1 = re.sub(re_imm, lambda s: maybe_color(s.group()), out1)
+        out1 = re_imm.sub(lambda m: maybe_color(m.group()), out1)
         it = iter(diffs)
-        out2 = re.sub(re_imm, lambda s: maybe_color(s.group()), out2)
+        out2 = re_imm.sub(lambda m: maybe_color(m.group()), out2)
     return out1, out2
 
 
@@ -904,12 +933,16 @@ def color_branch_imms(br1: str, br2: str) -> Tuple[str, str]:
     return br1, br2
 
 
-def diff_sequences_difflib(seq1, seq2):
+def diff_sequences_difflib(
+    seq1: List[str], seq2: List[str]
+) -> List[Tuple[str, int, int, int, int]]:
     differ = difflib.SequenceMatcher(a=seq1, b=seq2, autojunk=False)
     return differ.get_opcodes()
 
 
-def diff_sequences(seq1, seq2):
+def diff_sequences(
+    seq1: List[str], seq2: List[str]
+) -> List[Tuple[str, int, int, int, int]]:
     if (
         args.algorithm != "levenshtein"
         or len(seq1) * len(seq2) > 4 * 10 ** 8
@@ -919,9 +952,9 @@ def diff_sequences(seq1, seq2):
 
     # The Levenshtein library assumes that we compare strings, not lists. Convert.
     # (Per the check above we know we have fewer than 0x110000 unique elements, so chr() works.)
-    remapping = {}
+    remapping: Dict[str, str] = {}
 
-    def remap(seq):
+    def remap(seq: List[str]) -> str:
         seq = seq[:]
         for i in range(len(seq)):
             val = remapping.get(seq[i])
@@ -931,9 +964,9 @@ def diff_sequences(seq1, seq2):
             seq[i] = val
         return "".join(seq)
 
-    seq1 = remap(seq1)
-    seq2 = remap(seq2)
-    return Levenshtein.opcodes(seq1, seq2)
+    rem1 = remap(seq1)
+    rem2 = remap(seq2)
+    return Levenshtein.opcodes(rem1, rem2)  # type: ignore
 
 
 def diff_lines(
@@ -1005,9 +1038,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                     btset.add(bt + ":")
                     sc.color_symbol(bt + ":")
 
-    diffs: List[Tuple[Optional[Line], Optional[Line]]] = diff_lines(lines1, lines2)
-
-    for (line1, line2) in diffs:
+    for (line1, line2) in diff_lines(lines1, lines2):
         line_color1 = line_color2 = sym_color = Fore.RESET
         line_prefix = " "
         if line1 and line2 and line1.diff_row == line2.diff_row:
@@ -1046,10 +1077,10 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                         line_prefix = "i"
                 else:
                     out1 = re.sub(
-                        re_sprel, lambda s: sc3.color_symbol(s.group()), out1,
+                        re_sprel, lambda m: sc3.color_symbol(m.group()), out1,
                     )
                     out2 = re.sub(
-                        re_sprel, lambda s: sc4.color_symbol(s.group()), out2,
+                        re_sprel, lambda m: sc4.color_symbol(m.group()), out2,
                     )
                     if normalize_stack(branchless1) == normalize_stack(branchless2):
                         # only stack differences (luckily stack and imm
@@ -1060,10 +1091,10 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                     else:
                         # regs differences and maybe imms as well
                         out1 = re.sub(
-                            re_reg, lambda s: sc1.color_symbol(s.group()), out1
+                            re_reg, lambda m: sc1.color_symbol(m.group()), out1
                         )
                         out2 = re.sub(
-                            re_reg, lambda s: sc2.color_symbol(s.group()), out2
+                            re_reg, lambda m: sc2.color_symbol(m.group()), out2
                         )
                         line_color1 = line_color2 = sym_color = Fore.YELLOW
                         line_prefix = "r"
@@ -1211,24 +1242,30 @@ def format_diff(
     return header_line, diff_lines
 
 
-def debounced_fs_watch(targets, outq, debounce_delay):
+def debounced_fs_watch(
+    targets: List[str],
+    outq: "queue.Queue[Optional[float]]",
+    debounce_delay: float,
+) -> None:
     import watchdog.events  # type: ignore
     import watchdog.observers  # type: ignore
 
-    class WatchEventHandler(watchdog.events.FileSystemEventHandler):
-        def __init__(self, queue, file_targets):
+    class WatchEventHandler(watchdog.events.FileSystemEventHandler):  # type: ignore
+        def __init__(
+            self, queue: "queue.Queue[float]", file_targets: List[str]
+        ) -> None:
             self.queue = queue
             self.file_targets = file_targets
 
-        def on_modified(self, ev):
+        def on_modified(self, ev: object) -> None:
             if isinstance(ev, watchdog.events.FileModifiedEvent):
                 self.changed(ev.src_path)
 
-        def on_moved(self, ev):
+        def on_moved(self, ev: object) -> None:
             if isinstance(ev, watchdog.events.FileMovedEvent):
                 self.changed(ev.dest_path)
 
-        def should_notify(self, path):
+        def should_notify(self, path: str) -> bool:
             for target in self.file_targets:
                 if path == target:
                     return True
@@ -1238,13 +1275,13 @@ def debounced_fs_watch(targets, outq, debounce_delay):
                 return True
             return False
 
-        def changed(self, path):
+        def changed(self, path: str) -> None:
             if self.should_notify(path):
                 self.queue.put(time.time())
 
-    def debounce_thread():
-        listenq = queue.Queue()
-        file_targets = []
+    def debounce_thread() -> NoReturn:
+        listenq: "queue.Queue[float]" = queue.Queue()
+        file_targets: List[str] = []
         event_handler = WatchEventHandler(listenq, file_targets)
         observer = watchdog.observers.Observer()
         observed = set()
@@ -1280,13 +1317,22 @@ def debounced_fs_watch(targets, outq, debounce_delay):
 
 
 class Display:
-    def __init__(self, basedump, mydump):
+    basedump: str
+    mydump: str
+    emsg: Optional[str]
+    last_diff_output: Optional[List[OutputLine]]
+    pending_update: Optional[Tuple[str, bool]]
+    ready_queue: "queue.Queue[None]"
+    watch_queue: "queue.Queue[Optional[float]]"
+    less_proc: "Optional[subprocess.Popen[bytes]]"
+
+    def __init__(self, basedump: str, mydump: str) -> None:
         self.basedump = basedump
         self.mydump = mydump
         self.emsg = None
         self.last_diff_output = None
 
-    def run_less(self):
+    def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
         if self.emsg is not None:
             output = self.emsg
         else:
@@ -1306,17 +1352,19 @@ class Display:
             BUFFER_CMD, stdin=subprocess.PIPE, stdout=subprocess.PIPE
         )
         less_proc = subprocess.Popen(LESS_CMD, stdin=buffer_proc.stdout)
+        assert buffer_proc.stdin
+        assert buffer_proc.stdout
         buffer_proc.stdin.write(output.encode())
         buffer_proc.stdin.close()
         buffer_proc.stdout.close()
         return (buffer_proc, less_proc)
 
-    def run_sync(self):
+    def run_sync(self) -> None:
         proca, procb = self.run_less()
         procb.wait()
         proca.wait()
 
-    def run_async(self, watch_queue):
+    def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
         self.watch_queue = watch_queue
         self.ready_queue = queue.Queue()
         self.pending_update = None
@@ -1324,10 +1372,10 @@ class Display:
         dthread.start()
         self.ready_queue.get()
 
-    def display_thread(self):
+    def display_thread(self) -> None:
         proca, procb = self.run_less()
         self.less_proc = procb
-        self.ready_queue.put(0)
+        self.ready_queue.put(None)
         while True:
             ret = procb.wait()
             proca.wait()
@@ -1346,19 +1394,19 @@ class Display:
                     self.emsg = msg
                 proca, procb = self.run_less()
                 self.less_proc = procb
-                self.ready_queue.put(0)
+                self.ready_queue.put(None)
             else:
                 # terminated by user, or killed
                 self.watch_queue.put(None)
-                self.ready_queue.put(0)
+                self.ready_queue.put(None)
                 break
 
-    def progress(self, msg):
+    def progress(self, msg: str) -> None:
         # Write message to top-left corner
         sys.stdout.write("\x1b7\x1b[1;1f{}\x1b8".format(msg + " "))
         sys.stdout.flush()
 
-    def update(self, text, error):
+    def update(self, text: str, error: bool) -> None:
         if not error and not self.emsg and text == self.mydump:
             self.progress("Unchanged. ")
             return
@@ -1368,14 +1416,14 @@ class Display:
         self.less_proc.kill()
         self.ready_queue.get()
 
-    def terminate(self):
+    def terminate(self) -> None:
         if not self.less_proc:
             return
         self.less_proc.kill()
         self.ready_queue.get()
 
 
-def main():
+def main() -> None:
     if args.diff_elf_symbol:
         make_target, basecmd, mycmd = dump_elf()
     elif args.diff_obj:
@@ -1405,23 +1453,27 @@ def main():
     else:
         if not args.make:
             yn = input(
-                "Warning: watch-mode (-w) enabled without auto-make (-m). You will have to run make manually. Ok? (Y/n) "
+                "Warning: watch-mode (-w) enabled without auto-make (-m). "
+                "You will have to run make manually. Ok? (Y/n) "
             )
             if yn.lower() == "n":
                 return
         if args.make:
             watch_sources = None
-            if hasattr(diff_settings, "watch_sources_for_target"):
-                watch_sources = diff_settings.watch_sources_for_target(make_target)
+            watch_sources_for_target_fn = getattr(
+                diff_settings, "watch_sources_for_target", None
+            )
+            if watch_sources_for_target_fn:
+                watch_sources = watch_sources_for_target_fn(make_target)
             watch_sources = watch_sources or source_directories
             if not watch_sources:
                 fail("Missing source_directories config, don't know what to watch.")
         else:
             watch_sources = [make_target]
-        q = queue.Queue()
+        q: "queue.Queue[Optional[float]]" = queue.Queue()
         debounced_fs_watch(watch_sources, q, DEBOUNCE_DELAY)
         display.run_async(q)
-        last_build = 0
+        last_build = 0.0
         try:
             while True:
                 t = q.get()
@@ -1432,7 +1484,7 @@ def main():
                 last_build = time.time()
                 if args.make:
                     display.progress("Building...")
-                    ret = run_make(make_target, capture_output=True)
+                    ret = run_make_capture_output(make_target)
                     if ret.returncode != 0:
                         display.update(
                             ret.stderr.decode("utf-8-sig", "replace")
