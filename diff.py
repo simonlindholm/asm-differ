@@ -164,11 +164,21 @@ parser.add_argument(
 )
 parser.add_argument(
     "-3",
-    "--threeway",
+    "--threeway=prev",
     dest="threeway",
-    action="store_true",
+    action="store_const",
+    const="prev",
     help="Show a three-way diff between target asm, current asm, and asm "
-    "prior to -w rebuild. Requires -w.",
+    "prior to -w rebuild. Requires -w. (See also: -b)",
+)
+parser.add_argument(
+    "-b",
+    "--threeway=base",
+    dest="threeway",
+    action="store_const",
+    const="base",
+    help="Show a three-way diff between target asm, current asm, and asm "
+    "when diff.py was started. Requires -w. (See also: -3)",
 )
 parser.add_argument(
     "--width",
@@ -277,6 +287,9 @@ if args.source:
         import cxxfilt  # type: ignore
     except ModuleNotFoundError as e:
         fail(MISSING_PREREQUISITES.format(e.name))
+
+if args.threeway and not args.watch:
+    fail("Threeway diffing requires -w.")
 
 if objdump_executable is None:
     for objdump_cand in ["mips-linux-gnu-objdump", "mips64-elf-objdump"]:
@@ -1203,7 +1216,8 @@ class Display:
         else:
             diff_output = do_diff(self.basedump, self.mydump)
             last_diff_output = self.last_diff_output or diff_output
-            self.last_diff_output = diff_output
+            if args.threeway != "base" or not self.last_diff_output:
+                self.last_diff_output = diff_output
             header, diff_lines = format_diff(last_diff_output, diff_output)
             header_lines = [header] if header else []
             output = "\n".join(header_lines + diff_lines[args.skip_lines :])
