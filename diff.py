@@ -754,7 +754,7 @@ def make_difference_normalizer() -> DifferenceNormalizer:
     return DifferenceNormalizer()
 
 
-def process(lines):
+def process(lines: List[str]) -> List[Line]:
     normalizer = make_difference_normalizer()
     skip_next = False
     source_lines = []
@@ -763,7 +763,7 @@ def process(lines):
         if lines and not lines[-1]:
             lines.pop()
 
-    output = []
+    output: List[Line] = []
     stop_after_delay_slot = False
     for row in lines:
         if args.diff_obj and (">:" in row or not row):
@@ -897,7 +897,7 @@ def color_imms(out1, out2):
     return out1, out2
 
 
-def color_branch_imms(br1, br2):
+def color_branch_imms(br1: str, br2: str) -> Tuple[str, str]:
     if br1 != br2:
         br1 = f"{Fore.LIGHTBLUE_EX}{br1}{Style.RESET_ALL}"
         br2 = f"{Fore.LIGHTBLUE_EX}{br2}{Style.RESET_ALL}"
@@ -934,6 +934,30 @@ def diff_sequences(seq1, seq2):
     seq1 = remap(seq1)
     seq2 = remap(seq2)
     return Levenshtein.opcodes(seq1, seq2)
+
+
+def diff_lines(
+    lines1: List[Line],
+    lines2: List[Line],
+) -> List[Tuple[Optional[Line], Optional[Line]]]:
+    ret = []
+    for (tag, i1, i2, j1, j2) in diff_sequences(
+        [line.mnemonic for line in lines1],
+        [line.mnemonic for line in lines2],
+    ):
+        for line1, line2 in itertools.zip_longest(lines1[i1:i2], lines2[j1:j2]):
+            if tag == "replace":
+                if line1 is None:
+                    tag = "insert"
+                elif line2 is None:
+                    tag = "delete"
+            elif tag == "insert":
+                assert line1 is None
+            elif tag == "delete":
+                assert line2 is None
+            ret.append((line1, line2))
+
+    return ret
 
 
 class OutputLine:
@@ -981,151 +1005,140 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                     btset.add(bt + ":")
                     sc.color_symbol(bt + ":")
 
-    for (tag, i1, i2, j1, j2) in diff_sequences(
-        [line.mnemonic for line in lines1], [line.mnemonic for line in lines2]
-    ):
-        for line1, line2 in itertools.zip_longest(lines1[i1:i2], lines2[j1:j2]):
-            if tag == "replace":
-                if line1 is None:
-                    tag = "insert"
-                elif line2 is None:
-                    tag = "delete"
-            elif tag == "insert":
-                assert line1 is None
-            elif tag == "delete":
-                assert line2 is None
+    diffs: List[Tuple[Optional[Line], Optional[Line]]] = diff_lines(lines1, lines2)
 
-            line_color1 = line_color2 = sym_color = Fore.RESET
-            line_prefix = " "
-            if line1 and line2 and line1.diff_row == line2.diff_row:
-                if line1.normalized_original == line2.normalized_original:
-                    out1 = line1.original
-                    out2 = line2.original
-                elif line1.diff_row == "<delay-slot>":
-                    out1 = f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}{line1.original}"
-                    out2 = f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}{line2.original}"
-                else:
-                    mnemonic = line1.original.split()[0]
-                    out1, out2 = line1.original, line2.original
-                    branch1 = branch2 = ""
-                    if mnemonic in instructions_with_address_immediates:
-                        out1, branch1 = split_off_branch(line1.original)
-                        out2, branch2 = split_off_branch(line2.original)
-                    branchless1 = out1
-                    branchless2 = out2
-                    out1, out2 = color_imms(out1, out2)
+    for (line1, line2) in diffs:
+        line_color1 = line_color2 = sym_color = Fore.RESET
+        line_prefix = " "
+        if line1 and line2 and line1.diff_row == line2.diff_row:
+            if line1.normalized_original == line2.normalized_original:
+                out1 = line1.original
+                out2 = line2.original
+            elif line1.diff_row == "<delay-slot>":
+                out1 = f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}{line1.original}"
+                out2 = f"{Style.BRIGHT}{Fore.LIGHTBLACK_EX}{line2.original}"
+            else:
+                mnemonic = line1.original.split()[0]
+                out1, out2 = line1.original, line2.original
+                branch1 = branch2 = ""
+                if mnemonic in instructions_with_address_immediates:
+                    out1, branch1 = split_off_branch(line1.original)
+                    out2, branch2 = split_off_branch(line2.original)
+                branchless1 = out1
+                branchless2 = out2
+                out1, out2 = color_imms(out1, out2)
 
-                    same_relative_target = False
-                    if line1.branch_target is not None and line2.branch_target is not None:
-                        relative_target1 = eval_line_num(line1.branch_target) - eval_line_num(line1.line_num)
-                        relative_target2 = eval_line_num(line2.branch_target) - eval_line_num(line2.line_num)
-                        same_relative_target = relative_target1 == relative_target2
+                same_relative_target = False
+                if line1.branch_target is not None and line2.branch_target is not None:
+                    relative_target1 = eval_line_num(line1.branch_target) - eval_line_num(line1.line_num)
+                    relative_target2 = eval_line_num(line2.branch_target) - eval_line_num(line2.line_num)
+                    same_relative_target = relative_target1 == relative_target2
 
+                if not same_relative_target:
+                    branch1, branch2 = color_branch_imms(branch1, branch2)
+
+                out1 += branch1
+                out2 += branch2
+                if normalize_imms(branchless1) == normalize_imms(branchless2):
                     if not same_relative_target:
-                        branch1, branch2 = color_branch_imms(branch1, branch2)
-
-                    out1 += branch1
-                    out2 += branch2
-                    if normalize_imms(branchless1) == normalize_imms(branchless2):
-                        if not same_relative_target:
-                            # only imms differences
-                            sym_color = Fore.LIGHTBLUE_EX
-                            line_prefix = "i"
+                        # only imms differences
+                        sym_color = Fore.LIGHTBLUE_EX
+                        line_prefix = "i"
+                else:
+                    out1 = re.sub(
+                        re_sprel, lambda s: sc3.color_symbol(s.group()), out1,
+                    )
+                    out2 = re.sub(
+                        re_sprel, lambda s: sc4.color_symbol(s.group()), out2,
+                    )
+                    if normalize_stack(branchless1) == normalize_stack(branchless2):
+                        # only stack differences (luckily stack and imm
+                        # differences can't be combined in MIPS, so we
+                        # don't have to think about that case)
+                        sym_color = Fore.YELLOW
+                        line_prefix = "s"
                     else:
+                        # regs differences and maybe imms as well
                         out1 = re.sub(
-                            re_sprel, lambda s: sc3.color_symbol(s.group()), out1,
+                            re_reg, lambda s: sc1.color_symbol(s.group()), out1
                         )
                         out2 = re.sub(
-                            re_sprel, lambda s: sc4.color_symbol(s.group()), out2,
+                            re_reg, lambda s: sc2.color_symbol(s.group()), out2
                         )
-                        if normalize_stack(branchless1) == normalize_stack(branchless2):
-                            # only stack differences (luckily stack and imm
-                            # differences can't be combined in MIPS, so we
-                            # don't have to think about that case)
-                            sym_color = Fore.YELLOW
-                            line_prefix = "s"
-                        else:
-                            # regs differences and maybe imms as well
-                            out1 = re.sub(
-                                re_reg, lambda s: sc1.color_symbol(s.group()), out1
+                        line_color1 = line_color2 = sym_color = Fore.YELLOW
+                        line_prefix = "r"
+        elif line1 and line2:
+            line_prefix = "|"
+            line_color1 = Fore.LIGHTBLUE_EX
+            line_color2 = Fore.LIGHTBLUE_EX
+            sym_color = Fore.LIGHTBLUE_EX
+            out1 = line1.original
+            out2 = line2.original
+        elif line1:
+            line_prefix = "<"
+            line_color1 = sym_color = Fore.RED
+            out1 = line1.original
+            out2 = ""
+        elif line2:
+            line_prefix = ">"
+            line_color2 = sym_color = Fore.GREEN
+            out1 = ""
+            out2 = line2.original
+
+        if args.source and line2 and line2.comment:
+            out2 += f" {line2.comment}"
+
+        def format_part(
+            out: str,
+            line: Optional[Line],
+            line_color: str,
+            btset: Set[str],
+            sc: SymbolColorer,
+        ) -> Optional[str]:
+            if line is None:
+                return None
+            in_arrow = "  "
+            out_arrow = ""
+            if args.show_branches:
+                if line.line_num in btset:
+                    in_arrow = sc.color_symbol(line.line_num, "~>") + line_color
+                if line.branch_target is not None:
+                    out_arrow = " " + sc.color_symbol(line.branch_target + ":", "~>")
+            out = pad_mnemonic(out)
+            return f"{line_color}{line.line_num} {in_arrow} {out}{Style.RESET_ALL}{out_arrow}"
+
+        part1 = format_part(out1, line1, line_color1, bts1, sc5)
+        part2 = format_part(out2, line2, line_color2, bts2, sc6)
+        key2 = line2.original if line2 else None
+
+        mid = f"{sym_color}{line_prefix}"
+
+        if line2:
+            for source_line in line2.source_lines:
+                color = Style.DIM
+                # File names and function names
+                if source_line and source_line[0] != "|":
+                    color += Style.BRIGHT
+                    # Function names
+                    if source_line.endswith("():"):
+                        # Underline. Colorama does not provide this feature, unfortunately.
+                        color += "\u001b[4m"
+                        try:
+                            source_line = cxxfilt.demangle(
+                                source_line[:-3], external_only=False
                             )
-                            out2 = re.sub(
-                                re_reg, lambda s: sc2.color_symbol(s.group()), out2
-                            )
-                            line_color1 = line_color2 = sym_color = Fore.YELLOW
-                            line_prefix = "r"
-            elif line1 and line2:
-                line_prefix = "|"
-                line_color1 = Fore.LIGHTBLUE_EX
-                line_color2 = Fore.LIGHTBLUE_EX
-                sym_color = Fore.LIGHTBLUE_EX
-                out1 = line1.original
-                out2 = line2.original
-            elif line1:
-                line_prefix = "<"
-                line_color1 = sym_color = Fore.RED
-                out1 = line1.original
-                out2 = ""
-            elif line2:
-                line_prefix = ">"
-                line_color2 = sym_color = Fore.GREEN
-                out1 = ""
-                out2 = line2.original
-
-            if args.source and line2 and line2.comment:
-                out2 += f" {line2.comment}"
-
-            def format_part(
-                out: str,
-                line: Optional[Line],
-                line_color: str,
-                btset: Set[str],
-                sc: SymbolColorer,
-            ) -> Optional[str]:
-                if line is None:
-                    return None
-                in_arrow = "  "
-                out_arrow = ""
-                if args.show_branches:
-                    if line.line_num in btset:
-                        in_arrow = sc.color_symbol(line.line_num, "~>") + line_color
-                    if line.branch_target is not None:
-                        out_arrow = " " + sc.color_symbol(line.branch_target + ":", "~>")
-                out = pad_mnemonic(out)
-                return f"{line_color}{line.line_num} {in_arrow} {out}{Style.RESET_ALL}{out_arrow}"
-
-            part1 = format_part(out1, line1, line_color1, bts1, sc5)
-            part2 = format_part(out2, line2, line_color2, bts2, sc6)
-            key2 = line2.original if line2 else None
-
-            mid = f"{sym_color}{line_prefix}"
-
-            if line2:
-                for source_line in line2.source_lines:
-                    color = Style.DIM
-                    # File names and function names
-                    if source_line and source_line[0] != "|":
-                        color += Style.BRIGHT
-                        # Function names
-                        if source_line.endswith("():"):
-                            # Underline. Colorama does not provide this feature, unfortunately.
-                            color += "\u001b[4m"
-                            try:
-                                source_line = cxxfilt.demangle(
-                                    source_line[:-3], external_only=False
-                                )
-                            except:
-                                pass
-                    output.append(
-                        OutputLine(
-                            None,
-                            f"  {color}{source_line}{Style.RESET_ALL}",
-                            source_line,
-                        )
+                        except:
+                            pass
+                output.append(
+                    OutputLine(
+                        None,
+                        f"  {color}{source_line}{Style.RESET_ALL}",
+                        source_line,
                     )
+                )
 
-            fmt2 = mid + " " + (part2 or "")
-            output.append(OutputLine(part1, fmt2, key2))
+        fmt2 = mid + " " + (part2 or "")
+        output.append(OutputLine(part1, fmt2, key2))
 
     return output
 
