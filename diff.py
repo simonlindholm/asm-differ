@@ -48,7 +48,7 @@ if argcomplete:
     def complete_symbol(
         prefix: str, parsed_args: argparse.Namespace, **kwargs: object
     ) -> List[str]:
-        if prefix == "":
+        if not prefix or prefix.startswith("-"):
             # skip reading the map file, which would
             # result in a lot of useless completions
             return []
