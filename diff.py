@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import sys
 
+
 def fail(msg):
     print(msg, file=sys.stderr)
     sys.exit(1)
+
 
 # Prefer to use diff_settings.py from the current working directory
 sys.path.insert(0, ".")
@@ -23,8 +25,13 @@ import argparse
 
 parser = argparse.ArgumentParser(description="Diff MIPS assembly.")
 
-start_argument = parser.add_argument("start", help="Function name or address to start diffing from.")
+start_argument = parser.add_argument(
+    "start",
+    help="Function name or address to start diffing from.",
+)
+
 if argcomplete:
+
     def complete_symbol(**kwargs):
         prefix = kwargs["prefix"]
         if prefix == "":
@@ -64,9 +71,14 @@ if argcomplete:
                     pos = data.find(search, endPos)
                 completes.append(match)
         return completes
+
     setattr(start_argument, "completer", complete_symbol)
 
-parser.add_argument("end", nargs="?", help="Address to end diff at.")
+parser.add_argument(
+    "end",
+    nargs="?",
+    help="Address to end diff at.",
+)
 parser.add_argument(
     "-o",
     dest="diff_obj",
@@ -211,6 +223,8 @@ if argcomplete:
     argcomplete.autocomplete(parser)
 
 # ==== IMPORTS ====
+
+# (We do imports late to optimize auto-complete performance.)
 
 import re
 import os
@@ -543,7 +557,19 @@ if arch == "mips":
         "bc1fl",
     }
     branch_instructions = branch_likely_instructions.union(
-        {"b", "beq", "bne", "beqz", "bnez", "bgez", "bgtz", "blez", "bltz", "bc1t", "bc1f"}
+        {
+            "b",
+            "beq",
+            "bne",
+            "beqz",
+            "bnez",
+            "bgez",
+            "bgtz",
+            "blez",
+            "bltz",
+            "bc1t",
+            "bc1f",
+        }
     )
     instructions_with_address_immediates = branch_instructions.union({"jal", "j"})
 elif arch == "aarch64":
@@ -558,7 +584,30 @@ elif arch == "aarch64":
     arch_flags = []
     forbidden = set(string.ascii_letters + "_")
     branch_likely_instructions = set()
-    branch_instructions = {"bl", "b", "b.eq", "b.ne", "b.cs", "b.hs", "b.cc", "b.lo", "b.mi", "b.pl", "b.vs", "b.vc", "b.hi", "b.ls", "b.ge", "b.lt", "b.gt", "b.le", "cbz", "cbnz", "tbz", "tbnz"}
+    branch_instructions = {
+        "bl",
+        "b",
+        "b.eq",
+        "b.ne",
+        "b.cs",
+        "b.hs",
+        "b.cc",
+        "b.lo",
+        "b.mi",
+        "b.pl",
+        "b.vs",
+        "b.vc",
+        "b.hi",
+        "b.ls",
+        "b.ge",
+        "b.lt",
+        "b.gt",
+        "b.le",
+        "cbz",
+        "cbnz",
+        "tbz",
+        "tbnz",
+    }
     instructions_with_address_immediates = branch_instructions.union({"adrp"})
 else:
     fail("Unknown architecture.")
@@ -1026,7 +1075,13 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
             if args.source and line2 and line2.comment:
                 out2 += f" {line2.comment}"
 
-            def format_part(out: str, line: Optional[Line], line_color: str, btset: Set[str], sc: SymbolColorer) -> Optional[str]:
+            def format_part(
+                out: str,
+                line: Optional[Line],
+                line_color: str,
+                btset: Set[str],
+                sc: SymbolColorer,
+            ) -> Optional[str]:
                 if line is None:
                     return None
                 in_arrow = "  "
@@ -1061,7 +1116,13 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                                 )
                             except:
                                 pass
-                    output.append(OutputLine(None, f"  {color}{source_line}{Style.RESET_ALL}", source_line))
+                    output.append(
+                        OutputLine(
+                            None,
+                            f"  {color}{source_line}{Style.RESET_ALL}",
+                            source_line,
+                        )
+                    )
 
             fmt2 = mid + " " + (part2 or "")
             output.append(OutputLine(part1, fmt2, key2))
@@ -1083,7 +1144,9 @@ def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLin
     return chunks
 
 
-def format_diff(old_diff: List[OutputLine], new_diff: List[OutputLine]) -> Tuple[str, List[str]]:
+def format_diff(
+    old_diff: List[OutputLine], new_diff: List[OutputLine]
+) -> Tuple[str, List[str]]:
     old_chunks = chunk_diff(old_diff)
     new_chunks = chunk_diff(new_diff)
     output: List[Tuple[str, OutputLine, OutputLine]] = []
