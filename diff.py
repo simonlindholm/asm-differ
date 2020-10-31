@@ -36,7 +36,7 @@ try:
 except ModuleNotFoundError:
     argcomplete = None
 
-parser = argparse.ArgumentParser(description="Diff MIPS assembly.")
+parser = argparse.ArgumentParser(description="Diff MIPS or AArch64 assembly.")
 
 start_argument = parser.add_argument(
     "start",
@@ -96,13 +96,16 @@ parser.add_argument(
     "-o",
     dest="diff_obj",
     action="store_true",
-    help="Diff .o files rather than a whole binary. This makes it possible to see symbol names. (Recommended)",
+    help="Diff .o files rather than a whole binary. This makes it possible to "
+    "see symbol names. (Recommended)",
 )
 parser.add_argument(
     "-e",
     "--elf",
     dest="diff_elf_symbol",
-    help="Diff a given function in two ELFs, one being stripped and the other one non-stripped. Requires objdump from binutils 2.33+.",
+    metavar="SYMBOL",
+    help="Diff a given function in two ELFs, one being stripped and the other "
+    "one non-stripped. Requires objdump from binutils 2.33+.",
 )
 parser.add_argument(
     "--source",
@@ -139,6 +142,7 @@ parser.add_argument(
     dest="skip_lines",
     type=int,
     default=0,
+    metavar="LINES",
     help="Skip the first N lines of output.",
 )
 parser.add_argument(
@@ -194,7 +198,7 @@ parser.add_argument(
     action="store_const",
     const="prev",
     help="Show a three-way diff between target asm, current asm, and asm "
-    "prior to -w rebuild. Requires -w. (See also: -b)",
+    "prior to -w rebuild. Requires -w.",
 )
 parser.add_argument(
     "-b",
@@ -203,7 +207,7 @@ parser.add_argument(
     action="store_const",
     const="base",
     help="Show a three-way diff between target asm, current asm, and asm "
-    "when diff.py was started. Requires -w. (See also: -3)",
+    "when diff.py was started. Requires -w.",
 )
 parser.add_argument(
     "--width",
@@ -217,7 +221,8 @@ parser.add_argument(
     dest="algorithm",
     default="levenshtein",
     choices=["levenshtein", "difflib"],
-    help="Diff algorithm to use.",
+    help="Diff algorithm to use. Levenshtein gives the minimum diff, while difflib "
+    "aims for long sections of equal opcodes. Defaults to %(default)s.",
 )
 parser.add_argument(
     "--max-size",
