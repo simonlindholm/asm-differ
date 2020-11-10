@@ -399,7 +399,7 @@ def maybe_get_objdump_source_flags() -> List[str]:
 
     flags = [
         "--source",
-        "--source-comment=| ",
+        "--source-comment=│ ",
         "-l",
     ]
 
@@ -1154,7 +1154,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
             for source_line in line2.source_lines:
                 color = Style.DIM
                 # File names and function names
-                if source_line and source_line[0] != "|":
+                if source_line and source_line[0] != "│":
                     color += Style.BRIGHT
                     # Function names
                     if source_line.endswith("():"):
