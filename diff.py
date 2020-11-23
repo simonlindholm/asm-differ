@@ -693,8 +693,15 @@ def process_mips_reloc(row: str, prev: str) -> str:
         # correct addend for each, but objdump doesn't give us the order of
         # the relocations, so we can't find the right LO16. :(
         repl = f"%hi({repl})"
+    elif "R_MIPS_26" in row:
+        # Function calls
+        pass
+    elif "R_MIPS_PC16" in row:
+        # Branch to glabel. This gives confusing output, but there's not much
+        # we can do here.
+        pass
     else:
-        assert "R_MIPS_26" in row, f"unknown relocation type '{row}'"
+        assert False, f"unknown relocation type '{row}' for line '{prev}'"
     return before + repl + after
 
 
