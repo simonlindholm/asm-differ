@@ -14,6 +14,7 @@ from typing import (
     Tuple,
     Union,
     Callable,
+    Pattern,
 )
 
 
@@ -919,7 +920,7 @@ def split_off_branch(line: str) -> Tuple[str, str]:
 
 ColorFunction = Callable[[str], str]
 
-def color_fields(pat: re.Pattern, out1: str, out2: str, color1: ColorFunction, color2: Optional[ColorFunction]=None) -> Tuple[str, str]:
+def color_fields(pat: Pattern[str], out1: str, out2: str, color1: ColorFunction, color2: Optional[ColorFunction]=None) -> Tuple[str, str]:
     diffs = [of.group() != nf.group() for (of, nf) in zip(pat.finditer(out1), pat.finditer(out2))]
 
     it = iter(diffs)
