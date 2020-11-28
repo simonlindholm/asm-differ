@@ -13,6 +13,8 @@ from typing import (
     Set,
     Tuple,
     Union,
+    Callable,
+    Pattern,
 )
 
 
@@ -566,7 +568,7 @@ if arch == "mips":
     re_int = re.compile(r"[0-9]+")
     re_comment = re.compile(r"<.*?>")
     re_reg = re.compile(
-        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b"
+        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra|zero)\b"
     )
     re_sprel = re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)")
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
@@ -916,26 +918,19 @@ def split_off_branch(line: str) -> Tuple[str, str]:
     off = len(line) - len(parts[-1])
     return line[:off], line[off:]
 
+ColorFunction = Callable[[str], str]
 
-def color_imms(out1: str, out2: str) -> Tuple[str, str]:
-    # Call re_imm.sub() and record the calls made to the callback.
-    # We will assume they happen in the same order further down, when
-    # we do re_imm.sub() on the same input but with a different callback.
-    # (Swithing to re_imm.finditer would be cleaner...)
-    g1 = []
-    g2 = []
-    re_imm.sub(lambda m: g1.append(m.group()) or "", out1)  # type: ignore
-    re_imm.sub(lambda m: g2.append(m.group()) or "", out2)  # type: ignore
-    if len(g1) == len(g2):
-        diffs = [x != y for (x, y) in zip(g1, g2)]
-        it = iter(diffs)
+def color_fields(pat: Pattern[str], out1: str, out2: str, color1: ColorFunction, color2: Optional[ColorFunction]=None) -> Tuple[str, str]:
+    diffs = [of.group() != nf.group() for (of, nf) in zip(pat.finditer(out1), pat.finditer(out2))]
 
-        def maybe_color(s: str) -> str:
-            return f"{Fore.LIGHTBLUE_EX}{s}{Style.RESET_ALL}" if next(it) else s
+    it = iter(diffs)
+    def maybe_color(color: ColorFunction, s: str) -> str:
+        return color(s) if next(it, False) else f"{Style.RESET_ALL}{s}"
 
-        out1 = re_imm.sub(lambda m: maybe_color(m.group()), out1)
-        it = iter(diffs)
-        out2 = re_imm.sub(lambda m: maybe_color(m.group()), out2)
+    out1 = pat.sub(lambda m: maybe_color(color1, m.group()), out1)
+    it = iter(diffs)
+    out2 = pat.sub(lambda m: maybe_color(color2 or color1, m.group()), out2)
+
     return out1, out2
 
 
@@ -1070,7 +1065,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                     out2, branch2 = split_off_branch(line2.original)
                 branchless1 = out1
                 branchless2 = out2
-                out1, out2 = color_imms(out1, out2)
+                out1, out2 = color_fields(re_imm, out1, out2, lambda s: f"{Fore.LIGHTBLUE_EX}{s}{Style.RESET_ALL}")
 
                 same_relative_target = False
                 if line1.branch_target is not None and line2.branch_target is not None:
@@ -1089,12 +1084,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                         sym_color = Fore.LIGHTBLUE_EX
                         line_prefix = "i"
                 else:
-                    out1 = re.sub(
-                        re_sprel, lambda m: sc3.color_symbol(m.group()), out1,
-                    )
-                    out2 = re.sub(
-                        re_sprel, lambda m: sc4.color_symbol(m.group()), out2,
-                    )
+                    out1, out2 = color_fields(re_sprel, out1, out2, sc3.color_symbol, sc4.color_symbol)
                     if normalize_stack(branchless1) == normalize_stack(branchless2):
                         # only stack differences (luckily stack and imm
                         # differences can't be combined in MIPS, so we
@@ -1103,12 +1093,7 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                         line_prefix = "s"
                     else:
                         # regs differences and maybe imms as well
-                        out1 = re.sub(
-                            re_reg, lambda m: sc1.color_symbol(m.group()), out1
-                        )
-                        out2 = re.sub(
-                            re_reg, lambda m: sc2.color_symbol(m.group()), out2
-                        )
+                        out1, out2 = color_fields(re_reg, out1, out2, sc1.color_symbol, sc2.color_symbol)
                         line_color1 = line_color2 = sym_color = Fore.YELLOW
                         line_prefix = "r"
         elif line1 and line2:
