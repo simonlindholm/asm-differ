@@ -566,7 +566,7 @@ if arch == "mips":
     re_int = re.compile(r"[0-9]+")
     re_comment = re.compile(r"<.*?>")
     re_reg = re.compile(
-        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra)\b"
+        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra|zero)\b"
     )
     re_sprel = re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)")
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
@@ -1103,12 +1103,16 @@ def do_diff(basedump: str, mydump: str) -> List[OutputLine]:
                         line_prefix = "s"
                     else:
                         # regs differences and maybe imms as well
-                        out1 = re.sub(
-                            re_reg, lambda m: sc1.color_symbol(m.group()), out1
-                        )
-                        out2 = re.sub(
-                            re_reg, lambda m: sc2.color_symbol(m.group()), out2
-                        )
+                        diffs = [of.group() != nf.group() for (of, nf) in zip(re.finditer(re_reg, out1), re.finditer(re_reg, out2))]
+                        it = iter(diffs)
+
+                        def maybe_color(sc: SymbolColorer, s: str) -> str:
+                            return sc.color_symbol(s) if next(it) else f"{Fore.RESET}{s}{Style.RESET_ALL}"
+
+                        out1 = re_reg.sub(lambda m: maybe_color(sc1, m.group()), out1)
+                        it = iter(diffs)
+                        out2 = re_reg.sub(lambda m: maybe_color(sc2, m.group()), out2)
+
                         line_color1 = line_color2 = sym_color = Fore.YELLOW
                         line_prefix = "r"
         elif line1 and line2:
