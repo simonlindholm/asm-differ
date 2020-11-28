@@ -920,11 +920,11 @@ def split_off_branch(line: str) -> Tuple[str, str]:
 ColorFunction = Callable[[str], str]
 
 def color_fields(pat: re.Pattern, out1: str, out2: str, color1: ColorFunction, color2: Optional[ColorFunction]=None) -> Tuple[str, str]:
-    diffs = [of.group() != nf.group() for (of, nf) in zip(re.finditer(pat, out1), re.finditer(pat, out2))]
+    diffs = [of.group() != nf.group() for (of, nf) in zip(pat.finditer(out1), pat.finditer(out2))]
 
     it = iter(diffs)
-    def maybe_color(color, s: str) -> str:
-        return color(s) if next(it) else f"{Style.RESET_ALL}{s}"
+    def maybe_color(color: ColorFunction, s: str) -> str:
+        return color(s) if next(it, False) else f"{Style.RESET_ALL}{s}"
 
     out1 = pat.sub(lambda m: maybe_color(color1, m.group()), out1)
     it = iter(diffs)
