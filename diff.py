@@ -476,13 +476,18 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
         if len(find) > 1:
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
         if len(find) == 1:
-            rom = find[0][1]
+            rom = int(find[0][1],16)
             objname = find[0][2]
             # The metrowerks linker map format does not contain the full object path, so we must complete it manually.
-            objfile = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(mw_build_dir) for f in filenames if f == objname][0]
-            # TODO Currently the ram-rom conversion only works for diffing ELF executables, but it would likely be more convenient to diff DOLs.
-            # At this time it is recommended to always use -o when running the diff script as this mode does not make use of the ram-rom conversion
-            return objfile, rom
+            objfiles = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(mw_build_dir) for f in filenames if f == objname]
+            if len(objfiles) > 1:
+                all_objects = "\n".join(objfiles)
+                fail(f"Found multiple objects of the same name {objname} in {mw_build_dir}, cannot determine which to diff against: \n{all_objects}")
+            if len(objfiles) == 1:
+                objfile = objfiles[0]
+                # TODO Currently the ram-rom conversion only works for diffing ELF executables, but it would likely be more convenient to diff DOLs.
+                # At this time it is recommended to always use -o when running the diff script as this mode does not make use of the ram-rom conversion
+                return objfile, rom
     else:
         fail(f"Linker map format {map_format} unrecognised.")
     return None, None
