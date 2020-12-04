@@ -661,10 +661,10 @@ elif arch == "aarch64":
 elif arch == "ppc":
     re_int = re.compile(r"[0-9]+")
     re_comment = re.compile(r"(<.*?>|//.*$)")
-    re_reg = re.compile(r"\$?\b(r[0]|r[2-31]|f[0-31])\b")
-    re_sprel = re.compile(r"r1, #-?(0x[0-9a-fA-F]+|[0-9]+)\b")
+    re_reg = re.compile(r"\$?\b((?:r|f)[0-9]+)\b")
+    re_sprel = re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)")
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
-    re_imm = re.compile(r"(?<!r1, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b")
+    re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)")
     arch_flags = []
     forbidden = set(string.ascii_letters + "_")
     branch_likely_instructions = set()
