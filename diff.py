@@ -287,6 +287,7 @@ makeflags: List[str] = config.get("makeflags", [])
 source_directories: Optional[List[str]] = config.get("source_directories")
 objdump_executable: Optional[str] = config.get("objdump_executable")
 map_format: str = config.get("map_format", "gnu")
+build_dir: str = config.get("build_dir", "build/")
 
 MAX_FUNCTION_SIZE_LINES: int = args.max_lines
 MAX_FUNCTION_SIZE_BYTES: int = MAX_FUNCTION_SIZE_LINES * 4
@@ -434,12 +435,12 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
 
     try:
         with open(mapfile) as f:
-            lines = f.read()
+            contents = f.read()
     except Exception:
         fail(f"Failed to open map file {mapfile} for reading.")
 
     if map_format == 'gnu':
-        lines = lines.split("\n")
+        lines = contents.split("\n")
 
         try:
             cur_objfile = None
@@ -470,17 +471,18 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
         if len(cands) == 1:
             return cands[0]
     elif map_format == 'mw':
-        #                                        ram   elf rom                                                       object name
-        find = re.findall(re.compile(r'  \S+ \S+ (\S+) (\S+)  . ' + fn_name + r'(?: \(entry of \.(?:init|text)\))? \t(\S+)'), lines)
+        #                                         ram   elf rom                                                       object name
+        find = re.findall(re.compile(r'  \S+ \S+ (\S+) (\S+)  . ' + fn_name + r'(?: \(entry of \.(?:init|text)\))? \t(\S+)'), contents)
         if len(find) > 1:
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
         if len(find) == 1:
+            rom = find[0][1]
+            objname = find[0][2]
             # The metrowerks linker map format does not contain the full object path, so we must complete it manually.
-            # TODO Is there a more suitable way to do this?
-            objfile = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk("build/") for f in filenames if f == find[0][2]][0]
+            objfile = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(build_dir) for f in filenames if f == objname][0]
             # TODO Currently the ram-rom conversion only works for diffing ELF executables, but it would likely be more convenient to diff DOLs.
             # At this time it is recommended to always use -o when running the diff script as this mode does not make use of the ram-rom conversion
-            return objfile, find[0][1]
+            return objfile, rom
     else:
         fail(f"Linker map format {map_format} unrecognised.")
     return None, None
@@ -921,7 +923,7 @@ def process(lines: List[str]) -> List[Line]:
         row = "\t".join(tabs[2:])
         line_num = tabs[0].strip()
 
-        if objdump_executable == 'powerpc-eabi-objdump': # This objdump version doesn't output tabs..
+        if objdump_executable == "powerpc-eabi-objdump": # This objdump version doesn't output tabs..
             row_parts = [part.lstrip() for part in row.split(" ", 1)]
         else:
             row_parts = row.split("\t", 1)
