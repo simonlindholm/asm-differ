@@ -470,14 +470,15 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
         if len(cands) == 1:
             return cands[0]
     elif map_format == 'mw':
-        find = re.findall(re.compile(r'  (\S+) \S+ (\S+) (\S+)  . ' + fn_name + r'(?: \(entry of \.text\))? \t(\S+)'), lines)
+                                            #    ram   elf rom                                                       object name
+        find = re.findall(re.compile(r'  \S+ \S+ (\S+) (\S+)  . ' + fn_name + r'(?: \(entry of \.(?:init|text)\))? \t(\S+)'), lines)
         if len(find) != 0:
             # The metrowerks linker map format does not contain the full object path, so we must complete it manually.
             # TODO Is there a more suitable way to do this?
-            objfile = [os.path.join(dp, f) for dp, dn, filenames in os.walk("build/") for f in filenames if f == find[0][3]][0]
+            objfile = [os.path.join(dp, f) for dp, dn, filenames in os.walk("build/") for f in filenames if f == find[0][2]][0]
             # TODO Currently the ram-rom conversion only works for diffing ELF executables, but it would likely be more convenient to diff DOLs.
             # At this time it is recommended to always use -o when running the diff script as this mode does not make use of the ram-rom conversion
-            return objfile, find[0][2]
+            return objfile, find[0][1]
     else:
         fail(f"Linker map format {map_format} unrecognised.")
     return None, None
