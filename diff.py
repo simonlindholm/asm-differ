@@ -470,7 +470,7 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
         if len(cands) == 1:
             return cands[0]
     elif map_format == 'mw':
-                                            #    ram   elf rom                                                       object name
+        #                                        ram   elf rom                                                       object name
         find = re.findall(re.compile(r'  \S+ \S+ (\S+) (\S+)  . ' + fn_name + r'(?: \(entry of \.(?:init|text)\))? \t(\S+)'), lines)
         if len(find) > 1:
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
@@ -661,7 +661,7 @@ elif arch == "aarch64":
 elif arch == "ppc":
     re_int = re.compile(r"[0-9]+")
     re_comment = re.compile(r"(<.*?>|//.*$)")
-    re_reg = re.compile(r"\$?\b((?:r|f)[0-9]+)\b")
+    re_reg = re.compile(r"\$?\b([rf][0-9]+)\b")
     re_sprel = re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)")
     re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
     re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)")
