@@ -286,6 +286,8 @@ mapfile: Optional[str] = config.get("mapfile")
 makeflags: List[str] = config.get("makeflags", [])
 source_directories: Optional[List[str]] = config.get("source_directories")
 objdump_executable: Optional[str] = config.get("objdump_executable")
+map_format: str = config.get("map_format", "gnu")
+mw_build_dir: str = config.get("mw_build_dir", "build/")
 
 MAX_FUNCTION_SIZE_LINES: int = args.max_lines
 MAX_FUNCTION_SIZE_BYTES: int = MAX_FUNCTION_SIZE_LINES * 4
@@ -433,38 +435,61 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
 
     try:
         with open(mapfile) as f:
-            lines = f.read().split("\n")
+            contents = f.read()
     except Exception:
         fail(f"Failed to open map file {mapfile} for reading.")
 
-    try:
-        cur_objfile = None
-        ram_to_rom = None
-        cands = []
-        last_line = ""
-        for line in lines:
-            if line.startswith(" .text"):
-                cur_objfile = line.split()[3]
-            if "load address" in line:
-                tokens = last_line.split() + line.split()
-                ram = int(tokens[1], 0)
-                rom = int(tokens[5], 0)
-                ram_to_rom = rom - ram
-            if line.endswith(" " + fn_name):
-                ram = int(line.split()[0], 0)
-                if cur_objfile is not None and ram_to_rom is not None:
-                    cands.append((cur_objfile, ram + ram_to_rom))
-            last_line = line
-    except Exception as e:
-        import traceback
+    if map_format == 'gnu':
+        lines = contents.split("\n")
 
-        traceback.print_exc()
-        fail(f"Internal error while parsing map file")
+        try:
+            cur_objfile = None
+            ram_to_rom = None
+            cands = []
+            last_line = ""
+            for line in lines:
+                if line.startswith(" .text"):
+                    cur_objfile = line.split()[3]
+                if "load address" in line:
+                    tokens = last_line.split() + line.split()
+                    ram = int(tokens[1], 0)
+                    rom = int(tokens[5], 0)
+                    ram_to_rom = rom - ram
+                if line.endswith(" " + fn_name):
+                    ram = int(line.split()[0], 0)
+                    if cur_objfile is not None and ram_to_rom is not None:
+                        cands.append((cur_objfile, ram + ram_to_rom))
+                last_line = line
+        except Exception as e:
+            import traceback
 
-    if len(cands) > 1:
-        fail(f"Found multiple occurrences of function {fn_name} in map file.")
-    if len(cands) == 1:
-        return cands[0]
+            traceback.print_exc()
+            fail(f"Internal error while parsing map file")
+
+        if len(cands) > 1:
+            fail(f"Found multiple occurrences of function {fn_name} in map file.")
+        if len(cands) == 1:
+            return cands[0]
+    elif map_format == 'mw':
+        #                                         ram   elf rom                                                       object name
+        find = re.findall(re.compile(r'  \S+ \S+ (\S+) (\S+)  . ' + fn_name + r'(?: \(entry of \.(?:init|text)\))? \t(\S+)'), contents)
+        if len(find) > 1:
+            fail(f"Found multiple occurrences of function {fn_name} in map file.")
+        if len(find) == 1:
+            rom = int(find[0][1],16)
+            objname = find[0][2]
+            # The metrowerks linker map format does not contain the full object path, so we must complete it manually.
+            objfiles = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(mw_build_dir) for f in filenames if f == objname]
+            if len(objfiles) > 1:
+                all_objects = "\n".join(objfiles)
+                fail(f"Found multiple objects of the same name {objname} in {mw_build_dir}, cannot determine which to diff against: \n{all_objects}")
+            if len(objfiles) == 1:
+                objfile = objfiles[0]
+                # TODO Currently the ram-rom conversion only works for diffing ELF executables, but it would likely be more convenient to diff DOLs.
+                # At this time it is recommended to always use -o when running the diff script as this mode does not make use of the ram-rom conversion
+                return objfile, rom
+    else:
+        fail(f"Linker map format {map_format} unrecognised.")
     return None, None
 
 
@@ -640,8 +665,43 @@ elif arch == "aarch64":
         "tbnz",
     }
     instructions_with_address_immediates = branch_instructions.union({"adrp"})
+elif arch == "ppc":
+    re_int = re.compile(r"[0-9]+")
+    re_comment = re.compile(r"(<.*?>|//.*$)")
+    re_reg = re.compile(r"\$?\b([rf][0-9]+)\b")
+    re_sprel = re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)")
+    re_large_imm = re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}")
+    re_imm = re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)")
+    arch_flags = []
+    forbidden = set(string.ascii_letters + "_")
+    branch_likely_instructions = set()
+    branch_instructions = {
+        "b", 
+        "beq", 
+        "beq+", 
+        "beq-", 
+        "bne", 
+        "bne+", 
+        "bne-", 
+        "blt", 
+        "blt+", 
+        "blt-", 
+        "ble",
+        "ble+",
+        "ble-", 
+        "bdnz", 
+        "bdnz+", 
+        "bdnz-",
+        "bge", 
+        "bge+", 
+        "bge-", 
+        "bgt", 
+        "bgt+", 
+        "bgt-", 
+    }
+    instructions_with_address_immediates = branch_instructions.union({"bl"})
 else:
-    fail("Unknown architecture.")
+    fail(f"Unknown architecture: {arch}")
 
 
 def hexify_int(row: str, pat: Match[str]) -> str:
@@ -661,7 +721,10 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     try:
         ind2 = line.rindex(",")
     except ValueError:
-        ind2 = line.rindex("\t")
+        try:
+            ind2 = line.rindex("\t")
+        except ValueError:
+            ind2 = line.rindex(" ")
     before = line[: ind2 + 1]
     after = line[ind2 + 1 :]
     ind2 = after.find("(")
@@ -704,6 +767,35 @@ def process_mips_reloc(row: str, prev: str) -> str:
         pass
     else:
         assert False, f"unknown relocation type '{row}' for line '{prev}'"
+    return before + repl + after
+
+
+def process_ppc_reloc(row: str, prev: str) -> str:
+    assert any(r in row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]), f"unknown relocation type '{row}' for line '{prev}'"
+    before, imm, after = parse_relocated_line(prev)
+    repl = row.split()[-1]
+    if "R_PPC_REL24" in row:
+        # function calls
+        pass
+    elif "R_PPC_ADDR16_HI" in row:
+        # absolute hi of addr
+        repl = f"{repl}@h"
+    elif "R_PPC_ADDR16_HA" in row:
+        # adjusted hi of addr
+        repl = f"{repl}@ha"
+    elif "R_PPC_ADDR16_LO" in row:
+        # lo of addr
+        repl = f"{repl}@l"
+    elif "R_PPC_ADDR16" in row:
+        # 16-bit absolute addr
+        if "+0x7" in repl:
+            # remove the very large addends as they are an artifact of (label-_SDA(2)_BASE_)
+            # computations and are unimportant in a diff setting.
+            if int(repl.split("+")[1],16) > 0x70000000:
+                repl = repl.split("+")[0]
+    elif "R_PPC_EMB_SDA21" in row:
+        # small data area
+        pass
     return before + repl + after
 
 
@@ -823,6 +915,11 @@ def process(lines: List[str]) -> List[Line]:
             output[-1] = output[-1]._replace(original=new_original)
             continue
 
+        if "R_PPC_" in row:
+            new_original = process_ppc_reloc(row, output[-1].original)
+            output[-1] = output[-1]._replace(original=new_original)
+            continue
+
         m_comment = re.search(re_comment, row)
         comment = m_comment[0] if m_comment else None
         row = re.sub(re_comment, "", row)
@@ -830,8 +927,13 @@ def process(lines: List[str]) -> List[Line]:
         tabs = row.split("\t")
         row = "\t".join(tabs[2:])
         line_num = tabs[0].strip()
-        row_parts = row.split("\t", 1)
+
+        if objdump_executable == "powerpc-eabi-objdump": # This objdump version doesn't output tabs..
+            row_parts = [part.lstrip() for part in row.split(" ", 1)]
+        else:
+            row_parts = row.split("\t", 1)
         mnemonic = row_parts[0].strip()
+
         if mnemonic not in instructions_with_address_immediates:
             row = re.sub(re_int, lambda m: hexify_int(row, m), row)
         original = row
