@@ -287,7 +287,7 @@ makeflags: List[str] = config.get("makeflags", [])
 source_directories: Optional[List[str]] = config.get("source_directories")
 objdump_executable: Optional[str] = config.get("objdump_executable")
 map_format: str = config.get("map_format", "gnu")
-build_dir: str = config.get("build_dir", "build/")
+mw_build_dir: str = config.get("mw_build_dir", "build/")
 
 MAX_FUNCTION_SIZE_LINES: int = args.max_lines
 MAX_FUNCTION_SIZE_BYTES: int = MAX_FUNCTION_SIZE_LINES * 4
@@ -479,7 +479,7 @@ def search_map_file(fn_name: str) -> Tuple[Optional[str], Optional[int]]:
             rom = find[0][1]
             objname = find[0][2]
             # The metrowerks linker map format does not contain the full object path, so we must complete it manually.
-            objfile = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(build_dir) for f in filenames if f == objname][0]
+            objfile = [os.path.join(dirpath, f) for dirpath, _, filenames in os.walk(mw_build_dir) for f in filenames if f == objname][0]
             # TODO Currently the ram-rom conversion only works for diffing ELF executables, but it would likely be more convenient to diff DOLs.
             # At this time it is recommended to always use -o when running the diff script as this mode does not make use of the ram-rom conversion
             return objfile, rom
