@@ -928,10 +928,11 @@ def process(lines: List[str]) -> List[Line]:
         row = "\t".join(tabs[2:])
         line_num = tabs[0].strip()
 
-        if objdump_executable == "powerpc-eabi-objdump": # This objdump version doesn't output tabs..
-            row_parts = [part.lstrip() for part in row.split(" ", 1)]
-        else:
+        if "\t" in row:
             row_parts = row.split("\t", 1)
+        else:
+            # powerpc-eabi-objdump doesn't use tabs
+            row_parts = [part.lstrip() for part in row.split(" ", 1)]
         mnemonic = row_parts[0].strip()
 
         if mnemonic not in instructions_with_address_immediates:
