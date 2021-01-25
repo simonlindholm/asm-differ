@@ -285,6 +285,7 @@ myimg: Optional[str] = config.get("myimg")
 mapfile: Optional[str] = config.get("mapfile")
 build_command: List[str] = config.get("make_command", ["make", *config.get("makeflags", [])])
 source_directories: Optional[List[str]] = config.get("source_directories")
+source_extensions: List[str] = config.get("source_extensions", [".c", ".h", ".cpp", ".hpp", ".s"])
 objdump_executable: Optional[str] = config.get("objdump_executable")
 map_format: str = config.get("map_format", "gnu")
 mw_build_dir: str = config.get("mw_build_dir", "build/")
@@ -308,7 +309,7 @@ BUFFER_CMD: List[str] = ["tail", "-c", str(10 ** 9)]
 LESS_CMD: List[str] = ["less", "-SRic", "-#6"]
 
 DEBOUNCE_DELAY: float = 0.1
-FS_WATCH_EXTENSIONS: List[str] = [".c", ".h"]
+FS_WATCH_EXTENSIONS: List[str] = source_extensions
 
 # ==== LOGIC ====
 
