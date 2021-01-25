@@ -1533,6 +1533,10 @@ def main() -> None:
     else:
         make_target, basecmd, mycmd = dump_binary()
 
+    map_build_target_fn = getattr(diff_settings, "map_build_target", None)
+    if map_build_target_fn:
+        make_target = map_build_target_fn(make_target=make_target)
+
     if args.write_asm is not None:
         mydump = run_objdump(mycmd)
         with open(args.write_asm, "w") as f:
