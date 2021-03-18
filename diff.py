@@ -958,10 +958,10 @@ def process(lines: List[str]) -> List[Line]:
 
         branch_target = None
         if mnemonic in branch_instructions:
-            target = row_parts[1].strip().split(",")[-1]
+            target = int(row_parts[1].strip().split(",")[-1], 16)
             if mnemonic in branch_likely_instructions:
-                target = hex(int(target, 16) - 4)[2:]
-            branch_target = target.strip()
+                target -= 4
+            branch_target = hex(target)[2:]
 
         output.append(
             Line(
