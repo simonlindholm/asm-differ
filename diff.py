@@ -306,6 +306,12 @@ COLOR_ROTATION: List[str] = [
 ]
 
 BUFFER_CMD: List[str] = ["tail", "-c", str(10 ** 9)]
+
+# -S truncates long lines instead of wrapping them
+# -R interprets color escape sequences
+# -i ignores case when searching
+# -c something about how the screen gets redrawn; I don't remember the purpose
+# -#6 makes left/right arrow keys scroll by 6 characters
 LESS_CMD: List[str] = ["less", "-SRic", "-#6"]
 
 DEBOUNCE_DELAY: float = 0.1
