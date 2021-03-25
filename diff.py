@@ -1451,6 +1451,7 @@ class Display:
         clear_proc = subprocess.Popen(
             ["echo", "-en", "\"\e[3J\""]
         )
+        clear_proc.wait()
 
         # Pipe the output through 'tail' and only then to less, to ensure the
         # write call doesn't block. ('tail' has to buffer all its input before
