@@ -1787,19 +1787,15 @@ class Display:
 
     def run_diff(self) -> str:
         if self.emsg is not None:
-            output = self.emsg
-        else:
-            diff_output = do_diff(self.basedump, self.mydump, self.config)
-            last_diff_output = self.last_diff_output or diff_output
-            if self.config.threeway != "base" or not self.last_diff_output:
-                self.last_diff_output = diff_output
-            header, diff_lines = format_diff(last_diff_output, diff_output, self.config)
-            header_lines = [header] if header else []
-            return self.config.formatter.table(
-                header, diff_lines[self.config.skip_lines :]
-            )
-            output = "\n".join(header_lines + diff_lines[self.config.skip_lines :])
-        return output
+            return self.emsg
+
+        diff_output = do_diff(self.basedump, self.mydump, self.config)
+        last_diff_output = self.last_diff_output or diff_output
+        if self.config.threeway != "base" or not self.last_diff_output:
+            self.last_diff_output = diff_output
+        header, diff_lines = format_diff(last_diff_output, diff_output, self.config)
+        header_lines = [header] if header else []
+        return self.config.formatter.table(header, diff_lines[self.config.skip_lines :])
 
     def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
         output = self.run_diff()
