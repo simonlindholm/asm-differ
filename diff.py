@@ -476,24 +476,18 @@ COLOR_ROTATION: List[Format] = [
 FormatFunction = Callable[[str], Format]
 
 
-@dataclass
 class Text:
     segments: List[Tuple[str, Format]]
 
-    @staticmethod
-    def formatted(line: str, f: Format) -> "Text":
-        return Text([(line, f)])
-
-    @staticmethod
-    def raw(line: str) -> "Text":
-        return Text.formatted(line, Format.NONE)
-
-    @staticmethod
-    def empty() -> "Text":
-        return Text([])
+    def __init__(self, line: Optional[str] = None, f: Format = Format.NONE) -> None:
+        self.segments = []
+        if line is not None:
+            self.segments.append((line, f))
+        elif f is not Format.NONE:
+            raise ValueError("Text constructor provided `f`, but no line to format")
 
     def reformat(self, f: Format) -> "Text":
-        return Text.formatted(self.plain(), f)
+        return Text(self.plain(), f)
 
     def plain(self) -> str:
         return "".join(s for s, f in self.segments)
@@ -507,13 +501,19 @@ class Text:
 
     def __add__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
-            return self + Text.raw(other)
-        return Text(self.segments + other.segments)
+            return self + Text(other)
+        result = Text()
+        result.segments.extend(self.segments)
+        result.segments.extend(other.segments)
+        return result
 
     def __radd__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
-            return Text.raw(other) + self
-        return Text(other.segments + self.segments)
+            return Text(other) + self
+        result = Text()
+        result.segments.extend(other.segments)
+        result.segments.extend(self.segments)
+        return result
 
     def finditer(self, pat: Pattern[str]) -> Iterator[Match[str]]:
         """Replacement for `pat.finditer(text)` that operates on the inner text,
@@ -523,24 +523,24 @@ class Text:
                 yield match
 
     def sub(self, pat: Pattern[str], sub_fn: Callable[[Match[str]], "Text"]) -> "Text":
-        new_segments: List[Tuple[str, Format]] = []
+        result = Text()
         for chunk, f in self.segments:
             i = 0
             for match in pat.finditer(chunk):
                 start, end = match.start(), match.end()
                 assert i <= start <= end <= len(chunk)
                 sub = sub_fn(match)
-                new_segments.append((chunk[i:start], f))
-                new_segments.extend(sub.segments)
+                result.segments.append((chunk[i:start], f))
+                result.segments.extend(sub.segments)
                 i = end
-            new_segments.append((chunk[i:], f))
-        return Text(new_segments)
+            result.segments.append((chunk[i:], f))
+        return result
 
 
 class Formatter(abc.ABC):
     @abc.abstractmethod
-    def apply(self, text: Text) -> str:
-        """Apply the formatting in `text` and escape the contents"""
+    def apply_format(self, chunk: str, f: Format) -> str:
+        """Apply the formatting `f` to `chunk` and escape the contents."""
         ...
 
     @abc.abstractmethod
@@ -550,13 +550,17 @@ class Formatter(abc.ABC):
         """Format a multi-column table with an optional `header`"""
         ...
 
+    def apply(self, text: Text) -> str:
+        formatted_chunks = [self.apply_format(chunk, f) for chunk, f in text.segments]
+        return "".join(formatted_chunks)
+
 
 @dataclass
 class PlainFormatter(Formatter):
     column_width: int
 
-    def apply(self, text: Text) -> str:
-        return text.plain()
+    def apply_format(self, chunk: str, f: Format) -> str:
+        return chunk
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
@@ -572,14 +576,10 @@ class PlainFormatter(Formatter):
 class AnsiFormatter(Formatter):
     column_width: int
 
-    def apply(self, text: Text) -> str:
-        output = ""
-        for chunk, f in text.segments:
-            if f == Format.NONE:
-                output += chunk
-            else:
-                output += f"{f.ansi_code}{chunk}{Style.RESET_ALL}"
-        return output
+    def apply_format(self, chunk: str, f: Format) -> str:
+        if f == Format.NONE:
+            return chunk
+        return f"{f.ansi_code}{chunk}{Style.RESET_ALL}"
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
@@ -599,16 +599,12 @@ class AnsiFormatter(Formatter):
 
 @dataclass
 class HtmlFormatter(Formatter):
-    def apply(self, text: Text) -> str:
-        output = ""
-        for chunk, f in text.segments:
-            chunk = html.escape(chunk)
-            if f == Format.NONE:
-                output += chunk
-            else:
-                class_name = f.name.lower().replace("_", "-")
-                output += f"<span class='{class_name}'>{chunk}</span>"
-        return output
+    def apply_format(self, chunk: str, f: Format) -> str:
+        chunk = html.escape(chunk)
+        if f == Format.NONE:
+            return chunk
+        class_name = f.name.lower().replace("_", "-")
+        return f"<span class='{class_name}'>{chunk}</span>"
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
@@ -709,7 +705,7 @@ def format_fields(
     it = iter(diffs)
 
     def maybe_color(color: FormatFunction, s: str) -> Text:
-        return Text.formatted(s, color(s)) if next(it, False) else Text.raw(s)
+        return Text(s, color(s)) if next(it, False) else Text(s)
 
     out1 = out1.sub(pat, lambda m: maybe_color(color1, m.group()))
     it = iter(diffs)
@@ -1540,8 +1536,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
     for (line1, line2) in diff_lines(lines1, lines2, config.algorithm):
         line_color1 = line_color2 = sym_color = Format.NONE
         line_prefix = " "
-        out1 = Text.empty() if not line1 else Text.raw(pad_mnemonic(line1.original))
-        out2 = Text.empty() if not line2 else Text.raw(pad_mnemonic(line2.original))
+        out1 = Text() if not line1 else Text(pad_mnemonic(line1.original))
+        out2 = Text() if not line2 else Text(pad_mnemonic(line2.original))
         if line1 and line2 and line1.diff_row == line2.diff_row:
             if line1.normalized_original == line2.normalized_original:
                 pass
@@ -1550,10 +1546,10 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                 out2 = out2.reformat(Format.DELAY_SLOT)
             else:
                 mnemonic = line1.original.split()[0]
-                branch1 = branch2 = Text.empty()
+                branch1 = branch2 = Text()
                 if mnemonic in arch.instructions_with_address_immediates:
-                    out1, branch1 = map(Text.raw, split_off_branch(out1.plain()))
-                    out2, branch2 = map(Text.raw, split_off_branch(out2.plain()))
+                    out1, branch1 = map(Text, split_off_branch(out1.plain()))
+                    out2, branch2 = map(Text, split_off_branch(out2.plain()))
                 branchless1 = out1
                 branchless2 = out2
                 out1, out2 = format_fields(
@@ -1607,11 +1603,11 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
             line_prefix = "<"
             line_color1 = sym_color = Format.DIFF_REMOVE
             out1 = out1.reformat(line_color1)
-            out2 = Text.empty()
+            out2 = Text()
         elif line2:
             line_prefix = ">"
             line_color2 = sym_color = Format.DIFF_ADD
-            out1 = Text.empty()
+            out1 = Text()
             out2 = out2.reformat(line_color2)
 
         if config.source and line2 and line2.comment:
@@ -1626,20 +1622,15 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
         ) -> Optional[Text]:
             if line is None:
                 return None
-            in_arrow = Text.raw("  ")
-            out_arrow = Text.empty()
+            in_arrow = Text("  ")
+            out_arrow = Text()
             if config.show_branches:
                 if line.line_num in btset:
-                    in_arrow = Text.formatted("~>", sc(line.line_num))
+                    in_arrow = Text("~>", sc(line.line_num))
                 if line.branch_target is not None:
-                    out_arrow = " " + Text.formatted("~>", sc(line.branch_target + ":"))
+                    out_arrow = " " + Text("~>", sc(line.branch_target + ":"))
             return (
-                Text.formatted(line.line_num, line_color)
-                + " "
-                + in_arrow
-                + " "
-                + out
-                + out_arrow
+                Text(line.line_num, line_color) + " " + in_arrow + " " + out + out_arrow
             )
 
         part1 = format_part(out1, line1, line_color1, bts1, sc5)
@@ -1664,12 +1655,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                 output.append(
                     OutputLine(
                         None,
-                        "  " + Text.formatted(source_line, line_format),
+                        "  " + Text(source_line, line_format),
                         source_line,
                     )
                 )
 
-        fmt2 = Text.formatted(line_prefix, sym_color) + " " + (part2 or Text.empty())
+        fmt2 = Text(line_prefix, sym_color) + " " + (part2 or Text())
         output.append(OutputLine(part1, fmt2, key2))
 
     return output
@@ -1697,7 +1688,7 @@ def format_diff(
     new_chunks = chunk_diff(new_diff)
     output: List[Tuple[Text, OutputLine, OutputLine]] = []
     assert len(old_chunks) == len(new_chunks), "same target"
-    empty = OutputLine(Text.empty(), Text.empty(), None)
+    empty = OutputLine(Text(), Text(), None)
     for old_chunk, new_chunk in zip(old_chunks, new_chunks):
         if isinstance(old_chunk, list):
             assert isinstance(new_chunk, list)
@@ -1709,13 +1700,13 @@ def format_diff(
             for (tag, i1, i2, j1, j2) in differ.get_opcodes():
                 if tag in ["equal", "replace"]:
                     for i, j in zip(range(i1, i2), range(j1, j2)):
-                        output.append((Text.empty(), old_chunk[i], new_chunk[j]))
+                        output.append((Text(), old_chunk[i], new_chunk[j]))
                 if tag in ["insert", "replace"]:
                     for j in range(j1 + i2 - i1, j2):
-                        output.append((Text.empty(), empty, new_chunk[j]))
+                        output.append((Text(), empty, new_chunk[j]))
                 if tag in ["delete", "replace"]:
                     for i in range(i1 + j2 - j1, i2):
-                        output.append((Text.empty(), old_chunk[i], empty))
+                        output.append((Text(), old_chunk[i], empty))
         else:
             assert isinstance(new_chunk, OutputLine)
             assert new_chunk.base
