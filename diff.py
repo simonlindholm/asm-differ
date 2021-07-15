@@ -24,6 +24,10 @@ def fail(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+def static_assert_unreachable(x: NoReturn) -> NoReturn:
+    raise Exception("Unreachable! " + repr(x))
+
+
 # Prefer to use diff_settings.py from the current working directory
 sys.path.insert(0, ".")
 try:
@@ -434,56 +438,41 @@ DEBOUNCE_DELAY: float = 0.1
 
 
 @enum.unique
-class Format(enum.Enum):
-    NONE = (enum.auto(), "")
-    IMMEDIATE = (enum.auto(), Fore.LIGHTBLUE_EX)
-    STACK = (enum.auto(), Fore.YELLOW)
-    REGISTER = (enum.auto(), Fore.YELLOW)
-    DELAY_SLOT = (enum.auto(), Style.BRIGHT + Fore.LIGHTBLACK_EX)
-    DIFF_CHANGE = (enum.auto(), Fore.LIGHTBLUE_EX)
-    DIFF_ADD = (enum.auto(), Fore.GREEN)
-    DIFF_REMOVE = (enum.auto(), Fore.RED)
-    SOURCE_FILENAME = (enum.auto(), Style.BRIGHT)
-    SOURCE_FUNCTION = (enum.auto(), Style.BRIGHT + "\u001b[4m")
-    SOURCE_OTHER = (enum.auto(), Style.DIM)
-    ROTATION = (enum.auto(), "")
-    COLOR_ROTATION_0 = (enum.auto(), Fore.MAGENTA)
-    COLOR_ROTATION_1 = (enum.auto(), Fore.CYAN)
-    COLOR_ROTATION_2 = (enum.auto(), Fore.GREEN)
-    COLOR_ROTATION_3 = (enum.auto(), Fore.RED)
-    COLOR_ROTATION_4 = (enum.auto(), Fore.LIGHTYELLOW_EX)
-    COLOR_ROTATION_5 = (enum.auto(), Fore.LIGHTMAGENTA_EX)
-    COLOR_ROTATION_6 = (enum.auto(), Fore.LIGHTCYAN_EX)
-    COLOR_ROTATION_7 = (enum.auto(), Fore.LIGHTGREEN_EX)
-    COLOR_ROTATION_8 = (enum.auto(), Fore.LIGHTBLACK_EX)
-
-    def __init__(self, value: int, ansi_code: str):
-        self.ansi_code = ansi_code
+class BasicFormat(enum.Enum):
+    NONE = enum.auto()
+    IMMEDIATE = enum.auto()
+    STACK = enum.auto()
+    REGISTER = enum.auto()
+    DELAY_SLOT = enum.auto()
+    DIFF_CHANGE = enum.auto()
+    DIFF_ADD = enum.auto()
+    DIFF_REMOVE = enum.auto()
+    SOURCE_FILENAME = enum.auto()
+    SOURCE_FUNCTION = enum.auto()
+    SOURCE_OTHER = enum.auto()
 
 
-COLOR_ROTATION: List[Format] = [
-    Format.COLOR_ROTATION_0,
-    Format.COLOR_ROTATION_1,
-    Format.COLOR_ROTATION_2,
-    Format.COLOR_ROTATION_3,
-    Format.COLOR_ROTATION_4,
-    Format.COLOR_ROTATION_5,
-    Format.COLOR_ROTATION_6,
-    Format.COLOR_ROTATION_7,
-    Format.COLOR_ROTATION_8,
-]
+@dataclass(frozen=True)
+class RotationFormat:
+    group: str
+    index: int
+    key: str
 
+
+Format = Union[BasicFormat, RotationFormat]
 FormatFunction = Callable[[str], Format]
 
 
 class Text:
     segments: List[Tuple[str, Format]]
 
-    def __init__(self, line: Optional[str] = None, f: Format = Format.NONE) -> None:
+    def __init__(
+        self, line: Optional[str] = None, f: Format = BasicFormat.NONE
+    ) -> None:
         self.segments = []
         if line is not None:
             self.segments.append((line, f))
-        elif f is not Format.NONE:
+        elif f is not BasicFormat.NONE:
             raise ValueError("Text constructor provided `f`, but no line to format")
 
     def reformat(self, f: Format) -> "Text":
@@ -574,12 +563,47 @@ class PlainFormatter(Formatter):
 
 @dataclass
 class AnsiFormatter(Formatter):
+    BASIC_ANSI_CODES = {
+        BasicFormat.NONE: "",
+        BasicFormat.IMMEDIATE: Fore.LIGHTBLUE_EX,
+        BasicFormat.STACK: Fore.YELLOW,
+        BasicFormat.REGISTER: Fore.YELLOW,
+        BasicFormat.DELAY_SLOT: Fore.LIGHTBLACK_EX,
+        BasicFormat.DIFF_CHANGE: Fore.LIGHTBLUE_EX,
+        BasicFormat.DIFF_ADD: Fore.GREEN,
+        BasicFormat.DIFF_REMOVE: Fore.RED,
+        BasicFormat.SOURCE_FILENAME: Style.BRIGHT,
+        # Underline (not in colorama) + bright
+        BasicFormat.SOURCE_FUNCTION: Style.BRIGHT + "\u001b[4m",
+        BasicFormat.SOURCE_OTHER: Style.DIM,
+    }
+
+    ROTATION_ANSI_COLORS = [
+        Fore.MAGENTA,
+        Fore.CYAN,
+        Fore.GREEN,
+        Fore.RED,
+        Fore.LIGHTYELLOW_EX,
+        Fore.LIGHTMAGENTA_EX,
+        Fore.LIGHTCYAN_EX,
+        Fore.LIGHTGREEN_EX,
+        Fore.LIGHTBLACK_EX,
+    ]
+
     column_width: int
 
     def apply_format(self, chunk: str, f: Format) -> str:
-        if f == Format.NONE:
+        if f == BasicFormat.NONE:
             return chunk
-        return f"{f.ansi_code}{chunk}{Style.RESET_ALL}"
+        if isinstance(f, BasicFormat):
+            ansi_code = self.BASIC_ANSI_CODES[f]
+        elif isinstance(f, RotationFormat):
+            ansi_code = self.ROTATION_ANSI_COLORS[
+                f.index % len(self.ROTATION_ANSI_COLORS)
+            ]
+        else:
+            static_assert_unreachable(f)
+        return f"{ansi_code}{chunk}{Style.RESET_ALL}"
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
@@ -599,12 +623,22 @@ class AnsiFormatter(Formatter):
 
 @dataclass
 class HtmlFormatter(Formatter):
+    rotation_formats: int = 9
+
     def apply_format(self, chunk: str, f: Format) -> str:
         chunk = html.escape(chunk)
-        if f == Format.NONE:
+        if f == BasicFormat.NONE:
             return chunk
-        class_name = f.name.lower().replace("_", "-")
-        return f"<span class='{class_name}'>{chunk}</span>"
+        if isinstance(f, BasicFormat):
+            class_name = f.name.lower().replace("_", "-")
+            data_attr = ""
+        elif isinstance(f, RotationFormat):
+            class_name = f"rotation-{f.index % self.rotation_formats}"
+            rotation_key = html.escape(f"{f.group};{f.key}", quote=True)
+            data_attr = f'data-rotation="{rotation_key}"'
+        else:
+            static_assert_unreachable(f)
+        return f"<span class='{class_name}' {data_attr}>{chunk}</span>"
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
@@ -652,7 +686,7 @@ def format_fields(
     return out1, out2
 
 
-def symbol_formatter(base_index: int) -> FormatFunction:
+def symbol_formatter(group: str, base_index: int) -> FormatFunction:
     symbol_formats: Dict[str, Format] = {}
 
     def symbol_format(s: str) -> Format:
@@ -660,7 +694,8 @@ def symbol_formatter(base_index: int) -> FormatFunction:
         # add extra UI elements in the HTML version
         f = symbol_formats.get(s)
         if f is None:
-            f = COLOR_ROTATION[(len(symbol_formats) + base_index) % len(COLOR_ROTATION)]
+            index = len(symbol_formats) + base_index
+            f = RotationFormat(key=s, index=index, group=group)
             symbol_formats[s] = f
         return f
 
@@ -1450,12 +1485,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
     lines1 = process(basedump.split("\n"), config)
     lines2 = process(mydump.split("\n"), config)
 
-    sc1 = symbol_formatter(0)
-    sc2 = symbol_formatter(0)
-    sc3 = symbol_formatter(4)
-    sc4 = symbol_formatter(4)
-    sc5 = symbol_formatter(0)
-    sc6 = symbol_formatter(0)
+    sc1 = symbol_formatter("base-reg", 0)
+    sc2 = symbol_formatter("my-reg", 0)
+    sc3 = symbol_formatter("base-stack", 4)
+    sc4 = symbol_formatter("my-stack", 4)
+    sc5 = symbol_formatter("base-branch", 0)
+    sc6 = symbol_formatter("my-branch", 0)
     bts1: Set[str] = set()
     bts2: Set[str] = set()
 
@@ -1472,7 +1507,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     sc(text)
 
     for (line1, line2) in diff_lines(lines1, lines2, config.algorithm):
-        line_color1 = line_color2 = sym_color = Format.NONE
+        line_color1 = line_color2 = sym_color = BasicFormat.NONE
         line_prefix = " "
         out1 = Text() if not line1 else Text(pad_mnemonic(line1.original))
         out2 = Text() if not line2 else Text(pad_mnemonic(line2.original))
@@ -1480,8 +1515,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
             if line1.normalized_original == line2.normalized_original:
                 pass
             elif line1.diff_row == "<delay-slot>":
-                out1 = out1.reformat(Format.DELAY_SLOT)
-                out2 = out2.reformat(Format.DELAY_SLOT)
+                out1 = out1.reformat(BasicFormat.DELAY_SLOT)
+                out2 = out2.reformat(BasicFormat.DELAY_SLOT)
             else:
                 mnemonic = line1.original.split()[0]
                 branch1 = branch2 = Text()
@@ -1491,7 +1526,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                 branchless1 = out1.plain()
                 branchless2 = out2.plain()
                 out1, out2 = format_fields(
-                    arch.re_imm, out1, out2, lambda _: Format.IMMEDIATE
+                    arch.re_imm, out1, out2, lambda _: BasicFormat.IMMEDIATE
                 )
 
                 same_relative_target = False
@@ -1505,8 +1540,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     same_relative_target = relative_target1 == relative_target2
 
                 if not same_relative_target and branch1.plain() != branch2.plain():
-                    branch1 = branch1.reformat(Format.IMMEDIATE)
-                    branch2 = branch2.reformat(Format.IMMEDIATE)
+                    branch1 = branch1.reformat(BasicFormat.IMMEDIATE)
+                    branch2 = branch2.reformat(BasicFormat.IMMEDIATE)
 
                 out1 += branch1
                 out2 += branch2
@@ -1515,7 +1550,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                 ):
                     if not same_relative_target:
                         # only imms differences
-                        sym_color = Format.IMMEDIATE
+                        sym_color = BasicFormat.IMMEDIATE
                         line_prefix = "i"
                 else:
                     out1, out2 = format_fields(arch.re_sprel, out1, out2, sc3, sc4)
@@ -1525,26 +1560,26 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         # only stack differences (luckily stack and imm
                         # differences can't be combined in MIPS, so we
                         # don't have to think about that case)
-                        sym_color = Format.STACK
+                        sym_color = BasicFormat.STACK
                         line_prefix = "s"
                     else:
                         # regs differences and maybe imms as well
                         out1, out2 = format_fields(arch.re_reg, out1, out2, sc1, sc2)
-                        line_color1 = line_color2 = sym_color = Format.REGISTER
+                        line_color1 = line_color2 = sym_color = BasicFormat.REGISTER
                         line_prefix = "r"
         elif line1 and line2:
             line_prefix = "|"
-            line_color1 = line_color2 = sym_color = Format.DIFF_CHANGE
+            line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
             out1 = out1.reformat(line_color1)
             out2 = out2.reformat(line_color2)
         elif line1:
             line_prefix = "<"
-            line_color1 = sym_color = Format.DIFF_REMOVE
+            line_color1 = sym_color = BasicFormat.DIFF_REMOVE
             out1 = out1.reformat(line_color1)
             out2 = Text()
         elif line2:
             line_prefix = ">"
-            line_color2 = sym_color = Format.DIFF_ADD
+            line_color2 = sym_color = BasicFormat.DIFF_ADD
             out1 = Text()
             out2 = out2.reformat(line_color2)
 
@@ -1577,13 +1612,13 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
 
         if line2:
             for source_line in line2.source_lines:
-                line_format = Format.SOURCE_OTHER
+                line_format = BasicFormat.SOURCE_OTHER
                 # File names and function names
                 if source_line and source_line[0] != "│":
-                    line_format = Format.SOURCE_FILENAME
+                    line_format = BasicFormat.SOURCE_FILENAME
                     # Function names
                     if source_line.endswith("():"):
-                        line_format = Format.SOURCE_FUNCTION
+                        line_format = BasicFormat.SOURCE_FUNCTION
                         try:
                             source_line = cxxfilt.demangle(
                                 source_line[:-3], external_only=False
