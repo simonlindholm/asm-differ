@@ -615,75 +615,7 @@ class HtmlFormatter(Formatter):
         if header:
             lines = [header] + lines
         # TODO: Make a prettier stylesheet (maybe include it externally)
-        output = """
-<style>
-table.diff {
-    border: none;
-    font-family: Monospace;
-    white-space: pre;
-}
-table.diff .immediate {
-    color: lightblue;
-}
-table.diff .stack {
-    color: yellow;
-}
-table.diff .register {
-    color: yellow;
-}
-table.diff .delay-slot {
-    font-weight: bold;
-    color: gray;
-}
-table.diff .diff-change {
-    color: lightblue;
-}
-table.diff .diff-add {
-    color: green;
-}
-table.diff .diff-remove {
-    color: red;
-}
-table.diff .source-filename {
-    font-weight: bold;
-}
-table.diff .source-function {
-    font-weight: bold;
-    text-decoration: underline;
-}
-table.diff .source-other {
-    font-style: italic;
-}
-table.diff .color-rotation-0 {
-    color: magenta;
-}
-table.diff .color-rotation-1 {
-    color: cyan;
-}
-table.diff .color-rotation-2 {
-    color: green;
-}
-table.diff .color-rotation-3 {
-    color: red;
-}
-table.diff .color-rotation-4 {
-    color: yellow;
-}
-table.diff .color-rotation-5 {
-    color: pink;
-}
-table.diff .color-rotation-6 {
-    color: blue;
-}
-table.diff .color-rotation-7 {
-    color: lime;
-}
-table.diff .color-rotation-8 {
-    color: gray;
-}
-</style>
-"""
-        output += "<table class='diff'>\n"
+        output = "<table class='diff'>\n"
         for line in lines:
             output += "    <tr>"
             for cell in line:
