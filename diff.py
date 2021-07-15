@@ -499,7 +499,7 @@ class Text:
         # Use Formatter.apply(...) instead
         return NotImplemented
 
-    def __eq__(self) -> str:
+    def __eq__(self, other: object) -> bool:
         return NotImplemented
 
     def __add__(self, other: Union["Text", str]) -> "Text":
@@ -614,7 +614,6 @@ class HtmlFormatter(Formatter):
     ) -> str:
         if header:
             lines = [header] + lines
-        # TODO: Make a prettier stylesheet (maybe include it externally)
         output = "<table class='diff'>\n"
         for line in lines:
             output += "    <tr>"
