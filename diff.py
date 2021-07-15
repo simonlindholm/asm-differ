@@ -504,18 +504,16 @@ class Text:
 
     def __add__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
-            return self + Text(other)
+            other = Text(other)
         result = Text()
-        result.segments.extend(self.segments)
-        result.segments.extend(other.segments)
+        result.segments = self.segments + other.segments
         return result
 
     def __radd__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
-            return Text(other) + self
+            other = Text(other)
         result = Text()
-        result.segments.extend(other.segments)
-        result.segments.extend(self.segments)
+        result.segments = other.segments + self.segments
         return result
 
     def finditer(self, pat: Pattern[str]) -> Iterator[Match[str]]:
@@ -554,8 +552,7 @@ class Formatter(abc.ABC):
         ...
 
     def apply(self, text: Text) -> str:
-        formatted_chunks = [self.apply_format(chunk, f) for chunk, f in text.segments]
-        return "".join(formatted_chunks)
+        return "".join(self.apply_format(chunk, f) for chunk, f in text.segments)
 
 
 @dataclass
@@ -612,14 +609,21 @@ class HtmlFormatter(Formatter):
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
     ) -> str:
-        if header:
-            lines = [header] + lines
-        output = "<table class='diff'>\n"
-        for line in lines:
-            output += "    <tr>"
+        def table_row(line: Tuple[str, ...], cell_el: str) -> str:
+            output_row = "    <tr>"
             for cell in line:
-                output += f"<td>{cell}</td>"
-            output += "</tr>\n"
+                output_row += f"<{cell_el}>{cell}</{cell_el}>"
+            output_row += "</tr>\n"
+            return output_row
+
+        output = "<table class='diff'>\n"
+        if header:
+            output += "  <thead>\n"
+            output += table_row(header, "th")
+            output += "  </thead>\n"
+        output += "  <tbody>\n"
+        output += "".join(table_row(line, "td") for line in lines)
+        output += "  </tbody>\n"
         output += "</table>\n"
         return output
 
@@ -654,9 +658,8 @@ def symbol_formatter(base_index: int) -> FormatFunction:
     def symbol_format(s: str) -> Format:
         # TODO: it would be nice to use a unique Format for each symbol, so we could
         # add extra UI elements in the HTML version
-        try:
-            f = symbol_formats[s]
-        except KeyError:
+        f = symbol_formats.get(s)
+        if f is None:
             f = COLOR_ROTATION[(len(symbol_formats) + base_index) % len(COLOR_ROTATION)]
             symbol_formats[s] = f
         return f
@@ -815,7 +818,8 @@ def search_map_file(
             if len(objfiles) > 1:
                 all_objects = "\n".join(objfiles)
                 fail(
-                    f"Found multiple objects of the same name {objname} in {project.mw_build_dir}, cannot determine which to diff against: \n{all_objects}"
+                    f"Found multiple objects of the same name {objname} in {project.mw_build_dir}, "
+                    f"cannot determine which to diff against: \n{all_objects}"
                 )
             if len(objfiles) == 1:
                 objfile = objfiles[0]
@@ -1484,8 +1488,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                 if mnemonic in arch.instructions_with_address_immediates:
                     out1, branch1 = map(Text, split_off_branch(out1.plain()))
                     out2, branch2 = map(Text, split_off_branch(out2.plain()))
-                branchless1 = out1
-                branchless2 = out2
+                branchless1 = out1.plain()
+                branchless2 = out2.plain()
                 out1, out2 = format_fields(
                     arch.re_imm, out1, out2, lambda _: Format.IMMEDIATE
                 )
@@ -1506,8 +1510,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
 
                 out1 += branch1
                 out2 += branch2
-                if normalize_imms(branchless1.plain(), arch) == normalize_imms(
-                    branchless2.plain(), arch
+                if normalize_imms(branchless1, arch) == normalize_imms(
+                    branchless2, arch
                 ):
                     if not same_relative_target:
                         # only imms differences
@@ -1515,8 +1519,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         line_prefix = "i"
                 else:
                     out1, out2 = format_fields(arch.re_sprel, out1, out2, sc3, sc4)
-                    if normalize_stack(branchless1.plain(), arch) == normalize_stack(
-                        branchless2.plain(), arch
+                    if normalize_stack(branchless1, arch) == normalize_stack(
+                        branchless2, arch
                     ):
                         # only stack differences (luckily stack and imm
                         # differences can't be combined in MIPS, so we
@@ -1774,7 +1778,6 @@ class Display:
         if self.config.threeway != "base" or not self.last_diff_output:
             self.last_diff_output = diff_output
         header, diff_lines = format_diff(last_diff_output, diff_output, self.config)
-        header_lines = [header] if header else []
         return self.config.formatter.table(header, diff_lines[self.config.skip_lines :])
 
     def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
