@@ -492,12 +492,15 @@ class Text:
     def plain(self) -> str:
         return "".join(s for s, f in self.segments)
 
+    def __repr__(self) -> str:
+        return f"<Text: {self.plain()!r}>"
+
     def __str__(self) -> str:
         # Use Formatter.apply(...) instead
         return NotImplemented
 
-    def __repr__(self) -> str:
-        return f"<Text: {self.plain()!r}>"
+    def __eq__(self) -> str:
+        return NotImplemented
 
     def __add__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
