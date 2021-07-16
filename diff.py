@@ -259,6 +259,12 @@ if __name__ == "__main__":
         action="store_true",
         help="View diff in a browser. Implies --no-pager and --format=html.",
     )
+    parser.add_argument(
+        "--browse",
+        dest="run_browser",
+        action="store_true",
+        help="Run browser as set in settings. Only with --web.",
+    )
 
     # Project-specific flags, e.g. different versions/make arguments.
     add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
@@ -1981,6 +1987,11 @@ def main() -> None:
         httpServer = http.server.HTTPServer(("localhost", config.http_server_port), MyReqHandler)
         threading.Thread(target=httpServer.serve_forever, daemon=True).start()
         print(f"Http server is running on port {config.http_server_port}")
+        if args.run_browser:
+            if "browser" in settings:
+                os.system(settings["browser"])
+            else:
+                print("--browse was passed but 'browser' isn't set in diff_settings.py")
 
     if not args.watch:
         if config.use_pager:
