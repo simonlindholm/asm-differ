@@ -253,6 +253,12 @@ if __name__ == "__main__":
         default="color",
         help="Output format, default is color. --format=html implies --no-pager.",
     )
+    parser.add_argument(
+        "--web",
+        dest="web_server",
+        action="store_true",
+        help="View diff in a browser. Implies --no-pager and --format=html.",
+    )
 
     # Project-specific flags, e.g. different versions/make arguments.
     add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
@@ -280,6 +286,7 @@ import string
 import subprocess
 import threading
 import time
+import http.server
 
 
 MISSING_PREREQUISITES = (
@@ -334,6 +341,8 @@ class Config:
     ignore_addr_diffs: bool
     algorithm: str
     use_pager: bool
+    web_server: bool
+    http_server_port: int
 
 
 def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
@@ -357,6 +366,8 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
 
 def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
     formatter: Formatter
+    if args.web_server:
+        args.format = "html"
     if args.format == "plain":
         formatter = PlainFormatter(column_width=args.column_width)
     elif args.format == "color":
@@ -387,7 +398,9 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
-        use_pager=args.format != "html" and not args.no_pager,
+        use_pager=args.format != "html" and not args.no_pager and not args.web_server,
+        web_server=args.web_server,
+        http_server_port=8000, # FIXME
     )
 
 
@@ -1737,7 +1750,7 @@ def debounced_fs_watch(
 
         def should_notify(self, path: str) -> bool:
             for target in self.file_targets:
-                if path == target:
+                if os.path.samefile(path, target):
                     return True
             if config.make and any(
                 path.endswith(suffix) for suffix in project.source_extensions
@@ -1954,10 +1967,28 @@ def main() -> None:
 
     display = Display(basedump, mydump, config)
 
-    if not config.use_pager:
-        print(display.run_diff())
-    elif not args.watch:
-        display.run_sync()
+    if config.web_server:
+        webWaitQ = queue.Queue() if args.watch else None
+        class MyReqHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(http.HTTPStatus.OK)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                if webWaitQ is not None:
+                    webWaitQ.get()
+                self.wfile.write(display.run_diff().encode("utf-8"))
+                self.wfile.flush()
+        httpServer = http.server.HTTPServer(("localhost", config.http_server_port), MyReqHandler)
+        threading.Thread(target=httpServer.serve_forever, daemon=True).start()
+        print(f"Http server is running on port {config.http_server_port}")
+
+    if not args.watch:
+        if config.use_pager:
+            display.run_sync()
+        elif config.web_server:
+            input("Press enter to terminate")
+        else:
+            print(display.run_diff())
     else:
         if not args.make:
             yn = input(
@@ -1980,7 +2011,12 @@ def main() -> None:
             watch_sources = [make_target]
         q: "queue.Queue[Optional[float]]" = queue.Queue()
         debounced_fs_watch(watch_sources, q, config, project)
-        display.run_async(q)
+        if config.use_pager:
+            display.run_async(q)
+        elif config.web_server:
+            webWaitQ.put(None)
+        else:
+            print(display.run_diff())
         last_build = 0.0
         try:
             while True:
@@ -1991,19 +2027,48 @@ def main() -> None:
                     continue
                 last_build = time.time()
                 if args.make:
-                    display.progress("Building...")
+                    if config.use_pager:
+                        display.progress("Building...")
+                    elif config.web_server:
+                        # FIXME
+                        print("Building...")
+                    else:
+                        print("Building...")
                     ret = run_make_capture_output(make_target, project)
                     if ret.returncode != 0:
-                        display.update(
-                            ret.stderr.decode("utf-8-sig", "replace")
-                            or ret.stdout.decode("utf-8-sig", "replace"),
-                            error=True,
-                        )
+                        if config.use_pager:
+                            display.update(
+                                ret.stderr.decode("utf-8-sig", "replace")
+                                or ret.stdout.decode("utf-8-sig", "replace"),
+                                error=True,
+                            )
+                        elif config.web_server:
+                            # FIXME
+                            print("Error while building:")
+                            print(
+                                ret.stderr.decode("utf-8-sig", "replace")
+                                or ret.stdout.decode("utf-8-sig", "replace")
+                            )
+                        else:
+                            print("Error while building:")
+                            print(
+                                ret.stderr.decode("utf-8-sig", "replace")
+                                or ret.stdout.decode("utf-8-sig", "replace")
+                            )
                         continue
                 mydump = run_objdump(mycmd, config, project)
-                display.update(mydump, error=False)
+                if config.use_pager:
+                    display.update(mydump, error=False)
+                elif config.web_server:
+                    print("New diff!")
+                    display.mydump = mydump
+                    webWaitQ.put(None)
+                else:
+                    display.mydump = mydump
+                    print(display.run_diff())
         except KeyboardInterrupt:
-            display.terminate()
+            if config.use_pager:
+                display.terminate()
 
 
 if __name__ == "__main__":

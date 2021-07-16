@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link href="diff-stylesheet.css" rel="stylesheet">
+<script type="text/javascript">
+function onNewContent() {
+	if (httpRequest.readyState === XMLHttpRequest.DONE) {
+		if (httpRequest.status === 200) {
+			document.getElementById('content').innerHTML = httpRequest.responseText;
+			requestContent();
+		} else {
+			alert('Failed to communicate with localhost:8000');
+		}
+	}
+}
+
+function requestContent() {
+	httpRequest = new XMLHttpRequest();
+	httpRequest.onreadystatechange = onNewContent;
+	httpRequest.open('GET', 'http://localhost:8000');
+	httpRequest.send();
+}
+
+function onBodyLoaded() {
+	requestContent();
+}
+</script>
+</head>
+<body onload="onBodyLoaded()">
+<div id="content"></div>
+</body>
+</html>
