@@ -3,28 +3,41 @@
 <head>
 <link href="diff-stylesheet.css" rel="stylesheet">
 <script type="text/javascript">
+'use strict';
+
 function onNewContent() {
+	var httpRequest = ASMDW.httpRequest;
 	if (httpRequest.readyState === XMLHttpRequest.DONE) {
 		if (httpRequest.status === 200) {
 			document.getElementById('content').innerHTML = httpRequest.responseText;
 			requestContent();
 		} else {
-			alert('Failed to communicate with localhost:8000');
+			if (window.confirm('Failed to communicate with localhost:8000, close tab?')) {
+				window.close();
+			}
 		}
 	}
 }
 
 function requestContent() {
-	httpRequest = new XMLHttpRequest();
+	var httpRequest = new XMLHttpRequest();
+	ASMDW.httpRequest = httpRequest;
 	httpRequest.onreadystatechange = onNewContent;
 	httpRequest.open('GET', 'http://localhost:8000');
 	httpRequest.send();
 }
 
 function onBodyLoaded() {
+	// asm-differ web
+	window.ASMDW = {}
 	requestContent();
 }
 </script>
+<style type="text/css">
+body {
+	background-color: #34495e;
+}
+</style>
 </head>
 <body onload="onBodyLoaded()">
 <div id="content"></div>

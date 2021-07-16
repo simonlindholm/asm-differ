@@ -1,64 +1,62 @@
 table.diff {
-    border: none;
-    font-family: Monospace;
-    white-space: pre;
+	border: none;
+	font-family: Monospace;
+	white-space: pre;
+	background-color: #243341;
+	color: #ecf0f1;
 }
 .immediate {
-    color: lightblue;
+	color: lightblue;
 }
 .stack {
-    color: yellow;
+	color: yellow;
 }
 .register {
-    color: yellow;
-}
-.delay-slot {
-    font-weight: bold;
-    color: gray;
+	color: yellow;
 }
 .diff-change {
-    color: lightblue;
+	color: #70dcff;
 }
 .diff-add {
-    color: green;
+	color: #2ecc71;
 }
 .diff-remove {
-    color: red;
+	color: #e74c3c;
 }
 .source-filename {
-    font-weight: bold;
+	font-weight: bold;
 }
 .source-function {
-    font-weight: bold;
-    text-decoration: underline;
+	font-weight: bold;
+	text-decoration: underline;
 }
 .source-other {
-    font-style: italic;
+	font-style: italic;
 }
 .rotation-0 {
-    color: magenta;
+	color: #ff31d5;
 }
 .rotation-1 {
-    color: cyan;
+	color: #4cffff;
 }
 .rotation-2 {
-    color: green;
+	color: #00b92e;
 }
 .rotation-3 {
-    color: red;
+	color: #e74c3c;
 }
 .rotation-4 {
-    color: yellow;
+	color: #f1c40f;
 }
 .rotation-5 {
-    color: pink;
+	color: #bc9dff;
 }
 .rotation-6 {
-    color: blue;
+	color: #68b1ff;
 }
 .rotation-7 {
-    color: lime;
+	color: #a3ff79;
 }
 .rotation-8 {
-    color: gray;
+	color: #95a5a6;
 }
