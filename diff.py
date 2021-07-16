@@ -1737,7 +1737,7 @@ def debounced_fs_watch(
 
         def should_notify(self, path: str) -> bool:
             for target in self.file_targets:
-                if path == target:
+                if os.path.samefile(path, target):
                     return True
             if config.make and any(
                 path.endswith(suffix) for suffix in project.source_extensions
