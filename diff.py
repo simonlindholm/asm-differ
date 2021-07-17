@@ -121,6 +121,11 @@ if __name__ == "__main__":
         help="Show source code (if possible). Only works with -o and -e.",
     )
     parser.add_argument(
+        "--source-old-binutils",
+        action="store_true",
+        help="Tweak --source handling to make it work with binutils < 2.33. Implies --source.",
+    )
+    parser.add_argument(
         "--inlines",
         action="store_true",
         help="Show inline function calls (if possible). Only works with -o and -e.",
@@ -318,7 +323,8 @@ class Config:
     # Build/objdump options
     diff_obj: bool
     make: bool
-    source: Optional[str]
+    source: bool
+    source_old_binutils: bool
     inlines: bool
     max_function_size_lines: int
     max_function_size_bytes: int
@@ -371,7 +377,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         # Build/objdump options
         diff_obj=args.diff_obj,
         make=args.make,
-        source=args.source,
+        source=args.source or args.source_old_binutils,
+        source_old_binutils=args.source_old_binutils,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
         max_function_size_bytes=args.max_lines * 4,
@@ -762,9 +769,11 @@ def maybe_get_objdump_source_flags(config: Config) -> List[str]:
 
     flags = [
         "--source",
-        "--source-comment=│ ",
         "-l",
     ]
+
+    if not config.source_old_binutils:
+        flags.append("--source-comment=│ ")
 
     if config.inlines:
         flags.append("--inlines")
@@ -1303,7 +1312,7 @@ def process(lines: List[str], config: Config) -> List[Line]:
         if config.diff_obj and (">:" in row or not row):
             continue
 
-        if config.source and (row and row[0] != " "):
+        if config.source and not config.source_old_binutils and (row and row[0] != " "):
             source_lines.append(row)
             continue
 
@@ -1322,6 +1331,11 @@ def process(lines: List[str], config: Config) -> List[Line]:
         if "R_PPC_" in row:
             new_original = process_ppc_reloc(row, output[-1].original)
             output[-1] = replace(output[-1], original=new_original)
+            continue
+
+        # match source lines here to avoid matching relocation lines
+        if config.source and config.source_old_binutils and (row and not re.match(r"^ +[0-9a-f]+:\t", row)):
+            source_lines.append(row)
             continue
 
         m_comment = re.search(arch.re_comment, row)
