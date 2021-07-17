@@ -1636,11 +1636,10 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
         if line2:
             for source_line in line2.source_lines:
                 line_format = BasicFormat.SOURCE_OTHER
-                # File names and function names
-                if source_line and source_line[0] != "│":
-                    line_format = BasicFormat.SOURCE_FILENAME
-                    # Function names
-                    if source_line.endswith("():"):
+                if config.source_old_binutils:
+                    if source_line and re.fullmatch(".*\.c(?:pp)?:\d+", source_line):
+                        line_format = BasicFormat.SOURCE_FILENAME
+                    elif source_line and source_line.endswith("():"):
                         line_format = BasicFormat.SOURCE_FUNCTION
                         try:
                             source_line = cxxfilt.demangle(
@@ -1648,6 +1647,19 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                             )
                         except:
                             pass
+                else:
+                    # File names and function names
+                    if source_line and source_line[0] != "│":
+                        line_format = BasicFormat.SOURCE_FILENAME
+                        # Function names
+                        if source_line.endswith("():"):
+                            line_format = BasicFormat.SOURCE_FUNCTION
+                            try:
+                                source_line = cxxfilt.demangle(
+                                    source_line[:-3], external_only=False
+                                )
+                            except:
+                                pass
                 output.append(
                     OutputLine(
                         None,
