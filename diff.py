@@ -793,7 +793,7 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
         print(e.stdout)
         print(e.stderr)
         if "unrecognized option '--source-comment" in e.stderr:
-            print("** Try using --source-old-binutils instead of --source **")
+            fail("** Try using --source-old-binutils instead of --source **")
         raise e
 
     if restrict is not None:
