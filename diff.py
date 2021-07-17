@@ -783,10 +783,19 @@ def maybe_get_objdump_source_flags(config: Config) -> List[str]:
 
 def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -> str:
     flags, target, restrict = cmd
-    out = subprocess.check_output(
-        [project.objdump_executable] + config.arch.arch_flags + flags + [target],
-        universal_newlines=True,
-    )
+    try:
+        out = subprocess.run(
+            [project.objdump_executable] + config.arch.arch_flags + flags + [target],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True,
+        ).stdout
+    except subprocess.CalledProcessError as e:
+        print(e.stdout)
+        print(e.stderr)
+        if "unrecognized option '--source-comment" in e.stderr:
+            print("** Try using --source-old-binutils instead of --source **")
+        raise e
+
     if restrict is not None:
         return restrict_to_function(out, restrict, config)
     return out
