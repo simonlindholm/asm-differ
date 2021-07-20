@@ -333,7 +333,6 @@ class ProjectSettings:
     mapfile: Optional[str]
     source_directories: Optional[List[str]]
     source_extensions: List[str]
-    browser: Optional[str]
 
 
 @dataclass
@@ -362,7 +361,6 @@ class Config:
     use_pager: bool
     web_server: bool
     run_browser: bool
-    run_browser_command: Optional[str]
     http_server_port: int
 
 
@@ -382,7 +380,6 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_executable=get_objdump_executable(settings.get("objdump_executable")),
         map_format=settings.get("map_format", "gnu"),
         mw_build_dir=settings.get("mw_build_dir", "build/"),
-        browser=settings.get("browser"),
     )
 
 
@@ -424,7 +421,6 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         use_pager=args.format != "html" and not args.no_pager and not args.web_server,
         web_server=args.web_server,
         run_browser=args.run_browser,
-        run_browser_command=project.browser,
         http_server_port=8000,  # FIXME
     )
 
@@ -2008,6 +2004,15 @@ class WebDisplay(Display):
     http_server: http.server.HTTPServer
     running: bool
 
+    def open_browser(self, once:bool=False):
+        if self.config.run_browser:
+            env_browser_command = os.environ.get("ASMDW_BROWSER_CMD")
+            if env_browser_command:
+                os.system(env_browser_command.format(query=("once" if once else "")))
+            else:
+                import webbrowser
+                webbrowser.open("client.html?once" if once else "client.html")
+
     def run_sync(self) -> None:
         web_display = self
 
@@ -2030,11 +2035,7 @@ class WebDisplay(Display):
         # fixme
         print(f"Http server is running on port {self.config.http_server_port}")
         print("Open with ?once (eg file:///.../client.html?once)")
-        if self.config.run_browser:
-            if self.config.run_browser_command:
-                os.system(self.config.run_browser_command.format(query="once"))
-            else:
-                print("--browse was passed but 'browser' isn't set in diff_settings.py")
+        self.open_browser(once=True)
         self.http_server.serve_forever()
 
     def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
@@ -2061,11 +2062,7 @@ class WebDisplay(Display):
         threading.Thread(target=self.http_server.serve_forever).start()
         # fixme sync better
         print(f"Http server is running on port {self.config.http_server_port}")
-        if self.config.run_browser:
-            if self.config.run_browser_command:
-                os.system(self.config.run_browser_command.format(query=""))
-            else:
-                print("--browse was passed but 'browser' isn't set in diff_settings.py")
+        self.open_browser()
         self.ready_queue.put(None)
 
     def progress(self, msg: str) -> None:
