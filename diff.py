@@ -813,7 +813,9 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
     try:
         out = subprocess.run(
             [project.objdump_executable] + config.arch.arch_flags + flags + [target],
-            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             universal_newlines=True,
         ).stdout
     except subprocess.CalledProcessError as e:
@@ -1370,7 +1372,11 @@ def process(lines: List[str], config: Config) -> List[Line]:
             continue
 
         # match source lines here to avoid matching relocation lines
-        if config.source and config.source_old_binutils and (row and not re.match(r"^ +[0-9a-f]+:\t", row)):
+        if (
+            config.source
+            and config.source_old_binutils
+            and (row and not re.match(r"^ +[0-9a-f]+:\t", row))
+        ):
             source_lines.append(row)
             continue
 
@@ -2004,13 +2010,14 @@ class WebDisplay(Display):
     http_server: http.server.HTTPServer
     running: bool
 
-    def open_browser(self, once:bool=False):
+    def open_browser(self, once: bool = False):
         if self.config.run_browser:
             env_browser_command = os.environ.get("ASMDW_BROWSER_CMD")
             if env_browser_command:
                 os.system(env_browser_command.format(query=("once" if once else "")))
             else:
                 import webbrowser
+
                 webbrowser.open("client.html?once" if once else "client.html")
 
     def run_sync(self) -> None:
