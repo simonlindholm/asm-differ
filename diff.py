@@ -363,6 +363,7 @@ class Config:
     web_server: bool
     run_browser: bool
     http_server_port: int
+    log_http_requests: bool
 
 
 def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
@@ -423,6 +424,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         web_server=args.web_server,
         run_browser=args.run_browser,
         http_server_port=8000,  # FIXME
+        log_http_requests=False,
     )
 
 
@@ -2066,9 +2068,14 @@ class WebDisplay(Display):
             req.wfile.flush()
         elif "diff" in query:
             # serve diff
+            if self.running_async and "nowait" not in query:
+                try:
+                    self.ready_queue.get(timeout=query.get("timeout", 10))
+                except queue.Empty:
+                    req.send_response(http.HTTPStatus.NO_CONTENT)
+                    req.end_headers()
+                    return
             okRequest()
-            if self.running_async:
-                self.ready_queue.get()
             req.wfile.write(self.run_diff().encode("utf-8"))
             req.wfile.flush()
         else:
@@ -2076,8 +2083,16 @@ class WebDisplay(Display):
 
     def run_server(self, run_async: bool) -> None:
         class WebDisplayRequestHandler(http.server.BaseHTTPRequestHandler):
-            def do_GET(req):
+            def do_GET(req) -> None:
                 self.handle_request(req)
+
+            def log_request(
+                req,
+                code: Union[str, http.HTTPStatus] = "-",
+                size: Union[str, int] = "-",
+            ) -> None:
+                if self.config.log_http_requests:
+                    super().log_request(code, size)
 
         self.http_server = http.server.HTTPServer(
             ("localhost", self.config.http_server_port), WebDisplayRequestHandler
@@ -2100,7 +2115,6 @@ class WebDisplay(Display):
         self.watch_queue = watch_queue
         self.ready_queue = queue.Queue()
         self.run_server(True)
-        self.ready_queue.put(None)
 
     def progress(self, msg: str) -> None:
         # fixme

@@ -9,9 +9,13 @@
 
         function onNewContent() {
             var httpRequest = ASMDW.httpRequest;
-            if (httpRequest.readyState === XMLHttpRequest.DONE) {
-                if (httpRequest.status === 200) {
+            if (httpRequest.readyState == XMLHttpRequest.DONE) {
+                if (httpRequest.status == 200) { // OK
                     document.getElementById('content').innerHTML = httpRequest.responseText;
+                    if (ASMDW.requestForever) {
+                        setTimeout(requestContent, 100);
+                    }
+                } else if (httpRequest.status == 204) { // No Content
                     if (ASMDW.requestForever) {
                         setTimeout(requestContent, 100);
                     }
@@ -27,8 +31,12 @@
             var httpRequest = new XMLHttpRequest();
             ASMDW.httpRequest = httpRequest;
             httpRequest.onreadystatechange = onNewContent;
-            httpRequest.open('GET', 'http://localhost:8000?diff');
+            var url = 'http://localhost:8000?diff';
+            if (ASMDW.requestCount == 0)
+                url += "&nowait";
+            httpRequest.open('GET', url);
             httpRequest.send();
+            ASMDW.requestCount++;
         }
 
         function onBodyLoaded() {
@@ -36,7 +44,9 @@
         }
 
         // asm-differ web
-        window.ASMDW = {};
+        window.ASMDW = {
+            requestCount: 0,
+        };
         var url = new URL(window.location);
         ASMDW.requestForever = url.searchParams.get('once') === null;
     </script>
