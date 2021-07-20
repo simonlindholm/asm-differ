@@ -207,6 +207,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--no-make",
+        dest="no_make",
         action="store_true",
         help="Do not ask for confirmation when using --watch without --make",
     )
