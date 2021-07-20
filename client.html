@@ -2,54 +2,54 @@
 <html>
 
 <head>
-	<meta charset="utf-8">
-	<link href="diff-stylesheet.css" rel="stylesheet">
-	<script type="text/javascript">
-		'use strict';
+    <meta charset="utf-8">
+    <link href="diff-stylesheet.css" rel="stylesheet">
+    <script type="text/javascript">
+        'use strict';
 
-		function onNewContent() {
-			var httpRequest = ASMDW.httpRequest;
-			if (httpRequest.readyState === XMLHttpRequest.DONE) {
-				if (httpRequest.status === 200) {
-					document.getElementById('content').innerHTML = httpRequest.responseText;
-					if (ASMDW.requestForever) {
-						setTimeout(requestContent, 100);
-					}
-				}
-				else {
-					if (window.confirm('Failed to communicate with localhost:8000, close tab?')) {
-						window.close();
-					}
-				}
-			}
-		}
+        function onNewContent() {
+            var httpRequest = ASMDW.httpRequest;
+            if (httpRequest.readyState === XMLHttpRequest.DONE) {
+                if (httpRequest.status === 200) {
+                    document.getElementById('content').innerHTML = httpRequest.responseText;
+                    if (ASMDW.requestForever) {
+                        setTimeout(requestContent, 100);
+                    }
+                }
+                else {
+                    if (window.confirm('Failed to communicate with localhost:8000, close tab?')) {
+                        window.close();
+                    }
+                }
+            }
+        }
 
-		function requestContent() {
-			var httpRequest = new XMLHttpRequest();
-			ASMDW.httpRequest = httpRequest;
-			httpRequest.onreadystatechange = onNewContent;
-			httpRequest.open('GET', 'http://localhost:8000');
-			httpRequest.send();
-		}
+        function requestContent() {
+            var httpRequest = new XMLHttpRequest();
+            ASMDW.httpRequest = httpRequest;
+            httpRequest.onreadystatechange = onNewContent;
+            httpRequest.open('GET', 'http://localhost:8000');
+            httpRequest.send();
+        }
 
-		function onBodyLoaded() {
-			requestContent();
-		}
+        function onBodyLoaded() {
+            requestContent();
+        }
 
-		// asm-differ web
-		window.ASMDW = {};
-		var url = new URL(window.location);
-		ASMDW.requestForever = url.searchParams.get('once') === null;
-	</script>
-	<style type="text/css">
-		body {
-			background-color: #34495e;
-		}
-	</style>
+        // asm-differ web
+        window.ASMDW = {};
+        var url = new URL(window.location);
+        ASMDW.requestForever = url.searchParams.get('once') === null;
+    </script>
+    <style type="text/css">
+        body {
+            background-color: #34495e;
+        }
+    </style>
 </head>
 
 <body onload="onBodyLoaded()">
-	<div id="content"></div>
+    <div id="content"></div>
 </body>
 
 </html>

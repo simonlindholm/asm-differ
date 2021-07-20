@@ -1,62 +1,62 @@
 table.diff {
-	border: none;
-	font-family: Monospace;
-	white-space: pre;
-	background-color: #243341;
-	color: #ecf0f1;
+    border: none;
+    font-family: Monospace;
+    white-space: pre;
+    background-color: #243341;
+    color: #ecf0f1;
 }
 .immediate {
-	color: lightblue;
+    color: lightblue;
 }
 .stack {
-	color: yellow;
+    color: yellow;
 }
 .register {
-	color: yellow;
+    color: yellow;
 }
 .diff-change {
-	color: #70dcff;
+    color: #70dcff;
 }
 .diff-add {
-	color: #2ecc71;
+    color: #2ecc71;
 }
 .diff-remove {
-	color: #e74c3c;
+    color: #e74c3c;
 }
 .source-filename {
-	font-weight: bold;
+    font-weight: bold;
 }
 .source-function {
-	font-weight: bold;
-	text-decoration: underline;
+    font-weight: bold;
+    text-decoration: underline;
 }
 .source-other {
-	font-style: italic;
+    font-style: italic;
 }
 .rotation-0 {
-	color: #ff31d5;
+    color: #ff31d5;
 }
 .rotation-1 {
-	color: #4cffff;
+    color: #4cffff;
 }
 .rotation-2 {
-	color: #00b92e;
+    color: #00b92e;
 }
 .rotation-3 {
-	color: #e74c3c;
+    color: #e74c3c;
 }
 .rotation-4 {
-	color: #f1c40f;
+    color: #f1c40f;
 }
 .rotation-5 {
-	color: #bc9dff;
+    color: #bc9dff;
 }
 .rotation-6 {
-	color: #68b1ff;
+    color: #68b1ff;
 }
 .rotation-7 {
-	color: #a3ff79;
+    color: #a3ff79;
 }
 .rotation-8 {
-	color: #95a5a6;
+    color: #95a5a6;
 }
