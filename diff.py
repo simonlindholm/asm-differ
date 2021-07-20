@@ -201,6 +201,11 @@ if __name__ == "__main__":
         "Recommended in combination with -m.",
     )
     parser.add_argument(
+        "--no-make",
+        action="store_true",
+        help="Do not ask for confirmation when using --watch without --make",
+    )
+    parser.add_argument(
         "-3",
         "--threeway=prev",
         dest="threeway",
@@ -322,6 +327,7 @@ class ProjectSettings:
     mapfile: Optional[str]
     source_directories: Optional[List[str]]
     source_extensions: List[str]
+    browser: Optional[str]
 
 
 @dataclass
@@ -348,6 +354,8 @@ class Config:
     algorithm: str
     use_pager: bool
     web_server: bool
+    run_browser: bool
+    run_browser_command: Optional[str]
     http_server_port: int
 
 
@@ -367,6 +375,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_executable=get_objdump_executable(settings.get("objdump_executable")),
         map_format=settings.get("map_format", "gnu"),
         mw_build_dir=settings.get("mw_build_dir", "build/"),
+        browser=settings.get("browser"),
     )
 
 
@@ -406,7 +415,9 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         algorithm=args.algorithm,
         use_pager=args.format != "html" and not args.no_pager and not args.web_server,
         web_server=args.web_server,
-        http_server_port=8000, # FIXME
+        run_browser=args.run_browser,
+        run_browser_command=project.browser,
+        http_server_port=8000,  # FIXME
     )
 
 
@@ -1805,16 +1816,12 @@ def debounced_fs_watch(
     th.start()
 
 
-class Display:
+class Display(abc.ABC):
     basedump: str
     mydump: str
     config: Config
     emsg: Optional[str]
     last_diff_output: Optional[List[OutputLine]]
-    pending_update: Optional[Tuple[str, bool]]
-    ready_queue: "queue.Queue[None]"
-    watch_queue: "queue.Queue[Optional[float]]"
-    less_proc: "Optional[subprocess.Popen[bytes]]"
 
     def __init__(self, basedump: str, mydump: str, config: Config) -> None:
         self.config = config
@@ -1834,6 +1841,44 @@ class Display:
         header, diff_lines = format_diff(last_diff_output, diff_output, self.config)
         return self.config.formatter.table(header, diff_lines[self.config.skip_lines :])
 
+    @abc.abstractmethod
+    def run_sync(self) -> None:
+        """Run in blocking mode, returning when the display ends"""
+        ...
+
+    @abc.abstractmethod
+    def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
+        """Run in non-blocking mode (the method should set up the display asynchronously, then return).
+        `watch_queue` should be sent `None` when the display ends"""
+        ...
+
+    @abc.abstractmethod
+    def progress(self, msg: str) -> None:
+        """Print a progress message (when running async)"""
+        ...
+
+    @abc.abstractmethod
+    def update(self, mydump: str) -> None:
+        """Update the source to be displayed (when running async)"""
+        ...
+
+    @abc.abstractmethod
+    def update_error(self, error: str) -> None:
+        """Display an error that occured while updating the source (when running async)"""
+        ...
+
+    @abc.abstractmethod
+    def terminate(self) -> None:
+        """Stop the display (when running async)"""
+        ...
+
+
+class PagerDisplay(Display):
+    pending_update: Optional[Tuple[str, bool]]
+    ready_queue: "queue.Queue[None]"
+    watch_queue: "queue.Queue[Optional[float]]"
+    less_proc: "Optional[subprocess.Popen[bytes]]"
+
     def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
         output = self.run_diff()
 
@@ -1851,6 +1896,12 @@ class Display:
         buffer_proc.stdin.close()
         buffer_proc.stdout.close()
         return (buffer_proc, less_proc)
+
+    def kill_less(self) -> None:
+        if not self.less_proc:
+            return
+        self.less_proc.kill()
+        self.ready_queue.get()
 
     def run_sync(self) -> None:
         proca, procb = self.run_less()
@@ -1899,21 +1950,136 @@ class Display:
         sys.stdout.write("\x1b7\x1b[1;1f{}\x1b8".format(msg + " "))
         sys.stdout.flush()
 
-    def update(self, text: str, error: bool) -> None:
-        if not error and not self.emsg and text == self.mydump:
+    def update(self, mydump: str) -> None:
+        if not self.emsg and mydump == self.mydump:
             self.progress("Unchanged. ")
             return
-        self.pending_update = (text, error)
-        if not self.less_proc:
-            return
-        self.less_proc.kill()
-        self.ready_queue.get()
+        self.pending_update = (mydump, False)
+        self.kill_less()
+
+    def update_error(self, error: str) -> None:
+        self.pending_update = (error, True)
+        self.kill_less()
 
     def terminate(self) -> None:
-        if not self.less_proc:
+        self.pending_update = None
+        self.kill_less()
+
+
+class WebDisplay(Display):
+    watch_queue: "queue.Queue[Optional[float]]"
+    ready_queue: "queue.Queue[Optional[float]]"
+    http_server: http.server.HTTPServer
+    running: bool
+
+    def run_sync(self) -> None:
+        web_display = self
+
+        class MyReqHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if not web_display.running:
+                    return
+                self.send_response(http.HTTPStatus.OK)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(web_display.run_diff().encode("utf-8"))
+                self.wfile.flush()
+                # fixme
+                threading.Thread(target=web_display.http_server.shutdown).start()
+
+        self.http_server = http.server.HTTPServer(
+            ("localhost", self.config.http_server_port), MyReqHandler
+        )
+        self.running = True
+        # fixme
+        print(f"Http server is running on port {self.config.http_server_port}")
+        print("Open with ?once (eg file:///.../client.html?once)")
+        if self.config.run_browser:
+            if self.config.run_browser_command:
+                os.system(self.config.run_browser_command.format(query="once"))
+            else:
+                print("--browse was passed but 'browser' isn't set in diff_settings.py")
+        self.http_server.serve_forever()
+
+    def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
+        self.watch_queue = watch_queue
+        self.ready_queue = queue.Queue()
+
+        web_display = self
+
+        class MyReqHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if not web_display.running:
+                    return
+                self.send_response(http.HTTPStatus.OK)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                web_display.ready_queue.get()
+                self.wfile.write(web_display.run_diff().encode("utf-8"))
+                self.wfile.flush()
+
+        self.http_server = http.server.HTTPServer(
+            ("localhost", self.config.http_server_port), MyReqHandler
+        )
+        self.running = True
+        threading.Thread(target=self.http_server.serve_forever).start()
+        # fixme sync better
+        print(f"Http server is running on port {self.config.http_server_port}")
+        if self.config.run_browser:
+            if self.config.run_browser_command:
+                os.system(self.config.run_browser_command.format(query=""))
+            else:
+                print("--browse was passed but 'browser' isn't set in diff_settings.py")
+        self.ready_queue.put(None)
+
+    def progress(self, msg: str) -> None:
+        # fixme
+        print(msg)
+
+    def update(self, mydump: str) -> None:
+        if mydump == self.mydump:
+            self.progress("Unchanged. ")
             return
-        self.less_proc.kill()
-        self.ready_queue.get()
+        self.mydump = mydump
+        self.ready_queue.put(None)
+
+    def update_error(self, error: str) -> None:
+        # fixme
+        print("Error:")
+        print(error)
+
+    def terminate(self) -> None:
+        self.running = False
+        self.ready_queue.put(None)
+        self.http_server.shutdown()
+
+
+class ConsoleDisplay(Display):
+    def print_diff(self) -> None:
+        print(self.run_diff())
+
+    def run_sync(self) -> None:
+        self.print_diff()
+
+    def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
+        self.print_diff()
+
+    def progress(self, msg: str) -> None:
+        print(msg)
+
+    def update(self, mydump: str) -> None:
+        if mydump == self.mydump:
+            self.progress("Unchanged. ")
+            return
+        self.mydump = mydump
+        self.print_diff()
+
+    def update_error(self, error: str) -> None:
+        print("Error:")
+        print(error)
+
+    def terminate(self) -> None:
+        pass
 
 
 def main() -> None:
@@ -1971,37 +2137,17 @@ def main() -> None:
 
     mydump = run_objdump(mycmd, config, project)
 
-    display = Display(basedump, mydump, config)
-
-    if config.web_server:
-        webWaitQ = queue.Queue() if args.watch else None
-        class MyReqHandler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(http.HTTPStatus.OK)
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                if webWaitQ is not None:
-                    webWaitQ.get()
-                self.wfile.write(display.run_diff().encode("utf-8"))
-                self.wfile.flush()
-        httpServer = http.server.HTTPServer(("localhost", config.http_server_port), MyReqHandler)
-        threading.Thread(target=httpServer.serve_forever, daemon=True).start()
-        print(f"Http server is running on port {config.http_server_port}")
-        if args.run_browser:
-            if "browser" in settings:
-                os.system(settings["browser"])
-            else:
-                print("--browse was passed but 'browser' isn't set in diff_settings.py")
+    if config.use_pager:
+        display = PagerDisplay(basedump, mydump, config)
+    elif config.web_server:
+        display = WebDisplay(basedump, mydump, config)
+    else:
+        display = ConsoleDisplay(basedump, mydump, config)
 
     if not args.watch:
-        if config.use_pager:
-            display.run_sync()
-        elif config.web_server:
-            input("Press enter to terminate")
-        else:
-            print(display.run_diff())
+        display.run_sync()
     else:
-        if not args.make:
+        if not args.make and not args.no_make:
             yn = input(
                 "Warning: watch-mode (-w) enabled without auto-make (-m). "
                 "You will have to run make manually. Ok? (Y/n) "
@@ -2022,12 +2168,7 @@ def main() -> None:
             watch_sources = [make_target]
         q: "queue.Queue[Optional[float]]" = queue.Queue()
         debounced_fs_watch(watch_sources, q, config, project)
-        if config.use_pager:
-            display.run_async(q)
-        elif config.web_server:
-            webWaitQ.put(None)
-        else:
-            print(display.run_diff())
+        display.run_async(q)
         last_build = 0.0
         try:
             while True:
@@ -2038,48 +2179,19 @@ def main() -> None:
                     continue
                 last_build = time.time()
                 if args.make:
-                    if config.use_pager:
-                        display.progress("Building...")
-                    elif config.web_server:
-                        # FIXME
-                        print("Building...")
-                    else:
-                        print("Building...")
+                    display.progress("Building...")
                     ret = run_make_capture_output(make_target, project)
                     if ret.returncode != 0:
-                        if config.use_pager:
-                            display.update(
-                                ret.stderr.decode("utf-8-sig", "replace")
-                                or ret.stdout.decode("utf-8-sig", "replace"),
-                                error=True,
-                            )
-                        elif config.web_server:
-                            # FIXME
-                            print("Error while building:")
-                            print(
-                                ret.stderr.decode("utf-8-sig", "replace")
-                                or ret.stdout.decode("utf-8-sig", "replace")
-                            )
-                        else:
-                            print("Error while building:")
-                            print(
-                                ret.stderr.decode("utf-8-sig", "replace")
-                                or ret.stdout.decode("utf-8-sig", "replace")
-                            )
+                        display.update_error(
+                            ret.stderr.decode("utf-8-sig", "replace")
+                            or ret.stdout.decode("utf-8-sig", "replace"),
+                        )
                         continue
                 mydump = run_objdump(mycmd, config, project)
-                if config.use_pager:
-                    display.update(mydump, error=False)
-                elif config.web_server:
-                    print("New diff!")
-                    display.mydump = mydump
-                    webWaitQ.put(None)
-                else:
-                    display.mydump = mydump
-                    print(display.run_diff())
+                display.update(mydump)
         except KeyboardInterrupt:
-            if config.use_pager:
-                display.terminate()
+            print(" Terminating display...")
+            display.terminate()
 
 
 if __name__ == "__main__":
