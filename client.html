@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8">
-    <link href="diff-stylesheet.css" rel="stylesheet">
+    <link href="?css" rel="stylesheet">
     <script type="text/javascript">
         'use strict';
 
@@ -15,8 +15,7 @@
                     if (ASMDW.requestForever) {
                         setTimeout(requestContent, 100);
                     }
-                }
-                else {
+                } else {
                     if (window.confirm('Failed to communicate with localhost:8000, close tab?')) {
                         window.close();
                     }
@@ -28,7 +27,7 @@
             var httpRequest = new XMLHttpRequest();
             ASMDW.httpRequest = httpRequest;
             httpRequest.onreadystatechange = onNewContent;
-            httpRequest.open('GET', 'http://localhost:8000');
+            httpRequest.open('GET', 'http://localhost:8000?diff');
             httpRequest.send();
         }
 

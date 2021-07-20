@@ -304,6 +304,7 @@ import subprocess
 import threading
 import time
 import http.server
+import urllib
 
 
 MISSING_PREREQUISITES = (
@@ -2008,68 +2009,98 @@ class WebDisplay(Display):
     watch_queue: "queue.Queue[Optional[float]]"
     ready_queue: "queue.Queue[Optional[float]]"
     http_server: http.server.HTTPServer
+    running_async: bool
     running: bool
 
-    def open_browser(self, once: bool = False):
+    def open_browser(self, once: bool = False) -> None:
         if self.config.run_browser:
             env_browser_command = os.environ.get("ASMDW_BROWSER_CMD")
             if env_browser_command:
-                os.system(env_browser_command.format(query=("once" if once else "")))
+                os.system(
+                    env_browser_command.format(query="init&" + ("once" if once else ""))
+                )
             else:
                 import webbrowser
 
-                webbrowser.open("client.html?once" if once else "client.html")
+                webbrowser.open(self.get_open_url(once))
 
-    def run_sync(self) -> None:
-        web_display = self
+    def get_open_url(self, once: bool = False) -> str:
+        port = self.config.http_server_port
+        return f"http://localhost:{port}?init&" + ("once" if once else "")
 
-        class MyReqHandler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                if not web_display.running:
-                    return
-                self.send_response(http.HTTPStatus.OK)
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(web_display.run_diff().encode("utf-8"))
-                self.wfile.flush()
-                # fixme
-                threading.Thread(target=web_display.http_server.shutdown).start()
+    def handle_request(self, req: http.server.BaseHTTPRequestHandler) -> None:
+        if not self.running:
+            return
+
+        def badRequest(msg: str) -> None:
+            req.send_response(http.HTTPStatus.BAD_REQUEST)
+            req.end_headers()
+            req.wfile.write(msg.encode("utf-8"))
+            req.wfile.flush()
+
+        def okRequest() -> None:
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Access-Control-Allow-Origin", "*")  # fixme
+            req.end_headers()
+
+        # scheme://netloc/path;parameters?query#fragment
+        scheme, netloc, path, parameters, query_str, fragment = urllib.parse.urlparse(
+            req.path
+        )
+        if not query_str:
+            badRequest(
+                "No query\n" + f"path = {path!r}\n" + f"query_str = {query_str!r}\n"
+            )
+            return
+        query = urllib.parse.parse_qs(query_str, keep_blank_values=True)
+        if "init" in query:
+            # serve client.html
+            okRequest()
+            with open("client.html") as f:
+                req.wfile.write(f.read().encode("utf-8"))
+            req.wfile.flush()
+        elif "css" in query:
+            # serve diff-stylesheet.css
+            okRequest()
+            with open("diff-stylesheet.css") as f:
+                req.wfile.write(f.read().encode("utf-8"))
+            req.wfile.flush()
+        elif "diff" in query:
+            # serve diff
+            okRequest()
+            if self.running_async:
+                self.ready_queue.get()
+            req.wfile.write(self.run_diff().encode("utf-8"))
+            req.wfile.flush()
+        else:
+            badRequest("Bad query")
+
+    def run_server(self, run_async: bool) -> None:
+        class WebDisplayRequestHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(req):
+                self.handle_request(req)
 
         self.http_server = http.server.HTTPServer(
-            ("localhost", self.config.http_server_port), MyReqHandler
+            ("localhost", self.config.http_server_port), WebDisplayRequestHandler
         )
+        self.running_async = run_async
         self.running = True
-        # fixme
-        print(f"Http server is running on port {self.config.http_server_port}")
-        print("Open with ?once (eg file:///.../client.html?once)")
-        self.open_browser(once=True)
-        self.http_server.serve_forever()
+        print(self.get_open_url())
+        # opening the browser before the server is started
+        # hope it won't be an issue
+        self.open_browser(once=not run_async)
+        if run_async:
+            threading.Thread(target=self.http_server.serve_forever).start()
+        else:
+            self.http_server.serve_forever()
+
+    def run_sync(self) -> None:
+        self.run_server(False)
 
     def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
         self.watch_queue = watch_queue
         self.ready_queue = queue.Queue()
-
-        web_display = self
-
-        class MyReqHandler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                if not web_display.running:
-                    return
-                self.send_response(http.HTTPStatus.OK)
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                web_display.ready_queue.get()
-                self.wfile.write(web_display.run_diff().encode("utf-8"))
-                self.wfile.flush()
-
-        self.http_server = http.server.HTTPServer(
-            ("localhost", self.config.http_server_port), MyReqHandler
-        )
-        self.running = True
-        threading.Thread(target=self.http_server.serve_forever).start()
-        # fixme sync better
-        print(f"Http server is running on port {self.config.http_server_port}")
-        self.open_browser()
+        self.run_server(True)
         self.ready_queue.put(None)
 
     def progress(self, msg: str) -> None:
