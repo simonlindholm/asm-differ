@@ -2040,7 +2040,6 @@ class WebDisplay(Display):
 
         def okRequest() -> None:
             req.send_response(http.HTTPStatus.OK)
-            req.send_header("Access-Control-Allow-Origin", "*")  # fixme
             req.end_headers()
 
         # scheme://netloc/path;parameters?query#fragment
