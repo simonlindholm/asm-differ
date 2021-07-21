@@ -7,15 +7,71 @@
     <script type="text/javascript">
         'use strict';
 
+        function animate(time) {
+            // slide status elements off screen, one by one
+            if (ASMDW.statusElements.length != 0) {
+                var statusElemInfo = ASMDW.statusElements[0];
+                var element = statusElemInfo.element;
+                var slideOutStart = statusElemInfo.slideOutStart;
+                var slideOutEnd = statusElemInfo.slideOutEnd;
+                if (time > slideOutEnd) {
+                    // remove this element
+                    element.remove();
+                    ASMDW.statusElements.shift();
+                    // make sure the next one starts the disappearing animation now,
+                    // in case it is disappearing late
+                    if (ASMDW.statusElements.length != 0) {
+                        var nextStatusElemInfo = ASMDW.statusElements[0];
+                        if (nextStatusElemInfo.slideOutStart < time) {
+                            nextStatusElemInfo.slideOutStart = time;
+                            nextStatusElemInfo.slideOutEnd = time + ASMDW.statusSlideOutDurationMs;
+                        }
+                    }
+                } else if (time > slideOutStart) {
+                    // slide this element (and others) up
+                    var progress = (time - slideOutStart) / (slideOutEnd - slideOutStart);
+                    var deltaY = -element.offsetHeight * Math.pow(progress, 3);
+                    statusElemInfo.element.style = 'margin-top: ' + deltaY.toString() + 'px;';
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        function addStatusText(text) {
+            // add status text to dom
+            var statusElem = document.createElement('div');
+            statusElem.appendChild(document.createTextNode(text));
+            statusElem.classList.add('status-element');
+            ASMDW.dom.statusContainer.appendChild(statusElem);
+            // keep track of element for sliding up and removal
+            var now = performance.now();
+            ASMDW.statusElements.push({
+                element: statusElem,
+                slideOutStart: now + 10000,
+                slideOutEnd: now + 10000 + ASMDW.statusSlideOutDurationMs,
+            });
+        }
+
         function onNewContent() {
             var httpRequest = ASMDW.httpRequest;
             if (httpRequest.readyState == XMLHttpRequest.DONE) {
                 if (httpRequest.status == 200) { // OK
-                    document.getElementById('content').innerHTML = httpRequest.responseText;
-                    if (ASMDW.requestForever) {
-                        setTimeout(requestContent, 100);
+                    var res = httpRequest.responseText;
+                    var resInfoEndIdx = res.indexOf('\n');
+                    var resInfo = res.slice(0, resInfoEndIdx);
+                    switch (resInfo) {
+                        case 'diff':
+                            ASMDW.diffReceived++;
+                            var resDiffHtml = res.slice(resInfoEndIdx + 1);
+                            ASMDW.dom.diffContainer.innerHTML = resDiffHtml;
+                            break;
+                        case 'status':
+                            var resStatusText = res.slice(resInfoEndIdx + 1);
+                            addStatusText(resStatusText);
+                            break;
+                        default:
+                            alert('Unknown resInfo = ' + resInfo);
                     }
-                } else if (httpRequest.status == 204) { // No Content
                     if (ASMDW.requestForever) {
                         setTimeout(requestContent, 100);
                     }
@@ -31,21 +87,27 @@
             var httpRequest = new XMLHttpRequest();
             ASMDW.httpRequest = httpRequest;
             httpRequest.onreadystatechange = onNewContent;
-            var url = 'http://localhost:8000?diff';
-            if (ASMDW.requestCount == 0)
+            var url = '?diff';
+            if (ASMDW.diffReceived == 0)
                 url += "&nowait";
             httpRequest.open('GET', url);
             httpRequest.send();
-            ASMDW.requestCount++;
         }
 
         function onBodyLoaded() {
+            ASMDW.dom = {
+                diffContainer: document.getElementById('diff-container'),
+                statusContainer: document.getElementById('status-container'),
+            };
             requestContent();
+            requestAnimationFrame(animate);
         }
 
         // asm-differ web
         window.ASMDW = {
-            requestCount: 0,
+            diffReceived: 0,
+            statusSlideOutDurationMs: 500,
+            statusElements: [],
         };
         var url = new URL(window.location);
         ASMDW.requestForever = url.searchParams.get('once') === null;
@@ -54,11 +116,42 @@
         body {
             background-color: #34495e;
         }
+
+        @keyframes fadein {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        #status-container {
+            position: fixed;
+            background-color: black;
+            color: white;
+            left: 0;
+            top: 0;
+            z-index: 1;
+        }
+
+        .status-element {
+            animation: fadein 0.5s forwards;
+            padding: 3px;
+        }
+
+        table.diff > thead {
+            position: sticky;
+            top: -1px;
+            padding-top: 1px;
+        }
     </style>
 </head>
 
 <body onload="onBodyLoaded()">
-    <div id="content"></div>
+    <div id="status-container"></div>
+    <div id="diff-container"></div>
 </body>
 
 </html>

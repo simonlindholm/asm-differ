@@ -2010,6 +2010,7 @@ class PagerDisplay(Display):
 class WebDisplay(Display):
     watch_queue: "queue.Queue[Optional[float]]"
     ready_queue: "queue.Queue[Optional[float]]"
+    status_queue: "queue.Queue[str]"
     http_server: http.server.HTTPServer
     running_async: bool
     running: bool
@@ -2036,13 +2037,10 @@ class WebDisplay(Display):
 
         def badRequest(msg: str) -> None:
             req.send_response(http.HTTPStatus.BAD_REQUEST)
+            req.send_header("Content-Type", "text/plain; charset=UTF-8")
             req.end_headers()
             req.wfile.write(msg.encode("utf-8"))
             req.wfile.flush()
-
-        def okRequest() -> None:
-            req.send_response(http.HTTPStatus.OK)
-            req.end_headers()
 
         # scheme://netloc/path;parameters?query#fragment
         scheme, netloc, path, parameters, query_str, fragment = urllib.parse.urlparse(
@@ -2056,27 +2054,49 @@ class WebDisplay(Display):
         query = urllib.parse.parse_qs(query_str, keep_blank_values=True)
         if "init" in query:
             # serve client.html
-            okRequest()
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/html; charset=UTF-8")
+            req.end_headers()
             with open("client.html") as f:
                 req.wfile.write(f.read().encode("utf-8"))
             req.wfile.flush()
         elif "css" in query:
             # serve diff-stylesheet.css
-            okRequest()
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/css; charset=UTF-8")
+            req.end_headers()
             with open("diff-stylesheet.css") as f:
                 req.wfile.write(f.read().encode("utf-8"))
             req.wfile.flush()
         elif "diff" in query:
-            # serve diff
-            if self.running_async and "nowait" not in query:
-                try:
-                    self.ready_queue.get(timeout=query.get("timeout", 10))
-                except queue.Empty:
-                    req.send_response(http.HTTPStatus.NO_CONTENT)
-                    req.end_headers()
-                    return
-            okRequest()
-            req.wfile.write(self.run_diff().encode("utf-8"))
+            # serve diff or status message
+            if self.running_async:
+                if "nowait" in query:
+                    try:
+                        # take from the queue just in case if any, to prevent
+                        # following ?diff request to complete immediately
+                        self.ready_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                else:
+                    self.ready_queue.get()
+                    if not self.running:
+                        # notify any other request waiting
+                        self.ready_queue.put(None)
+                        return
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/plain; charset=UTF-8")
+            req.end_headers()
+            try:
+                status = self.status_queue.get_nowait()
+            except queue.Empty:
+                status = None
+            if status:
+                req.wfile.write("status\n".encode("utf-8"))
+                req.wfile.write(status.encode("utf-8"))
+            else:
+                req.wfile.write("diff\n".encode("utf-8"))
+                req.wfile.write(self.run_diff().encode("utf-8"))
             req.wfile.flush()
         else:
             badRequest("Bad query")
@@ -2094,7 +2114,19 @@ class WebDisplay(Display):
                 if self.config.log_http_requests:
                     super().log_request(code, size)
 
-        self.http_server = http.server.HTTPServer(
+        # NB: Using ThreadingHTTPServer is said to prevent streaming
+        # it probably won't be an issue in this application
+        try:
+            ThreadingHTTPServer = http.server.ThreadingHTTPServer
+        except:
+            import socketserver
+
+            class ThreadingHTTPServer(
+                socketserver.ThreadingMixIn, http.server.HTTPServer
+            ):
+                pass
+
+        self.http_server = ThreadingHTTPServer(
             ("localhost", self.config.http_server_port), WebDisplayRequestHandler
         )
         self.running_async = run_async
@@ -2114,11 +2146,12 @@ class WebDisplay(Display):
     def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
         self.watch_queue = watch_queue
         self.ready_queue = queue.Queue()
+        self.status_queue = queue.Queue()
         self.run_server(True)
 
     def progress(self, msg: str) -> None:
-        # fixme
-        print(msg)
+        self.status_queue.put(msg)
+        self.ready_queue.put(None)
 
     def update(self, mydump: str) -> None:
         if mydump == self.mydump:
@@ -2128,9 +2161,8 @@ class WebDisplay(Display):
         self.ready_queue.put(None)
 
     def update_error(self, error: str) -> None:
-        # fixme
-        print("Error:")
-        print(error)
+        self.status_queue.put(f"Error: {error}")
+        self.ready_queue.put(None)
 
     def terminate(self) -> None:
         self.running = False

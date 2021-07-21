@@ -2,8 +2,10 @@ table.diff {
     border: none;
     font-family: Monospace;
     white-space: pre;
-    background-color: #243341;
     color: #ecf0f1;
+}
+table.diff, table.diff > thead {
+    background-color: #243341;
 }
 .immediate {
     color: lightblue;
