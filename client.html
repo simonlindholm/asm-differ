@@ -50,12 +50,14 @@
                 slideOutStart: now + 10000,
                 slideOutEnd: now + 10000 + ASMDW.statusSlideOutDurationMs,
             });
+            return statusElem;
         }
 
         function onNewContent() {
             var httpRequest = ASMDW.httpRequest;
             if (httpRequest.readyState == XMLHttpRequest.DONE) {
                 if (httpRequest.status == 200) { // OK
+                    ASMDW.tryAgainAfterCommunicationFailureDelayMs = 0;
                     var res = httpRequest.responseText;
                     var resInfoEndIdx = res.indexOf('\n');
                     var resInfo = res.slice(0, resInfoEndIdx);
@@ -73,17 +75,39 @@
                             alert('Unknown resInfo = ' + resInfo);
                     }
                     if (ASMDW.requestForever) {
-                        setTimeout(requestContent, 100);
+                        ASMDW.requestContentTimeoutID = setTimeout(requestContent, 100);
                     }
                 } else {
-                    if (window.confirm('Failed to communicate with localhost:8000, close tab?')) {
-                        window.close();
+                    if (ASMDW.tryAgainAfterCommunicationFailureDelayMs == 0) {
+                        ASMDW.tryAgainAfterCommunicationFailureDelayMs = 5000;
+                    } else {
+                        ASMDW.tryAgainAfterCommunicationFailureDelayMs *= 2;
                     }
+                    var statusElem = addStatusText(
+                        'Failed to communicate with server, trying again in '
+                        + Math.round(ASMDW.tryAgainAfterCommunicationFailureDelayMs / 1000).toString()
+                        + ' seconds'
+                    );
+                    var retryNow = document.createElement('span');
+                    retryNow.appendChild(document.createTextNode('(retry now)'));
+                    retryNow.classList.add('communication-error-retry-now');
+                    retryNow.addEventListener('click', function(ev) {
+                        var retryNow = ev.target;
+                        retryNow.remove();
+                        requestContent();
+                    });
+                    statusElem.appendChild(document.createTextNode(' '));
+                    statusElem.appendChild(retryNow);
+                    ASMDW.requestContentTimeoutID = setTimeout(requestContent, ASMDW.tryAgainAfterCommunicationFailureDelayMs);
                 }
             }
         }
 
         function requestContent() {
+            if (ASMDW.requestContentTimeoutID !== null) {
+                clearTimeout(ASMDW.requestContentTimeoutID);
+                ASMDW.requestContentTimeoutID = null;
+            }
             var httpRequest = new XMLHttpRequest();
             ASMDW.httpRequest = httpRequest;
             httpRequest.onreadystatechange = onNewContent;
@@ -105,7 +129,9 @@
 
         // asm-differ web
         window.ASMDW = {
+            requestContentTimeoutID: null,
             diffReceived: 0,
+            tryAgainAfterCommunicationFailureDelayMs: 0,
             statusSlideOutDurationMs: 500,
             statusElements: [],
         };
@@ -141,7 +167,12 @@
             padding: 3px;
         }
 
-        table.diff > thead {
+        .communication-error-retry-now {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        table.diff>thead {
             position: sticky;
             top: -1px;
             padding-top: 1px;
