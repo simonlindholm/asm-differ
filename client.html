@@ -36,7 +36,7 @@
             }
             // scrolling
             if (ASMDW.scrollYtarget !== null) {
-                var scrollYdiff = (time - ASMDW.scrollYlastUpdate) / 1000 * 1500; // 2000 px/s
+                var scrollYdiff = (time - ASMDW.scrollYlastUpdate) / 1000 * 1500; // 1500 px/s
                 ASMDW.scrollYlastUpdate = time;
                 var newScrollY;
                 if (ASMDW.scrollYtarget < window.scrollY) {
@@ -51,7 +51,9 @@
                     }
                 }
                 window.scroll(window.scrollX, newScrollY);
-                if (newScrollY == ASMDW.scrollYtarget) {
+                var stopScrolling = newScrollY == ASMDW.scrollYtarget;
+                stopScrolling = stopScrolling || (window.scrollY > (document.body.offsetHeight - window.innerHeight));
+                if (stopScrolling) {
                     ASMDW.scrollYtarget = null;
                     ASMDW.scrollYlastUpdate = null;
                 }
@@ -210,7 +212,10 @@
         }
 
         function onClickBranchOrigin(ev) {
-            scrollIntoView(document.getElementById(ev.target.dataset.branchTarget), [ev.target]);
+            var branchTargetElem = document.getElementById(ev.target.dataset.branchTarget);
+            if (branchTargetElem) {
+                scrollIntoView(branchTargetElem, [ev.target]);
+            }
             highlightBranchClearAll();
             highlightBranchStay(ev.target.dataset.branchesClass);
         }
