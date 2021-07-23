@@ -271,6 +271,13 @@ if __name__ == "__main__":
         help="View diff in a browser. Implies --no-pager and --format=html.",
     )
     parser.add_argument(
+        "--web-port",
+        dest="http_server_port",
+        type=int,
+        default=8000,
+        help="The port to run the http server on. Only with --web.",
+    )
+    parser.add_argument(
         "--browse",
         dest="run_browser",
         action="store_true",
@@ -423,7 +430,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         use_pager=args.format != "html" and not args.no_pager and not args.web_server,
         web_server=args.web_server,
         run_browser=args.run_browser,
-        http_server_port=8000,  # FIXME
+        http_server_port=args.http_server_port,
         log_http_requests=False,
     )
 
