@@ -265,6 +265,7 @@ function onNewContent() {
             let resInfo = res.slice(0, resInfoEndIdx);
             switch (resInfo) {
                 case 'diff':
+                case 'diff once':
                     ASMDW.diffReceived++;
                     let resDiffHtml = res.slice(resInfoEndIdx + 1);
                     setDiffHtml(resDiffHtml);
@@ -276,7 +277,7 @@ function onNewContent() {
                 default:
                     alert('Unknown resInfo = ' + resInfo);
             }
-            if (ASMDW.requestForever) {
+            if (resInfo != 'diff once') {
                 ASMDW.requestContentTimeoutID = setTimeout(requestContent, 100);
             }
         } else {
@@ -352,6 +353,3 @@ window.ASMDW = {
     statusSlideOutDurationMs: 500,
     statusElements: [],
 };
-
-let url = new URL(window.location);
-ASMDW.requestForever = url.searchParams.get('once') === null;

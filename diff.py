@@ -2111,21 +2111,23 @@ class WebDisplay(Display):
     running_async: bool
     running: bool
 
-    def open_browser(self, once: bool = False) -> None:
+    def open_browser(self) -> None:
         if self.config.run_browser:
             env_browser_command = os.environ.get("ASMDW_BROWSER_CMD")
             if env_browser_command:
                 os.system(
-                    env_browser_command.format(query="init&" + ("once" if once else ""))
+                    env_browser_command.format(
+                        port=self.config.http_server_port, query="init"
+                    )
                 )
             else:
                 import webbrowser
 
-                webbrowser.open(self.get_open_url(once))
+                webbrowser.open(self.get_open_url())
 
-    def get_open_url(self, once: bool = False) -> str:
+    def get_open_url(self) -> str:
         port = self.config.http_server_port
-        return f"http://localhost:{port}?init&" + ("once" if once else "")
+        return f"http://localhost:{port}?init"
 
     def handle_request(self, req: http.server.BaseHTTPRequestHandler) -> None:
         if not self.running:
@@ -2193,7 +2195,8 @@ class WebDisplay(Display):
                 req.wfile.write("status\n".encode("utf-8"))
                 req.wfile.write(status.encode("utf-8"))
             else:
-                req.wfile.write("diff\n".encode("utf-8"))
+                resInfo = "diff" if self.running_async else "diff once"
+                req.wfile.write(f"{resInfo}\n".encode("utf-8"))
                 req.wfile.write(self.run_diff().encode("utf-8"))
             req.wfile.flush()
         else:
@@ -2229,10 +2232,10 @@ class WebDisplay(Display):
         )
         self.running_async = run_async
         self.running = True
-        print(self.get_open_url(not run_async))
+        print(self.get_open_url())
         # opening the browser before the server is started
         # hope it won't be an issue
-        self.open_browser(once=not run_async)
+        self.open_browser()
         if run_async:
             threading.Thread(target=self.http_server.serve_forever).start()
         else:
