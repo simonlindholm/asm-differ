@@ -279,7 +279,7 @@ function onClickBranchTarget(elem, x, y) {
 }
 
 function onMouseEnterBranchIndicator(ev) {
-    highlightBranchTemp(ev.target.dataset.branchesClass,);
+    highlightBranchTemp(ev.target.dataset.branchesClass);
 }
 
 function onMouseLeaveBranchIndicator(ev) {
@@ -288,16 +288,12 @@ function onMouseLeaveBranchIndicator(ev) {
 
 function setDiffHtml(diffHtml) {
     ASMDW.dom.diffContainer.innerHTML = diffHtml;
-    let tbody = ASMDW.dom.diffContainer.getElementsByTagName('tbody')[0];
-    for (let tr of tbody.children) {
-        for (let j = 0; j < 2 && j < tr.children.length; j++) {
-            let td = tr.children[j];
-            for (let spanChild of td.getElementsByTagName('span')) {
-                if ('branchesClass' in spanChild.dataset) {
-                    spanChild.addEventListener('mouseenter', onMouseEnterBranchIndicator);
-                    spanChild.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
-                }
-            }
+    // looking for branch indicator elements
+    // in first and second columns, find span-wrapped span elements
+    for (let span of ASMDW.dom.diffContainer.querySelectorAll('tbody > tr > td:not(:nth-child(3)) > span > span')) {
+        if ('branchesClass' in span.dataset) {
+            span.addEventListener('mouseenter', onMouseEnterBranchIndicator);
+            span.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
         }
     }
 }
