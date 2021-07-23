@@ -34,6 +34,28 @@
                     statusElemInfo.element.style = 'margin-top: ' + deltaY.toString() + 'px;';
                 }
             }
+            // scrolling
+            if (ASMDW.scrollYtarget !== null) {
+                var scrollYdiff = (time - ASMDW.scrollYlastUpdate) / 1000 * 1500; // 2000 px/s
+                ASMDW.scrollYlastUpdate = time;
+                var newScrollY;
+                if (ASMDW.scrollYtarget < window.scrollY) {
+                    newScrollY = window.scrollY - scrollYdiff;
+                    if (newScrollY < ASMDW.scrollYtarget) {
+                        newScrollY = ASMDW.scrollYtarget;
+                    }
+                } else {
+                    newScrollY = window.scrollY + scrollYdiff;
+                    if (newScrollY > ASMDW.scrollYtarget) {
+                        newScrollY = ASMDW.scrollYtarget;
+                    }
+                }
+                window.scroll(window.scrollX, newScrollY);
+                if (newScrollY == ASMDW.scrollYtarget) {
+                    ASMDW.scrollYtarget = null;
+                    ASMDW.scrollYlastUpdate = null;
+                }
+            }
             requestAnimationFrame(animate);
         }
 
@@ -45,12 +67,230 @@
             ASMDW.dom.statusContainer.appendChild(statusElem);
             // keep track of element for sliding up and removal
             var now = performance.now();
+            // todo make status elem disappear time dynamic
+            // eg: "Building..." going away when new diff received
+            // and "failed to contact server" not going away until next attempt
             ASMDW.statusElements.push({
                 element: statusElem,
                 slideOutStart: now + 10000,
                 slideOutEnd: now + 10000 + ASMDW.statusSlideOutDurationMs,
             });
             return statusElem;
+        }
+
+        // scroll elem1 into view, and elems too if possible
+        function scrollIntoView(elem1, elems) {
+            var viewportY = window.scrollY;
+            var viewportHeight = window.innerHeight;
+
+            var elem1rect = elem1.getBoundingClientRect();
+            var elem1y = viewportY + elem1rect.top;
+            var elem1height = elem1rect.bottom - elem1rect.top;
+
+            // offset a bit for comfort, use elem heights to avoid hardcoded values
+            var offset = elem1height;
+
+            var elemsY = [];
+            var elemsHeight = [];
+            for (var i = 0; i < elems.length; i++) {
+                var elem2 = elems[i];
+                var elem2rect = elem2.getBoundingClientRect();
+                var elem2y = viewportY + elem2rect.top;
+                var elem2height = elem2rect.bottom - elem2rect.top;
+                elemsY.push(elem2y);
+                elemsHeight.push(elem2height);
+                offset += elem2height;
+            }
+
+            offset /= (1 + elemsHeight.length);
+            offset *= 2;
+
+            var allElemsWithOffsetInView = true;
+
+            var elem1withOffsetInView = (elem1y - offset) >= viewportY && (elem1y + elem1height + offset) <= (viewportY + viewportHeight);
+            if (!elem1withOffsetInView) {
+                allElemsWithOffsetInView = false;
+            }
+
+            for (var i = 0; i < elems.length; i++) {
+                var elem2y = elemsY[i];
+                var elem2height = elemsHeight[i];
+                var elem2withOffsetInView = (elem2y - offset) >= viewportY && (elem2y + elem2height + offset) <= (viewportY + viewportHeight);
+                if (!elem2withOffsetInView) {
+                    allElemsWithOffsetInView = false;
+                }
+            }
+
+            if (allElemsWithOffsetInView) {
+                return;
+            }
+
+            var elemMinY = elem1y;
+            var elemMinYheight = elem1height;
+            var elemMaxY = elem1y;
+            var elemMaxYheight = elem1height;
+            for (var i = 0; i < elems.length; i++) {
+                var elem2y = elemsY[i];
+                var elem2height = elemsHeight[i];
+                if (elem2y < elemMinY) {
+                    elemMinY = elem2y;
+                    elemMinYheight = elem2height;
+                }
+                if (elem2y > elemMaxY) {
+                    elemMaxY = elem2y;
+                    elemMaxYheight = elem2height;
+                }
+            }
+
+            var allElemsCanBeOnSameView = (elemMaxY + elemMaxYheight - elemMinY) <= viewportHeight;
+
+            var newViewportY;
+            if (allElemsCanBeOnSameView) {
+                var newViewportYmax = elemMinY;
+                var newViewportYmin = elemMaxY + elemMaxYheight - viewportHeight;
+                if (viewportY >= newViewportYmax) {
+                    newViewportY = newViewportYmax;
+                    newViewportY -= offset;
+                    if (newViewportY < newViewportYmin) {
+                        // constrained on both directions
+                        newViewportY = (newViewportYmin + newViewportYmax) / 2;
+                    }
+                } else {
+                    newViewportY = newViewportYmin;
+                    newViewportY += offset;
+                    if (newViewportY > newViewportYmax) {
+                        newViewportY = (newViewportYmin + newViewportYmax) / 2;
+                    }
+                }
+            } else {
+                var newViewportYmax = elem1y;
+                var newViewportYmin = elem1y + elem1height - viewportHeight;
+                // "ideal" viewport dimensions for showing all elements in one view
+                var idealViewportY = elemMinY;
+                var idealViewportHeight = elemMaxY + elemMaxYheight - elemMinY;
+                // translate the viewport around elem1y according to location of other elements
+                newViewportY = elem1y + (idealViewportY - elem1y) / idealViewportHeight * viewportHeight;
+            }
+
+            ASMDW.scrollYtarget = newViewportY;
+            ASMDW.scrollYlastUpdate = performance.now();
+        }
+
+        function highlightBranchClearAll() {
+            var elems = document.getElementsByClassName('branch-indicator-wrapper');
+            for (var i = 0; i < elems.length; i++) {
+                var elem = elems[i];
+                elem.classList.remove('branch-highlight-stay');
+                elem.classList.remove('branch-highlight-temp');
+            }
+        }
+
+        function highlightBranchStay(className) {
+            var elems = document.getElementsByClassName(className);
+            for (var i = 0; i < elems.length; i++) {
+                var elem = elems[i];
+                elem.parentNode.classList.add('branch-highlight-stay');
+            }
+        }
+
+        function highlightBranchTemp(className) {
+            var elems = document.getElementsByClassName(className);
+            for (var i = 0; i < elems.length; i++) {
+                var elem = elems[i];
+                elem.parentNode.classList.add('branch-highlight-temp');
+            }
+        }
+
+        function highlightBranchTempClear(className) {
+            var elems = document.getElementsByClassName(className);
+            for (var i = 0; i < elems.length; i++) {
+                var elem = elems[i];
+                elem.parentNode.classList.remove('branch-highlight-temp');
+            }
+        }
+
+        function onClickBranchOrigin(ev) {
+            scrollIntoView(document.getElementById(ev.target.dataset.branchTarget), [ev.target]);
+            highlightBranchClearAll();
+            highlightBranchStay(ev.target.dataset.branchesClass);
+        }
+
+        function onClickBranchTarget(ev) {
+            // get all branch origins that branch to this branch target (ev.target)
+            var branchIndicatorsElems = document.getElementsByClassName(ev.target.dataset.branchesClass);
+            var branchOriginsElems = [];
+            for (var i = 0; i < branchIndicatorsElems.length; i++) {
+                if (branchIndicatorsElems[i] != ev.target) {
+                    branchOriginsElems.push(branchIndicatorsElems[i]);
+                }
+            }
+
+            // use a different origin as main scroll-to element each click
+            var scrollMainElemIdx;
+            if ('nextScrollMainElemIdx' in ev.target.dataset) {
+                scrollMainElemIdx = parseInt(ev.target.dataset.nextScrollMainElemIdx);
+            } else {
+                scrollMainElemIdx = 0;
+            }
+            scrollMainElemIdx %= branchOriginsElems.length;
+            ev.target.dataset.nextScrollMainElemIdx = scrollMainElemIdx + 1;
+
+            var scrollMainElem = branchOriginsElems[scrollMainElemIdx];
+            var scrollOtherElems = [ev.target];
+            for (var i = 0; i < branchOriginsElems.length; i++) {
+                if (i != scrollMainElemIdx) {
+                    scrollOtherElems.push(branchOriginsElems[i]);
+                }
+            }
+            scrollIntoView(scrollMainElem, scrollOtherElems);
+
+            highlightBranchClearAll();
+            highlightBranchStay(ev.target.dataset.branchesClass);
+        }
+
+        function onMouseEnterBranchIndicator(ev) {
+            highlightBranchTemp(ev.target.dataset.branchesClass,);
+        }
+
+        function onMouseLeaveBranchIndicator(ev) {
+            highlightBranchTempClear(ev.target.dataset.branchesClass);
+        }
+
+        function setDiffHtml(diffHtml) {
+            ASMDW.dom.diffContainer.innerHTML = diffHtml;
+            var tbody = ASMDW.dom.diffContainer.getElementsByTagName('tbody')[0];
+            for (var i = 0; i < tbody.children.length; i++) {
+                var tr = tbody.children[i];
+                for (var j = 0; j < 2 && j < tr.children.length; j++) {
+                    var td = tr.children[j];
+                    var spanChildren = td.getElementsByTagName('span');
+                    var wrapBranchIndicatorsElems = [];
+                    for (var k = 0; k < spanChildren.length; k++) {
+                        var spanChild = spanChildren[k];
+                        if ('branchesClass' in spanChild.dataset) {
+                            // branch origins have data-branch-target
+                            if ('branchTarget' in spanChild.dataset) {
+                                spanChild.addEventListener('click', onClickBranchOrigin);
+                            } else {
+                                spanChild.addEventListener('click', onClickBranchTarget);
+                            }
+                            spanChild.addEventListener('mouseenter', onMouseEnterBranchIndicator);
+                            spanChild.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
+                            spanChild.addEventListener('animationend',
+                                ev => ev.target.classList.remove('highlight-branch'));
+                            wrapBranchIndicatorsElems.push(spanChild);
+                        }
+                    }
+                    for (var k = 0; k < wrapBranchIndicatorsElems.length; k++) {
+                        var wrapBranchIndicatorElem = wrapBranchIndicatorsElems[k];
+                        var wrapperElem = document.createElement('span');
+                        wrapperElem.classList.add('branch-indicator-wrapper');
+                        td.insertBefore(wrapperElem, wrapBranchIndicatorElem);
+                        wrapBranchIndicatorElem.remove();
+                        wrapperElem.appendChild(wrapBranchIndicatorElem);
+                    }
+                }
+            }
         }
 
         function onNewContent() {
@@ -65,7 +305,7 @@
                         case 'diff':
                             ASMDW.diffReceived++;
                             var resDiffHtml = res.slice(resInfoEndIdx + 1);
-                            ASMDW.dom.diffContainer.innerHTML = resDiffHtml;
+                            setDiffHtml(resDiffHtml);
                             break;
                         case 'status':
                             var resStatusText = res.slice(resInfoEndIdx + 1);
@@ -91,7 +331,7 @@
                     var retryNow = document.createElement('span');
                     retryNow.appendChild(document.createTextNode('(retry now)'));
                     retryNow.classList.add('communication-error-retry-now');
-                    retryNow.addEventListener('click', function(ev) {
+                    retryNow.addEventListener('click', function (ev) {
                         var retryNow = ev.target;
                         retryNow.remove();
                         requestContent();
@@ -118,12 +358,19 @@
             httpRequest.send();
         }
 
+        function onBodyClick(ev) {
+            if (!ev.target.classList.contains('branch-indicator')) {
+                highlightBranchClearAll();
+            }
+        }
+
         function onBodyLoaded() {
             ASMDW.dom = {
                 diffContainer: document.getElementById('diff-container'),
                 statusContainer: document.getElementById('status-container'),
             };
             requestContent();
+            document.body.addEventListener('click', onBodyClick);
             requestAnimationFrame(animate);
         }
 
@@ -134,6 +381,8 @@
             tryAgainAfterCommunicationFailureDelayMs: 0,
             statusSlideOutDurationMs: 500,
             statusElements: [],
+            scrollYtarget: null,
+            scrollYlastUpdate: null,
         };
         var url = new URL(window.location);
         ASMDW.requestForever = url.searchParams.get('once') === null;
@@ -159,7 +408,7 @@
             color: white;
             left: 0;
             top: 0;
-            z-index: 1;
+            z-index: 100;
         }
 
         .status-element {
@@ -176,6 +425,37 @@
             position: sticky;
             top: -1px;
             padding-top: 1px;
+        }
+
+        .branch-indicator {
+            display: inline-block;
+            padding: 10px 15px;
+            margin: -10px -15px;
+            position: relative;
+            z-index: 2;
+            cursor: pointer;
+            transition: color 0.1s;
+        }
+
+        .branch-indicator-wrapper {
+            padding: 0 2px;
+            margin: 0 -2px;
+            background-color: transparent;
+            transition: background-color 0.1s;
+        }
+
+        .branch-indicator-wrapper.branch-highlight-temp {
+            background-color: rgb(158, 158, 158);
+        }
+
+        .branch-indicator-wrapper.branch-highlight-stay {
+            background-color: rgb(224, 224, 224);
+            font-weight: bold;
+        }
+
+        .branch-indicator-wrapper.branch-highlight-temp>.branch-indicator,
+        .branch-indicator-wrapper.branch-highlight-stay>.branch-indicator {
+            color: black;
         }
     </style>
 </head>

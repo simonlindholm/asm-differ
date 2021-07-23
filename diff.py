@@ -496,8 +496,30 @@ class RotationFormat:
     key: str
 
 
-Format = Union[BasicFormat, RotationFormat]
-FormatFunction = Callable[[str], Format]
+@dataclass(frozen=True)
+class RegDiffFormat(RotationFormat):
+    pass
+
+
+@dataclass(frozen=True)
+class StackDiffFormat(RotationFormat):
+    pass
+
+
+@dataclass(frozen=True)
+class BranchFormat(RotationFormat):
+    from_line: int
+    to_line: int
+    is_target: bool
+
+
+Format = Union[BasicFormat, RegDiffFormat, StackDiffFormat, BranchFormat]
+FormatRegDiffFunction = Callable[[str], RegDiffFormat]
+FormatStackDiffFunction = Callable[[str], StackDiffFormat]
+FormatRegOrStackDiffFunction = Union[FormatRegDiffFunction, FormatStackDiffFunction]
+FormatBranchFunction = Callable[
+    [str, Optional[int], Optional[int], Optional[bool]], BranchFormat
+]
 
 
 class Text:
@@ -666,16 +688,34 @@ class HtmlFormatter(Formatter):
         chunk = html.escape(chunk)
         if f == BasicFormat.NONE:
             return chunk
+        id_attr = ""
+        data_attr = ""
         if isinstance(f, BasicFormat):
             class_name = f.name.lower().replace("_", "-")
-            data_attr = ""
         elif isinstance(f, RotationFormat):
             class_name = f"rotation-{f.index % self.rotation_formats}"
             rotation_key = html.escape(f"{f.group};{f.key}", quote=True)
             data_attr = f'data-rotation="{rotation_key}"'
         else:
             static_assert_unreachable(f)
-        return f"<span class='{class_name}' {data_attr}>{chunk}</span>"
+
+        if isinstance(f, BranchFormat):
+            if f.is_target is None:
+                static_assert_unreachable(f)
+            branch_base_id = f"branch-{f.group}-{f.from_line}"
+
+            branches_class = html.escape(branch_base_id, quote=True)
+            class_name += f" branch-indicator {branches_class}"
+            data_attr += f' data-branches-class="{branches_class}"'
+
+            branch_target_id = html.escape(f"{branch_base_id}-target", quote=True)
+            if f.is_target:
+                id = html.escape(branch_target_id, quote=True)
+                id_attr = f'id="{id}"'
+            else:
+                data_attr += f' data-branch-target="{branch_target_id}"'
+
+        return f"<span class='{class_name}' {id_attr} {data_attr}>{chunk}</span>"
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
@@ -703,8 +743,8 @@ def format_fields(
     pat: Pattern[str],
     out1: Text,
     out2: Text,
-    color1: FormatFunction,
-    color2: Optional[FormatFunction] = None,
+    color1: FormatRegOrStackDiffFunction,
+    color2: Optional[FormatRegOrStackDiffFunction] = None,
 ) -> Tuple[Text, Text]:
     diffs = [
         of.group() != nf.group()
@@ -713,7 +753,7 @@ def format_fields(
 
     it = iter(diffs)
 
-    def maybe_color(color: FormatFunction, s: str) -> Text:
+    def maybe_color(color: FormatRegOrStackDiffFunction, s: str) -> Text:
         return Text(s, color(s)) if next(it, False) else Text(s)
 
     out1 = out1.sub(pat, lambda m: maybe_color(color1, m.group()))
@@ -723,20 +763,63 @@ def format_fields(
     return out1, out2
 
 
-def symbol_formatter(group: str, base_index: int) -> FormatFunction:
-    symbol_formats: Dict[str, Format] = {}
+def reg_formatter(group: str, base_index: int) -> FormatRegDiffFunction:
+    reg_formats: Dict[str, Format] = {}
 
-    def symbol_format(s: str) -> Format:
-        # TODO: it would be nice to use a unique Format for each symbol, so we could
-        # add extra UI elements in the HTML version
-        f = symbol_formats.get(s)
+    def reg_format(s: str) -> RegDiffFormat:
+        f = reg_formats.get(s)
         if f is None:
-            index = len(symbol_formats) + base_index
-            f = RotationFormat(key=s, index=index, group=group)
-            symbol_formats[s] = f
+            index = len(reg_formats) + base_index
+            f = RegDiffFormat(key=s, index=index, group=group)
+            reg_formats[s] = f
         return f
 
-    return symbol_format
+    return reg_format
+
+
+def stack_formatter(group: str, base_index: int) -> FormatStackDiffFunction:
+    stack_formats: Dict[str, Format] = {}
+
+    def stack_format(s: str) -> StackDiffFormat:
+        f = stack_formats.get(s)
+        if f is None:
+            index = len(stack_formats) + base_index
+            f = StackDiffFormat(key=s, index=index, group=group)
+            stack_formats[s] = f
+        return f
+
+    return stack_format
+
+
+def branch_formatter(group: str, base_index: int) -> FormatBranchFunction:
+    branch_formats: Dict[str, Format] = {}
+
+    def branch_format(
+        s: str,
+        from_line: Optional[int] = None,
+        to_line: Optional[int] = None,
+        is_target: Optional[bool] = None,
+    ) -> BranchFormat:
+        f = branch_formats.get(s)
+        if f is None:
+            index = len(branch_formats) + base_index
+            # is_target = False is temporary and meant to be set by further branch_format() calls
+            f = BranchFormat(
+                key=s,
+                index=index,
+                group=group,
+                from_line=from_line,
+                to_line=to_line,
+                is_target=False,
+            )
+            branch_formats[s] = f
+        if is_target is not None:
+            newFmtArgs = f.__dict__.copy()
+            newFmtArgs["is_target"] = is_target
+            f = BranchFormat(**newFmtArgs)
+        return f
+
+    return branch_format
 
 
 # ==== LOGIC ====
@@ -1544,26 +1627,26 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
     lines1 = process(basedump.split("\n"), config)
     lines2 = process(mydump.split("\n"), config)
 
-    sc1 = symbol_formatter("base-reg", 0)
-    sc2 = symbol_formatter("my-reg", 0)
-    sc3 = symbol_formatter("base-stack", 4)
-    sc4 = symbol_formatter("my-stack", 4)
-    sc5 = symbol_formatter("base-branch", 0)
-    sc6 = symbol_formatter("my-branch", 0)
+    regFmt1 = reg_formatter("base-reg", 0)
+    regFmt2 = reg_formatter("my-reg", 0)
+    stackFmt1 = stack_formatter("base-stack", 4)
+    stackFmt2 = stack_formatter("my-stack", 4)
+    branchFmt1 = branch_formatter("base-branch", 0)
+    branchFmt2 = branch_formatter("my-branch", 0)
     bts1: Set[str] = set()
     bts2: Set[str] = set()
 
     if config.show_branches:
-        for (lines, btset, sc) in [
-            (lines1, bts1, sc5),
-            (lines2, bts2, sc6),
+        for (lines, btset, branchFmt) in [
+            (lines1, bts1, branchFmt1),
+            (lines2, bts2, branchFmt2),
         ]:
             for line in lines:
                 bt = line.branch_target
                 if bt is not None:
                     text = f"{bt}:"
                     btset.add(text)
-                    sc(text)
+                    branchFmt(text, from_line=eval_line_num(line.line_num), to_line=bt)
 
     for (line1, line2) in diff_lines(lines1, lines2, config.algorithm):
         line_color1 = line_color2 = sym_color = BasicFormat.NONE
@@ -1612,7 +1695,9 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         sym_color = BasicFormat.IMMEDIATE
                         line_prefix = "i"
                 else:
-                    out1, out2 = format_fields(arch.re_sprel, out1, out2, sc3, sc4)
+                    out1, out2 = format_fields(
+                        arch.re_sprel, out1, out2, stackFmt1, stackFmt2
+                    )
                     if normalize_stack(branchless1, arch) == normalize_stack(
                         branchless2, arch
                     ):
@@ -1623,7 +1708,9 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         line_prefix = "s"
                     else:
                         # regs differences and maybe imms as well
-                        out1, out2 = format_fields(arch.re_reg, out1, out2, sc1, sc2)
+                        out1, out2 = format_fields(
+                            arch.re_reg, out1, out2, regFmt1, regFmt2
+                        )
                         line_color1 = line_color2 = sym_color = BasicFormat.REGISTER
                         line_prefix = "r"
         elif line1 and line2:
@@ -1650,7 +1737,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
             line: Optional[Line],
             line_color: Format,
             btset: Set[str],
-            sc: FormatFunction,
+            branchFmt: FormatBranchFunction,
         ) -> Optional[Text]:
             if line is None:
                 return None
@@ -1658,15 +1745,17 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
             out_arrow = Text()
             if config.show_branches:
                 if line.line_num in btset:
-                    in_arrow = Text("~>", sc(line.line_num))
+                    in_arrow = Text("~>", branchFmt(line.line_num, is_target=True))
                 if line.branch_target is not None:
-                    out_arrow = " " + Text("~>", sc(line.branch_target + ":"))
+                    out_arrow = " " + Text(
+                        "~>", branchFmt(line.branch_target + ":", is_target=False)
+                    )
             return (
                 Text(line.line_num, line_color) + " " + in_arrow + " " + out + out_arrow
             )
 
-        part1 = format_part(out1, line1, line_color1, bts1, sc5)
-        part2 = format_part(out2, line2, line_color2, bts2, sc6)
+        part1 = format_part(out1, line1, line_color1, bts1, branchFmt1)
+        part2 = format_part(out2, line2, line_color2, bts2, branchFmt2)
         key2 = line2.original if line2 else None
 
         if line2:
