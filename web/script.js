@@ -150,34 +150,26 @@ function scrollIntoView(elem1, elems) {
 }
 
 function highlightBranchClearAll() {
-    let elems = document.getElementsByClassName('branch-indicator-wrapper');
-    for (let i = 0; i < elems.length; i++) {
-        let elem = elems[i];
+    for (let elem of document.getElementsByClassName('branch-indicator-wrapper')) {
         elem.classList.remove('branch-highlight-stay');
         elem.classList.remove('branch-highlight-temp');
     }
 }
 
 function highlightBranchStay(className) {
-    let elems = document.getElementsByClassName(className);
-    for (let i = 0; i < elems.length; i++) {
-        let elem = elems[i];
+    for (let elem of document.getElementsByClassName(className)) {
         elem.parentNode.classList.add('branch-highlight-stay');
     }
 }
 
 function highlightBranchTemp(className) {
-    let elems = document.getElementsByClassName(className);
-    for (let i = 0; i < elems.length; i++) {
-        let elem = elems[i];
+    for (let elem of document.getElementsByClassName(className)) {
         elem.parentNode.classList.add('branch-highlight-temp');
     }
 }
 
 function highlightBranchTempClear(className) {
-    let elems = document.getElementsByClassName(className);
-    for (let i = 0; i < elems.length; i++) {
-        let elem = elems[i];
+    for (let elem of document.getElementsByClassName(className)) {
         elem.parentNode.classList.remove('branch-highlight-temp');
     }
 }
@@ -193,11 +185,10 @@ function onClickBranchOrigin(elem) {
 
 function onClickBranchTarget(elem) {
     // get all branch origins that branch to this branch target
-    let branchIndicatorsElems = document.getElementsByClassName(elem.dataset.branchesClass);
     let branchOriginsElems = [];
-    for (let i = 0; i < branchIndicatorsElems.length; i++) {
-        if (branchIndicatorsElems[i] != elem) {
-            branchOriginsElems.push(branchIndicatorsElems[i]);
+    for (let branchIndicatorElem of document.getElementsByClassName(elem.dataset.branchesClass)) {
+        if (branchIndicatorElem != elem) {
+            branchOriginsElems.push(branchIndicatorElem);
         }
     }
 
@@ -235,13 +226,10 @@ function onMouseLeaveBranchIndicator(ev) {
 function setDiffHtml(diffHtml) {
     ASMDW.dom.diffContainer.innerHTML = diffHtml;
     let tbody = ASMDW.dom.diffContainer.getElementsByTagName('tbody')[0];
-    for (let i = 0; i < tbody.children.length; i++) {
-        let tr = tbody.children[i];
+    for (let tr of tbody.children) {
         for (let j = 0; j < 2 && j < tr.children.length; j++) {
             let td = tr.children[j];
-            let spanChildren = td.getElementsByTagName('span');
-            for (let k = 0; k < spanChildren.length; k++) {
-                let spanChild = spanChildren[k];
+            for (let spanChild of td.getElementsByTagName('span')) {
                 if ('branchesClass' in spanChild.dataset) {
                     spanChild.addEventListener('mouseenter', onMouseEnterBranchIndicator);
                     spanChild.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
