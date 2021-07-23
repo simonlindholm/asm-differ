@@ -2148,31 +2148,22 @@ class WebDisplay(Display):
             )
             return
         query = urllib.parse.parse_qs(query_str, keep_blank_values=True)
-        if "init" in query:
-            # serve client.html
-            req.send_response(http.HTTPStatus.OK)
-            req.send_header("Content-Type", "text/html; charset=UTF-8")
-            req.end_headers()
-            with open("web/client.html") as f:
-                req.wfile.write(f.read().encode("utf-8"))
-            req.wfile.flush()
-        elif "css" in query:
-            # serve style.css
-            req.send_response(http.HTTPStatus.OK)
-            req.send_header("Content-Type", "text/css; charset=UTF-8")
-            req.end_headers()
-            with open("web/style.css") as f:
-                req.wfile.write(f.read().encode("utf-8"))
-            req.wfile.flush()
-        elif "script" in query:
-            # serve script.js
-            req.send_response(http.HTTPStatus.OK)
-            req.send_header("Content-Type", "text/javascript; charset=UTF-8")
-            req.end_headers()
-            with open("web/script.js") as f:
-                req.wfile.write(f.read().encode("utf-8"))
-            req.wfile.flush()
-        elif "diff" in query:
+        serveFiles = {
+            "init": ("web/client.html", "text/html"),
+            "css": ("web/style.css", "text/css"),
+            "script": ("web/script.js", "text/javascript"),
+        }
+        for param, (filePath, mimeType) in serveFiles.items():
+            if param in query:
+                # serve file
+                req.send_response(http.HTTPStatus.OK)
+                req.send_header("Content-Type", f"{mimeType}; charset=UTF-8")
+                req.end_headers()
+                with open(filePath) as f:
+                    req.wfile.write(f.read().encode("utf-8"))
+                req.wfile.flush()
+                return
+        if "diff" in query:
             # serve diff or status message
             if self.running_async:
                 if "nowait" in query:
