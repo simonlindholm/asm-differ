@@ -2087,9 +2087,12 @@ class WebDisplay(Display):
             req.send_response(http.HTTPStatus.OK)
             req.send_header("Content-Type", "text/plain; charset=UTF-8")
             req.end_headers()
-            try:
-                status = self.status_queue.get_nowait()
-            except queue.Empty:
+            if self.running_async:
+                try:
+                    status = self.status_queue.get_nowait()
+                except queue.Empty:
+                    status = None
+            else:
                 status = None
             if status:
                 req.wfile.write("status\n".encode("utf-8"))
@@ -2131,7 +2134,7 @@ class WebDisplay(Display):
         )
         self.running_async = run_async
         self.running = True
-        print(self.get_open_url())
+        print(self.get_open_url(not run_async))
         # opening the browser before the server is started
         # hope it won't be an issue
         self.open_browser(once=not run_async)
