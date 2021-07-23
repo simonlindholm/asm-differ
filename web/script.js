@@ -176,6 +176,9 @@ function scrollIntoView(elem1, elems, callback) {
 
 function highlightBranchClearAll() {
     for (let elem of document.getElementsByClassName('branch-indicator-wrapper')) {
+        if (elem.classList.contains('ignore')) {
+            continue;
+        }
         elem.classList.remove('branch-highlight-stay');
         elem.classList.remove('branch-highlight-temp');
     }
@@ -183,18 +186,27 @@ function highlightBranchClearAll() {
 
 function highlightBranchStay(className) {
     for (let elem of document.getElementsByClassName(className)) {
+        if (elem.classList.contains('ignore')) {
+            continue;
+        }
         elem.parentNode.classList.add('branch-highlight-stay');
     }
 }
 
 function highlightBranchTemp(className) {
     for (let elem of document.getElementsByClassName(className)) {
+        if (elem.classList.contains('ignore')) {
+            continue;
+        }
         elem.parentNode.classList.add('branch-highlight-temp');
     }
 }
 
 function highlightBranchTempClear(className) {
     for (let elem of document.getElementsByClassName(className)) {
+        if (elem.classList.contains('ignore')) {
+            continue;
+        }
         elem.parentNode.classList.remove('branch-highlight-temp');
     }
 }
@@ -254,6 +266,9 @@ function onClickBranchTarget(elem, x, y) {
     // get all branch origins that branch to this branch target
     let branchOriginsElems = [];
     for (let branchIndicatorElem of document.getElementsByClassName(elem.dataset.branchesClass)) {
+        if (branchIndicatorElem.classList.contains('ignore')) {
+            continue;
+        }
         if (branchIndicatorElem != elem) {
             branchOriginsElems.push(branchIndicatorElem);
         }
@@ -294,6 +309,11 @@ function setDiffHtml(diffHtml) {
         if ('branchesClass' in span.dataset) {
             span.addEventListener('mouseenter', onMouseEnterBranchIndicator);
             span.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
+        }
+    }
+    for (let span of ASMDW.dom.diffContainer.querySelectorAll('tbody > tr > td:nth-child(3) > span > span')) {
+        if ('branchesClass' in span.dataset) {
+            span.classList.add('ignore');
         }
     }
 }
@@ -366,6 +386,9 @@ function requestContent() {
 
 function onClick(ev) {
     let elem = ev.target;
+    if (elem.classList.contains('ignore')) {
+        return;
+    }
     let x = ev.clientX;
     let y = ev.clientY;
     pickOriginBranchClose();
