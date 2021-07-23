@@ -59,6 +59,8 @@ function scrollIntoView(elem1, elems) {
     let elem1height = elem1rect.bottom - elem1rect.top;
 
     // offset a bit for comfort, use elem heights to avoid hardcoded values
+    // offset = 2*average(elem heights)
+    // the 2* is because I think it looks better with it
     let offset = elem1height;
 
     let elemsY = [];
@@ -76,6 +78,8 @@ function scrollIntoView(elem1, elems) {
     offset /= (1 + elemsHeight.length);
     offset *= 2;
 
+    // if all elements are reasonably within view (a certain offset from borders)
+    // then there's no scrolling to be done at all
     let allElemsWithOffsetInView = true;
 
     let elem1withOffsetInView = (elem1y - offset) >= viewportY && (elem1y + elem1height + offset) <= (viewportY + viewportHeight);
@@ -96,6 +100,7 @@ function scrollIntoView(elem1, elems) {
         return;
     }
 
+    // find min and max Y of elements and associated heights
     let elemMinY = elem1y;
     let elemMinYheight = elem1height;
     let elemMaxY = elem1y;
@@ -117,16 +122,21 @@ function scrollIntoView(elem1, elems) {
 
     let newViewportY;
     if (allElemsCanBeOnSameView) {
+        // scrolling beyond newViewportYmax would put the top of the elemMinY element out of view
         let newViewportYmax = elemMinY;
+        // scrolling before newViewportYmin would put the bottom of the elemMaxY element out of view
         let newViewportYmin = elemMaxY + elemMaxYheight - viewportHeight;
+        // if currently scrolled below the area we want to scroll to
         if (viewportY >= newViewportYmax) {
+            // limit scrolling by scrolling to a point where the area of interest is at the top
             newViewportY = newViewportYmax;
             newViewportY -= offset;
             if (newViewportY < newViewportYmin) {
                 // constrained on both directions
                 newViewportY = (newViewportYmin + newViewportYmax) / 2;
             }
-        } else {
+        } else { // currently scrolled above (or at least, not below) the area we want to scroll to
+            // scroll to a point where the area of interest is at the bottom
             newViewportY = newViewportYmin;
             newViewportY += offset;
             if (newViewportY > newViewportYmax) {
@@ -141,6 +151,12 @@ function scrollIntoView(elem1, elems) {
         let idealViewportHeight = elemMaxY + elemMaxYheight - elemMinY;
         // translate the viewport around elem1y according to location of other elements
         newViewportY = elem1y + (idealViewportY - elem1y) / idealViewportHeight * viewportHeight;
+        if (newViewportY >= newViewportYmax - offset) {
+            newViewportY = newViewportYmax - offset;
+        }
+        if (newViewportY <= newViewportYmin + offset) {
+            newViewportY = newViewportYmin + offset;
+        }
     }
 
     window.scrollTo({
