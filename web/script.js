@@ -182,37 +182,37 @@ function highlightBranchTempClear(className) {
     }
 }
 
-function onClickBranchOrigin(ev) {
-    var branchTargetElem = document.getElementById(ev.target.dataset.branchTarget);
+function onClickBranchOrigin(elem) {
+    var branchTargetElem = document.getElementById(elem.dataset.branchTarget);
     if (branchTargetElem) {
-        scrollIntoView(branchTargetElem, [ev.target]);
+        scrollIntoView(branchTargetElem, [elem]);
     }
     highlightBranchClearAll();
-    highlightBranchStay(ev.target.dataset.branchesClass);
+    highlightBranchStay(elem.dataset.branchesClass);
 }
 
-function onClickBranchTarget(ev) {
-    // get all branch origins that branch to this branch target (ev.target)
-    var branchIndicatorsElems = document.getElementsByClassName(ev.target.dataset.branchesClass);
+function onClickBranchTarget(elem) {
+    // get all branch origins that branch to this branch target
+    var branchIndicatorsElems = document.getElementsByClassName(elem.dataset.branchesClass);
     var branchOriginsElems = [];
     for (var i = 0; i < branchIndicatorsElems.length; i++) {
-        if (branchIndicatorsElems[i] != ev.target) {
+        if (branchIndicatorsElems[i] != elem) {
             branchOriginsElems.push(branchIndicatorsElems[i]);
         }
     }
 
     // use a different origin as main scroll-to element each click
     var scrollMainElemIdx;
-    if ('nextScrollMainElemIdx' in ev.target.dataset) {
-        scrollMainElemIdx = parseInt(ev.target.dataset.nextScrollMainElemIdx);
+    if ('nextScrollMainElemIdx' in elem.dataset) {
+        scrollMainElemIdx = parseInt(elem.dataset.nextScrollMainElemIdx);
     } else {
         scrollMainElemIdx = 0;
     }
     scrollMainElemIdx %= branchOriginsElems.length;
-    ev.target.dataset.nextScrollMainElemIdx = scrollMainElemIdx + 1;
+    elem.dataset.nextScrollMainElemIdx = scrollMainElemIdx + 1;
 
     var scrollMainElem = branchOriginsElems[scrollMainElemIdx];
-    var scrollOtherElems = [ev.target];
+    var scrollOtherElems = [elem];
     for (var i = 0; i < branchOriginsElems.length; i++) {
         if (i != scrollMainElemIdx) {
             scrollOtherElems.push(branchOriginsElems[i]);
@@ -221,7 +221,7 @@ function onClickBranchTarget(ev) {
     scrollIntoView(scrollMainElem, scrollOtherElems);
 
     highlightBranchClearAll();
-    highlightBranchStay(ev.target.dataset.branchesClass);
+    highlightBranchStay(elem.dataset.branchesClass);
 }
 
 function onMouseEnterBranchIndicator(ev) {
@@ -244,16 +244,8 @@ function setDiffHtml(diffHtml) {
             for (var k = 0; k < spanChildren.length; k++) {
                 var spanChild = spanChildren[k];
                 if ('branchesClass' in spanChild.dataset) {
-                    // branch origins have data-branch-target
-                    if ('branchTarget' in spanChild.dataset) {
-                        spanChild.addEventListener('click', onClickBranchOrigin);
-                    } else {
-                        spanChild.addEventListener('click', onClickBranchTarget);
-                    }
                     spanChild.addEventListener('mouseenter', onMouseEnterBranchIndicator);
                     spanChild.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
-                    spanChild.addEventListener('animationend',
-                        ev => ev.target.classList.remove('highlight-branch'));
                     wrapBranchIndicatorsElems.push(spanChild);
                 }
             }
@@ -334,8 +326,16 @@ function requestContent() {
     httpRequest.send();
 }
 
-function onBodyClick(ev) {
-    if (!ev.target.classList.contains('branch-indicator')) {
+function onClick(ev) {
+    let elem = ev.target;
+    if (elem.classList.contains('branch-indicator')) {
+        // branch origins have data-branch-target
+        if ('branchTarget' in elem.dataset) {
+            onClickBranchOrigin(elem);
+        } else {
+            onClickBranchTarget(elem);
+        }
+    } else {
         highlightBranchClearAll();
     }
 }
@@ -346,7 +346,7 @@ function onBodyLoaded() {
         statusContainer: document.getElementById('status-container'),
     };
     requestContent();
-    document.body.addEventListener('click', onBodyClick);
+    document.body.addEventListener('click', onClick);
     requestAnimationFrame(animate);
 }
 
