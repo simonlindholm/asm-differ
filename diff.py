@@ -2153,15 +2153,15 @@ class WebDisplay(Display):
             req.send_response(http.HTTPStatus.OK)
             req.send_header("Content-Type", "text/html; charset=UTF-8")
             req.end_headers()
-            with open("client.html") as f:
+            with open("web/client.html") as f:
                 req.wfile.write(f.read().encode("utf-8"))
             req.wfile.flush()
         elif "css" in query:
-            # serve diff-stylesheet.css
+            # serve style.css
             req.send_response(http.HTTPStatus.OK)
             req.send_header("Content-Type", "text/css; charset=UTF-8")
             req.end_headers()
-            with open("diff-stylesheet.css") as f:
+            with open("web/style.css") as f:
                 req.wfile.write(f.read().encode("utf-8"))
             req.wfile.flush()
         elif "diff" in query:
