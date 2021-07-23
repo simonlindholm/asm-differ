@@ -722,7 +722,7 @@ class HtmlFormatter(Formatter):
             else:
                 data_attr += f' data-branch-target="{branch_target_id}"'
 
-        return f"<span class='{class_name}' {id_attr} {data_attr}>{chunk}</span>"
+        return f"<span class='branch-indicator-wrapper'><span class='{class_name}' {id_attr} {data_attr}>{chunk}</span></span>"
 
     def table(
         self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]

@@ -240,22 +240,12 @@ function setDiffHtml(diffHtml) {
         for (var j = 0; j < 2 && j < tr.children.length; j++) {
             var td = tr.children[j];
             var spanChildren = td.getElementsByTagName('span');
-            var wrapBranchIndicatorsElems = [];
             for (var k = 0; k < spanChildren.length; k++) {
                 var spanChild = spanChildren[k];
                 if ('branchesClass' in spanChild.dataset) {
                     spanChild.addEventListener('mouseenter', onMouseEnterBranchIndicator);
                     spanChild.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
-                    wrapBranchIndicatorsElems.push(spanChild);
                 }
-            }
-            for (var k = 0; k < wrapBranchIndicatorsElems.length; k++) {
-                var wrapBranchIndicatorElem = wrapBranchIndicatorsElems[k];
-                var wrapperElem = document.createElement('span');
-                wrapperElem.classList.add('branch-indicator-wrapper');
-                td.insertBefore(wrapperElem, wrapBranchIndicatorElem);
-                wrapBranchIndicatorElem.remove();
-                wrapperElem.appendChild(wrapBranchIndicatorElem);
             }
         }
     }
