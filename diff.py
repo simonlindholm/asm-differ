@@ -2164,6 +2164,14 @@ class WebDisplay(Display):
             with open("web/style.css") as f:
                 req.wfile.write(f.read().encode("utf-8"))
             req.wfile.flush()
+        elif "script" in query:
+            # serve script.js
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/javascript; charset=UTF-8")
+            req.end_headers()
+            with open("web/script.js") as f:
+                req.wfile.write(f.read().encode("utf-8"))
+            req.wfile.flush()
         elif "diff" in query:
             # serve diff or status message
             if self.running_async:

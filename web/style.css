@@ -1,12 +1,90 @@
+body {
+    background-color: #34495e;
+}
+
+/* status style */
+
+@keyframes fadein {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+#status-container {
+    position: fixed;
+    background-color: black;
+    color: white;
+    left: 0;
+    top: 0;
+    z-index: 100;
+}
+
+.status-element {
+    animation: fadein 0.5s forwards;
+    padding: 3px;
+}
+
+.communication-error-retry-now {
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+/* branch indicators style */
+
+.branch-indicator {
+    display: inline-block;
+    padding: 10px 15px;
+    margin: -10px -15px;
+    position: relative;
+    z-index: 2;
+    cursor: pointer;
+    transition: color 0.1s;
+}
+
+.branch-indicator-wrapper {
+    padding: 0 2px;
+    margin: 0 -2px;
+    background-color: transparent;
+    transition: background-color 0.1s;
+}
+
+.branch-indicator-wrapper.branch-highlight-temp {
+    background-color: rgb(158, 158, 158);
+}
+
+.branch-indicator-wrapper.branch-highlight-stay {
+    background-color: rgb(224, 224, 224);
+    font-weight: bold;
+}
+
+.branch-indicator-wrapper.branch-highlight-temp>.branch-indicator,
+.branch-indicator-wrapper.branch-highlight-stay>.branch-indicator {
+    color: black;
+}
+
+/* diff style */
+
 table.diff {
     border: none;
     font-family: Monospace;
     white-space: pre;
     color: #ecf0f1;
 }
+
 table.diff, table.diff > thead {
     background-color: #243341;
 }
+
+table.diff>thead {
+    position: sticky;
+    top: -1px;
+    padding-top: 1px;
+}
+
 .immediate {
     color: lightblue;
 }
@@ -16,6 +94,7 @@ table.diff, table.diff > thead {
 .register {
     color: yellow;
 }
+
 .diff-change {
     color: #70dcff;
 }
@@ -25,6 +104,7 @@ table.diff, table.diff > thead {
 .diff-remove {
     color: #e74c3c;
 }
+
 .source-filename {
     font-weight: bold;
 }
@@ -35,6 +115,7 @@ table.diff, table.diff > thead {
 .source-other {
     font-style: italic;
 }
+
 .rotation-0 {
     color: #ff31d5;
 }
