@@ -50,7 +50,12 @@ function addStatusText(text) {
 }
 
 // scroll elem1 into view, and elems too if possible
-function scrollIntoView(elem1, elems) {
+/*
+If passed, callback is called before scrolling, if any. (callback may not be called)
+Actually scrolling is done only if callback returns true.
+callback is passed a boolean indicating if all elements can fit into one view
+*/
+function scrollIntoView(elem1, elems, callback) {
     let viewportY = window.scrollY;
     let viewportHeight = window.innerHeight;
 
@@ -119,6 +124,10 @@ function scrollIntoView(elem1, elems) {
     }
 
     let allElemsCanBeOnSameView = (elemMaxY + elemMaxYheight - elemMinY) <= viewportHeight;
+
+    if (callback && !callback(allElemsCanBeOnSameView)) {
+        return;
+    }
 
     let newViewportY;
     if (allElemsCanBeOnSameView) {
@@ -190,6 +199,48 @@ function highlightBranchTempClear(className) {
     }
 }
 
+// show a popup div at x, y (viewport coordinates)
+// for choosing the branch origin to scroll to
+function pickOriginBranchOpen(branchOriginsElems, x, y) {
+    pickOriginBranchClose();
+    let table = document.createElement('table');
+    let tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    let choices = [];
+    for (let branchOriginElem of branchOriginsElems) {
+        let tr = document.createElement('tr');
+        tbody.appendChild(tr);
+        let td = document.createElement('td');
+        tr.appendChild(td);
+        td.appendChild(document.createTextNode(parseInt(branchOriginElem.dataset.line).toString(16)))
+        td.dataset.originBranchPickerIndex = choices.length;
+        choices.push(branchOriginElem);
+    }
+    table.classList.add('origin-branch-picker');
+    // magic numbers to offset up and right
+    table.style.left = (window.scrollX + x + 15) + 'px';
+    table.style.top = (window.scrollY + y - 20) + 'px';
+    document.body.appendChild(table);
+    ASMDW.originBranchPicker = {
+        containerElement: table,
+        choices: choices,
+    };
+}
+
+function pickOriginBranchClick(elem) {
+    let choiceIndex = parseInt(elem.dataset.originBranchPickerIndex);
+    let branchOriginElem = ASMDW.originBranchPicker.choices[choiceIndex];
+    let branchTargetElem = document.getElementById(elem.dataset.branchTarget);
+    scrollIntoView(branchOriginElem, branchTargetElem ? [branchTargetElem] : []);
+    pickOriginBranchClose();
+}
+
+function pickOriginBranchClose() {
+    if ('originBranchPicker' in ASMDW) {
+        ASMDW.originBranchPicker.containerElement.remove();
+    }
+}
+
 function onClickBranchOrigin(elem) {
     let branchTargetElem = document.getElementById(elem.dataset.branchTarget);
     if (branchTargetElem) {
@@ -199,7 +250,7 @@ function onClickBranchOrigin(elem) {
     highlightBranchStay(elem.dataset.branchesClass);
 }
 
-function onClickBranchTarget(elem) {
+function onClickBranchTarget(elem, x, y) {
     // get all branch origins that branch to this branch target
     let branchOriginsElems = [];
     for (let branchIndicatorElem of document.getElementsByClassName(elem.dataset.branchesClass)) {
@@ -208,24 +259,20 @@ function onClickBranchTarget(elem) {
         }
     }
 
-    // use a different origin as main scroll-to element each click
-    let scrollMainElemIdx;
-    if ('nextScrollMainElemIdx' in elem.dataset) {
-        scrollMainElemIdx = parseInt(elem.dataset.nextScrollMainElemIdx);
-    } else {
-        scrollMainElemIdx = 0;
-    }
-    scrollMainElemIdx %= branchOriginsElems.length;
-    elem.dataset.nextScrollMainElemIdx = scrollMainElemIdx + 1;
-
-    let scrollMainElem = branchOriginsElems[scrollMainElemIdx];
-    let scrollOtherElems = [elem];
-    for (let i = 0; i < branchOriginsElems.length; i++) {
-        if (i != scrollMainElemIdx) {
-            scrollOtherElems.push(branchOriginsElems[i]);
+    function callback(allElemsCanBeOnSameView) {
+        if (allElemsCanBeOnSameView) {
+            return true;
         }
+        pickOriginBranchOpen(branchOriginsElems, x, y);
+        return false;
     }
-    scrollIntoView(scrollMainElem, scrollOtherElems);
+    if (branchOriginsElems.length == 1) {
+        scrollIntoView(branchOriginsElems[0], elem);
+    } else {
+        // main element doesn't matter, either everything will be in one view,
+        // or the origin branch picker will show up and no scrolling happens
+        scrollIntoView(elem, branchOriginsElems, callback);
+    }
 
     highlightBranchClearAll();
     highlightBranchStay(elem.dataset.branchesClass);
@@ -323,13 +370,18 @@ function requestContent() {
 
 function onClick(ev) {
     let elem = ev.target;
+    let x = ev.clientX;
+    let y = ev.clientY;
+    pickOriginBranchClose();
     if (elem.classList.contains('branch-indicator')) {
         // branch origins have data-branch-target
         if ('branchTarget' in elem.dataset) {
             onClickBranchOrigin(elem);
         } else {
-            onClickBranchTarget(elem);
+            onClickBranchTarget(elem, x, y);
         }
+    } else if ('originBranchPickerIndex' in elem.dataset) {
+        pickOriginBranchClick(elem);
     } else {
         highlightBranchClearAll();
     }

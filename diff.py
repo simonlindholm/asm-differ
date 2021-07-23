@@ -709,7 +709,7 @@ class HtmlFormatter(Formatter):
         if isinstance(f, BranchFormat):
             if f.is_target is None:
                 static_assert_unreachable(f)
-            branch_base_id = f"branch-{f.group}-{f.from_line}"
+            branch_base_id = f"branch-{f.group}-{f.to_line}"
 
             branches_class = html.escape(branch_base_id, quote=True)
             class_name += f" branch-indicator {branches_class}"
@@ -721,6 +721,7 @@ class HtmlFormatter(Formatter):
                 id_attr = f'id="{id}"'
             else:
                 data_attr += f' data-branch-target="{branch_target_id}"'
+                data_attr += f' data-line="{f.from_line}"'
 
         return f"<span class='branch-indicator-wrapper'><span class='{class_name}' {id_attr} {data_attr}>{chunk}</span></span>"
 
@@ -822,6 +823,7 @@ def branch_formatter(group: str, base_index: int) -> FormatBranchFunction:
             branch_formats[s] = f
         if is_target is not None:
             newFmtArgs = f.__dict__.copy()
+            newFmtArgs["from_line"] = from_line
             newFmtArgs["is_target"] = is_target
             f = BranchFormat(**newFmtArgs)
         return f
@@ -1755,7 +1757,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     in_arrow = Text("~>", branchFmt(line.line_num, is_target=True))
                 if line.branch_target is not None:
                     out_arrow = " " + Text(
-                        "~>", branchFmt(line.branch_target + ":", is_target=False)
+                        "~>",
+                        branchFmt(
+                            line.branch_target + ":",
+                            from_line=eval_line_num(line.line_num),
+                            is_target=False,
+                        ),
                     )
             return (
                 Text(line.line_num, line_color) + " " + in_arrow + " " + out + out_arrow

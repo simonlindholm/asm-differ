@@ -66,6 +66,21 @@ body {
     color: black;
 }
 
+.origin-branch-picker {
+    position: absolute;
+    z-index: 5;
+    background-color: #34495e;
+    color: white;
+}
+
+.origin-branch-picker td {
+    cursor: pointer;
+}
+
+.origin-branch-picker td:hover {
+    font-weight: bold;
+}
+
 /* diff style */
 
 table.diff {
