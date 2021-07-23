@@ -3,10 +3,10 @@
 function animate(time) {
     // slide status elements off screen, one by one
     if (ASMDW.statusElements.length != 0) {
-        var statusElemInfo = ASMDW.statusElements[0];
-        var element = statusElemInfo.element;
-        var slideOutStart = statusElemInfo.slideOutStart;
-        var slideOutEnd = statusElemInfo.slideOutEnd;
+        let statusElemInfo = ASMDW.statusElements[0];
+        let element = statusElemInfo.element;
+        let slideOutStart = statusElemInfo.slideOutStart;
+        let slideOutEnd = statusElemInfo.slideOutEnd;
         if (time > slideOutEnd) {
             // remove this element
             element.remove();
@@ -14,7 +14,7 @@ function animate(time) {
             // make sure the next one starts the disappearing animation now,
             // in case it is disappearing late
             if (ASMDW.statusElements.length != 0) {
-                var nextStatusElemInfo = ASMDW.statusElements[0];
+                let nextStatusElemInfo = ASMDW.statusElements[0];
                 if (nextStatusElemInfo.slideOutStart < time) {
                     nextStatusElemInfo.slideOutStart = time;
                     nextStatusElemInfo.slideOutEnd = time + ASMDW.statusSlideOutDurationMs;
@@ -22,8 +22,8 @@ function animate(time) {
             }
         } else if (time > slideOutStart) {
             // slide this element (and others) up
-            var progress = (time - slideOutStart) / (slideOutEnd - slideOutStart);
-            var deltaY = -element.offsetHeight * Math.pow(progress, 3);
+            let progress = (time - slideOutStart) / (slideOutEnd - slideOutStart);
+            let deltaY = -element.offsetHeight * Math.pow(progress, 3);
             statusElemInfo.element.style = 'margin-top: ' + deltaY.toString() + 'px;';
         }
     }
@@ -32,12 +32,12 @@ function animate(time) {
 
 function addStatusText(text) {
     // add status text to dom
-    var statusElem = document.createElement('div');
+    let statusElem = document.createElement('div');
     statusElem.appendChild(document.createTextNode(text));
     statusElem.classList.add('status-element');
     ASMDW.dom.statusContainer.appendChild(statusElem);
     // keep track of element for sliding up and removal
-    var now = performance.now();
+    let now = performance.now();
     // todo make status elem disappear time dynamic
     // eg: "Building..." going away when new diff received
     // and "failed to contact server" not going away until next attempt
@@ -51,23 +51,23 @@ function addStatusText(text) {
 
 // scroll elem1 into view, and elems too if possible
 function scrollIntoView(elem1, elems) {
-    var viewportY = window.scrollY;
-    var viewportHeight = window.innerHeight;
+    let viewportY = window.scrollY;
+    let viewportHeight = window.innerHeight;
 
-    var elem1rect = elem1.getBoundingClientRect();
-    var elem1y = viewportY + elem1rect.top;
-    var elem1height = elem1rect.bottom - elem1rect.top;
+    let elem1rect = elem1.getBoundingClientRect();
+    let elem1y = viewportY + elem1rect.top;
+    let elem1height = elem1rect.bottom - elem1rect.top;
 
     // offset a bit for comfort, use elem heights to avoid hardcoded values
-    var offset = elem1height;
+    let offset = elem1height;
 
-    var elemsY = [];
-    var elemsHeight = [];
-    for (var i = 0; i < elems.length; i++) {
-        var elem2 = elems[i];
-        var elem2rect = elem2.getBoundingClientRect();
-        var elem2y = viewportY + elem2rect.top;
-        var elem2height = elem2rect.bottom - elem2rect.top;
+    let elemsY = [];
+    let elemsHeight = [];
+    for (let i = 0; i < elems.length; i++) {
+        let elem2 = elems[i];
+        let elem2rect = elem2.getBoundingClientRect();
+        let elem2y = viewportY + elem2rect.top;
+        let elem2height = elem2rect.bottom - elem2rect.top;
         elemsY.push(elem2y);
         elemsHeight.push(elem2height);
         offset += elem2height;
@@ -76,17 +76,17 @@ function scrollIntoView(elem1, elems) {
     offset /= (1 + elemsHeight.length);
     offset *= 2;
 
-    var allElemsWithOffsetInView = true;
+    let allElemsWithOffsetInView = true;
 
-    var elem1withOffsetInView = (elem1y - offset) >= viewportY && (elem1y + elem1height + offset) <= (viewportY + viewportHeight);
+    let elem1withOffsetInView = (elem1y - offset) >= viewportY && (elem1y + elem1height + offset) <= (viewportY + viewportHeight);
     if (!elem1withOffsetInView) {
         allElemsWithOffsetInView = false;
     }
 
-    for (var i = 0; i < elems.length; i++) {
-        var elem2y = elemsY[i];
-        var elem2height = elemsHeight[i];
-        var elem2withOffsetInView = (elem2y - offset) >= viewportY && (elem2y + elem2height + offset) <= (viewportY + viewportHeight);
+    for (let i = 0; i < elems.length; i++) {
+        let elem2y = elemsY[i];
+        let elem2height = elemsHeight[i];
+        let elem2withOffsetInView = (elem2y - offset) >= viewportY && (elem2y + elem2height + offset) <= (viewportY + viewportHeight);
         if (!elem2withOffsetInView) {
             allElemsWithOffsetInView = false;
         }
@@ -96,13 +96,13 @@ function scrollIntoView(elem1, elems) {
         return;
     }
 
-    var elemMinY = elem1y;
-    var elemMinYheight = elem1height;
-    var elemMaxY = elem1y;
-    var elemMaxYheight = elem1height;
-    for (var i = 0; i < elems.length; i++) {
-        var elem2y = elemsY[i];
-        var elem2height = elemsHeight[i];
+    let elemMinY = elem1y;
+    let elemMinYheight = elem1height;
+    let elemMaxY = elem1y;
+    let elemMaxYheight = elem1height;
+    for (let i = 0; i < elems.length; i++) {
+        let elem2y = elemsY[i];
+        let elem2height = elemsHeight[i];
         if (elem2y < elemMinY) {
             elemMinY = elem2y;
             elemMinYheight = elem2height;
@@ -113,12 +113,12 @@ function scrollIntoView(elem1, elems) {
         }
     }
 
-    var allElemsCanBeOnSameView = (elemMaxY + elemMaxYheight - elemMinY) <= viewportHeight;
+    let allElemsCanBeOnSameView = (elemMaxY + elemMaxYheight - elemMinY) <= viewportHeight;
 
-    var newViewportY;
+    let newViewportY;
     if (allElemsCanBeOnSameView) {
-        var newViewportYmax = elemMinY;
-        var newViewportYmin = elemMaxY + elemMaxYheight - viewportHeight;
+        let newViewportYmax = elemMinY;
+        let newViewportYmin = elemMaxY + elemMaxYheight - viewportHeight;
         if (viewportY >= newViewportYmax) {
             newViewportY = newViewportYmax;
             newViewportY -= offset;
@@ -134,11 +134,11 @@ function scrollIntoView(elem1, elems) {
             }
         }
     } else {
-        var newViewportYmax = elem1y;
-        var newViewportYmin = elem1y + elem1height - viewportHeight;
+        let newViewportYmax = elem1y;
+        let newViewportYmin = elem1y + elem1height - viewportHeight;
         // "ideal" viewport dimensions for showing all elements in one view
-        var idealViewportY = elemMinY;
-        var idealViewportHeight = elemMaxY + elemMaxYheight - elemMinY;
+        let idealViewportY = elemMinY;
+        let idealViewportHeight = elemMaxY + elemMaxYheight - elemMinY;
         // translate the viewport around elem1y according to location of other elements
         newViewportY = elem1y + (idealViewportY - elem1y) / idealViewportHeight * viewportHeight;
     }
@@ -150,40 +150,40 @@ function scrollIntoView(elem1, elems) {
 }
 
 function highlightBranchClearAll() {
-    var elems = document.getElementsByClassName('branch-indicator-wrapper');
-    for (var i = 0; i < elems.length; i++) {
-        var elem = elems[i];
+    let elems = document.getElementsByClassName('branch-indicator-wrapper');
+    for (let i = 0; i < elems.length; i++) {
+        let elem = elems[i];
         elem.classList.remove('branch-highlight-stay');
         elem.classList.remove('branch-highlight-temp');
     }
 }
 
 function highlightBranchStay(className) {
-    var elems = document.getElementsByClassName(className);
-    for (var i = 0; i < elems.length; i++) {
-        var elem = elems[i];
+    let elems = document.getElementsByClassName(className);
+    for (let i = 0; i < elems.length; i++) {
+        let elem = elems[i];
         elem.parentNode.classList.add('branch-highlight-stay');
     }
 }
 
 function highlightBranchTemp(className) {
-    var elems = document.getElementsByClassName(className);
-    for (var i = 0; i < elems.length; i++) {
-        var elem = elems[i];
+    let elems = document.getElementsByClassName(className);
+    for (let i = 0; i < elems.length; i++) {
+        let elem = elems[i];
         elem.parentNode.classList.add('branch-highlight-temp');
     }
 }
 
 function highlightBranchTempClear(className) {
-    var elems = document.getElementsByClassName(className);
-    for (var i = 0; i < elems.length; i++) {
-        var elem = elems[i];
+    let elems = document.getElementsByClassName(className);
+    for (let i = 0; i < elems.length; i++) {
+        let elem = elems[i];
         elem.parentNode.classList.remove('branch-highlight-temp');
     }
 }
 
 function onClickBranchOrigin(elem) {
-    var branchTargetElem = document.getElementById(elem.dataset.branchTarget);
+    let branchTargetElem = document.getElementById(elem.dataset.branchTarget);
     if (branchTargetElem) {
         scrollIntoView(branchTargetElem, [elem]);
     }
@@ -193,16 +193,16 @@ function onClickBranchOrigin(elem) {
 
 function onClickBranchTarget(elem) {
     // get all branch origins that branch to this branch target
-    var branchIndicatorsElems = document.getElementsByClassName(elem.dataset.branchesClass);
-    var branchOriginsElems = [];
-    for (var i = 0; i < branchIndicatorsElems.length; i++) {
+    let branchIndicatorsElems = document.getElementsByClassName(elem.dataset.branchesClass);
+    let branchOriginsElems = [];
+    for (let i = 0; i < branchIndicatorsElems.length; i++) {
         if (branchIndicatorsElems[i] != elem) {
             branchOriginsElems.push(branchIndicatorsElems[i]);
         }
     }
 
     // use a different origin as main scroll-to element each click
-    var scrollMainElemIdx;
+    let scrollMainElemIdx;
     if ('nextScrollMainElemIdx' in elem.dataset) {
         scrollMainElemIdx = parseInt(elem.dataset.nextScrollMainElemIdx);
     } else {
@@ -211,9 +211,9 @@ function onClickBranchTarget(elem) {
     scrollMainElemIdx %= branchOriginsElems.length;
     elem.dataset.nextScrollMainElemIdx = scrollMainElemIdx + 1;
 
-    var scrollMainElem = branchOriginsElems[scrollMainElemIdx];
-    var scrollOtherElems = [elem];
-    for (var i = 0; i < branchOriginsElems.length; i++) {
+    let scrollMainElem = branchOriginsElems[scrollMainElemIdx];
+    let scrollOtherElems = [elem];
+    for (let i = 0; i < branchOriginsElems.length; i++) {
         if (i != scrollMainElemIdx) {
             scrollOtherElems.push(branchOriginsElems[i]);
         }
@@ -234,14 +234,14 @@ function onMouseLeaveBranchIndicator(ev) {
 
 function setDiffHtml(diffHtml) {
     ASMDW.dom.diffContainer.innerHTML = diffHtml;
-    var tbody = ASMDW.dom.diffContainer.getElementsByTagName('tbody')[0];
-    for (var i = 0; i < tbody.children.length; i++) {
-        var tr = tbody.children[i];
-        for (var j = 0; j < 2 && j < tr.children.length; j++) {
-            var td = tr.children[j];
-            var spanChildren = td.getElementsByTagName('span');
-            for (var k = 0; k < spanChildren.length; k++) {
-                var spanChild = spanChildren[k];
+    let tbody = ASMDW.dom.diffContainer.getElementsByTagName('tbody')[0];
+    for (let i = 0; i < tbody.children.length; i++) {
+        let tr = tbody.children[i];
+        for (let j = 0; j < 2 && j < tr.children.length; j++) {
+            let td = tr.children[j];
+            let spanChildren = td.getElementsByTagName('span');
+            for (let k = 0; k < spanChildren.length; k++) {
+                let spanChild = spanChildren[k];
                 if ('branchesClass' in spanChild.dataset) {
                     spanChild.addEventListener('mouseenter', onMouseEnterBranchIndicator);
                     spanChild.addEventListener('mouseleave', onMouseLeaveBranchIndicator);
@@ -252,21 +252,21 @@ function setDiffHtml(diffHtml) {
 }
 
 function onNewContent() {
-    var httpRequest = ASMDW.httpRequest;
+    let httpRequest = ASMDW.httpRequest;
     if (httpRequest.readyState == XMLHttpRequest.DONE) {
         if (httpRequest.status == 200) { // OK
             ASMDW.tryAgainAfterCommunicationFailureDelayMs = 0;
-            var res = httpRequest.responseText;
-            var resInfoEndIdx = res.indexOf('\n');
-            var resInfo = res.slice(0, resInfoEndIdx);
+            let res = httpRequest.responseText;
+            let resInfoEndIdx = res.indexOf('\n');
+            let resInfo = res.slice(0, resInfoEndIdx);
             switch (resInfo) {
                 case 'diff':
                     ASMDW.diffReceived++;
-                    var resDiffHtml = res.slice(resInfoEndIdx + 1);
+                    let resDiffHtml = res.slice(resInfoEndIdx + 1);
                     setDiffHtml(resDiffHtml);
                     break;
                 case 'status':
-                    var resStatusText = res.slice(resInfoEndIdx + 1);
+                    let resStatusText = res.slice(resInfoEndIdx + 1);
                     addStatusText(resStatusText);
                     break;
                 default:
@@ -281,16 +281,16 @@ function onNewContent() {
             } else {
                 ASMDW.tryAgainAfterCommunicationFailureDelayMs *= 2;
             }
-            var statusElem = addStatusText(
+            let statusElem = addStatusText(
                 'Failed to communicate with server, trying again in '
                 + Math.round(ASMDW.tryAgainAfterCommunicationFailureDelayMs / 1000).toString()
                 + ' seconds'
             );
-            var retryNow = document.createElement('span');
+            let retryNow = document.createElement('span');
             retryNow.appendChild(document.createTextNode('(retry now)'));
             retryNow.classList.add('communication-error-retry-now');
             retryNow.addEventListener('click', function (ev) {
-                var retryNow = ev.target;
+                let retryNow = ev.target;
                 retryNow.remove();
                 requestContent();
             });
@@ -306,10 +306,10 @@ function requestContent() {
         clearTimeout(ASMDW.requestContentTimeoutID);
         ASMDW.requestContentTimeoutID = null;
     }
-    var httpRequest = new XMLHttpRequest();
+    let httpRequest = new XMLHttpRequest();
     ASMDW.httpRequest = httpRequest;
     httpRequest.onreadystatechange = onNewContent;
-    var url = '?diff';
+    let url = '?diff';
     if (ASMDW.diffReceived == 0)
         url += "&nowait";
     httpRequest.open('GET', url);
@@ -349,5 +349,5 @@ window.ASMDW = {
     statusElements: [],
 };
 
-var url = new URL(window.location);
+let url = new URL(window.location);
 ASMDW.requestForever = url.searchParams.get('once') === null;
