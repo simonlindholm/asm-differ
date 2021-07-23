@@ -34,30 +34,6 @@
                     statusElemInfo.element.style = 'margin-top: ' + deltaY.toString() + 'px;';
                 }
             }
-            // scrolling
-            if (ASMDW.scrollYtarget !== null) {
-                var scrollYdiff = (time - ASMDW.scrollYlastUpdate) / 1000 * 1500; // 1500 px/s
-                ASMDW.scrollYlastUpdate = time;
-                var newScrollY;
-                if (ASMDW.scrollYtarget < window.scrollY) {
-                    newScrollY = window.scrollY - scrollYdiff;
-                    if (newScrollY < ASMDW.scrollYtarget) {
-                        newScrollY = ASMDW.scrollYtarget;
-                    }
-                } else {
-                    newScrollY = window.scrollY + scrollYdiff;
-                    if (newScrollY > ASMDW.scrollYtarget) {
-                        newScrollY = ASMDW.scrollYtarget;
-                    }
-                }
-                window.scroll(window.scrollX, newScrollY);
-                var stopScrolling = newScrollY == ASMDW.scrollYtarget;
-                stopScrolling = stopScrolling || (window.scrollY > (document.body.offsetHeight - window.innerHeight));
-                if (stopScrolling) {
-                    ASMDW.scrollYtarget = null;
-                    ASMDW.scrollYlastUpdate = null;
-                }
-            }
             requestAnimationFrame(animate);
         }
 
@@ -174,8 +150,10 @@
                 newViewportY = elem1y + (idealViewportY - elem1y) / idealViewportHeight * viewportHeight;
             }
 
-            ASMDW.scrollYtarget = newViewportY;
-            ASMDW.scrollYlastUpdate = performance.now();
+            window.scrollTo({
+                top: newViewportY,
+                behavior: 'smooth',
+            });
         }
 
         function highlightBranchClearAll() {
@@ -386,8 +364,6 @@
             tryAgainAfterCommunicationFailureDelayMs: 0,
             statusSlideOutDurationMs: 500,
             statusElements: [],
-            scrollYtarget: null,
-            scrollYlastUpdate: null,
         };
         var url = new URL(window.location);
         ASMDW.requestForever = url.searchParams.get('once') === null;
