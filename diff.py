@@ -2175,18 +2175,29 @@ class WebDisplay(Display):
         if "diff" in query:
             # serve diff or status message
             if self.running_async:
-                if "nowait" in query:
-                    try:
-                        # take from the queue just in case if any, to prevent
-                        # following ?diff request to complete immediately
-                        self.ready_queue.get_nowait()
-                    except queue.Empty:
+                try:
+                    self.ready_queue.get_nowait()
+                except queue.Empty:
+                    if "nowait" in query:
                         pass
-                else:
-                    self.ready_queue.get()
-                    if not self.running:
-                        # notify any other request waiting
+                    else:
+                        # wait until something happens
+                        self.ready_queue.get()
+                        if not self.running:
+                            # notify any other request waiting
+                            self.ready_queue.put(None)
+                            return
+                        # this request has been waiting, potentially for a long time,
+                        # the client may even be no more at this point (tab closed).
+                        # To prevent sending data to a client that wouldn't display it,
+                        # and accidentally discarding data, ask the client to make a new
+                        # request by sending "refresh" to it
                         self.ready_queue.put(None)
+                        req.send_response(http.HTTPStatus.OK)
+                        req.send_header("Content-Type", "text/plain; charset=UTF-8")
+                        req.end_headers()
+                        req.wfile.write("refresh\n".encode("utf-8"))
+                        req.wfile.flush()
                         return
             req.send_response(http.HTTPStatus.OK)
             req.send_header("Content-Type", "text/plain; charset=UTF-8")

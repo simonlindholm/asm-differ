@@ -326,7 +326,11 @@ function onNewContent() {
             let res = httpRequest.responseText;
             let resInfoEndIdx = res.indexOf('\n');
             let resInfo = res.slice(0, resInfoEndIdx);
+            let nextRequestDelay = 100;
             switch (resInfo) {
+                case 'refresh':
+                    nextRequestDelay = 0;
+                    break;
                 case 'diff':
                 case 'diff once':
                     ASMDW.diffReceived++;
@@ -339,9 +343,14 @@ function onNewContent() {
                     break;
                 default:
                     alert('Unknown resInfo = ' + resInfo);
+                    nextRequestDelay = 5000;
             }
             if (resInfo != 'diff once') {
-                ASMDW.requestContentTimeoutID = setTimeout(requestContent, 100);
+                if (nextRequestDelay > 0) {
+                    ASMDW.requestContentTimeoutID = setTimeout(requestContent, nextRequestDelay);
+                } else {
+                    requestContent();
+                }
             }
         } else {
             if (ASMDW.tryAgainAfterCommunicationFailureDelayMs == 0) {
