@@ -70,6 +70,7 @@ body {
     position: absolute;
     z-index: 5;
     background-color: #34495e;
+    font-family: Monospace;
     color: white;
 }
 
