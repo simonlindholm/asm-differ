@@ -1201,13 +1201,12 @@ def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
 
 
 def parse_relocated_line(line: str) -> Tuple[str, str, str]:
-    try:
-        ind2 = line.rindex(",")
-    except ValueError:
-        try:
-            ind2 = line.rindex("\t")
-        except ValueError:
-            ind2 = line.rindex(" ")
+    for c in ",\t ":
+        if c in line:
+            ind2 = line.rindex(c)
+            break
+    else:
+        raise Exception(f"failed to parse relocated line: {line}")
     before = line[: ind2 + 1]
     after = line[ind2 + 1 :]
     ind2 = after.find("(")
