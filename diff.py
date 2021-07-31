@@ -28,17 +28,17 @@ def static_assert_unreachable(x: NoReturn) -> NoReturn:
     raise Exception("Unreachable! " + repr(x))
 
 
-# Prefer to use diff_settings.py from the current working directory
-sys.path.insert(0, ".")
-try:
-    import diff_settings
-except ModuleNotFoundError:
-    fail("Unable to find diff_settings.py in the same directory.")
-sys.path.pop(0)
-
 # ==== COMMAND-LINE ====
 
 if __name__ == "__main__":
+    # Prefer to use diff_settings.py from the current working directory
+    sys.path.insert(0, ".")
+    try:
+        import diff_settings
+    except ModuleNotFoundError:
+        fail("Unable to find diff_settings.py in the same directory.")
+    sys.path.pop(0)
+
     try:
         import argcomplete  # type: ignore
     except ModuleNotFoundError:
