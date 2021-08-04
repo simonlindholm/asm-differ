@@ -16,6 +16,7 @@ from typing import (
     Tuple,
     Type,
     Union,
+    Generator,
 )
 
 
@@ -353,6 +354,8 @@ class Config:
     source: bool
     source_old_binutils: bool
     inlines: bool
+    start: str
+    end: Optional[str]
     max_function_size_lines: int
     max_function_size_bytes: int
 
@@ -413,6 +416,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         source=args.source or args.source_old_binutils,
         source_old_binutils=args.source_old_binutils,
         inlines=args.inlines,
+        start=args.start,
+        end=args.end,
         max_function_size_lines=args.max_lines,
         max_function_size_bytes=args.max_lines * 4,
         # Display options
@@ -723,6 +728,7 @@ class HtmlFormatter(Formatter):
                 data_attr += f' data-branch-target="{branch_target_id}"'
                 data_attr += f' data-line="{f.from_line}"'
 
+        # fixme this adds <span class='branch-indicator-wrapper'> to ALL spans, not just the branch spans
         return f"<span class='branch-indicator-wrapper'><span class='{class_name}' {id_attr} {data_attr}>{chunk}</span></span>"
 
     def table(
@@ -931,32 +937,81 @@ def search_map_file(
     if not project.mapfile:
         fail(f"No map file configured; cannot find function {fn_name}.")
 
+    result = None
+
+    for objname, objfile_get, ram, rom, entry_fn_name in parse_map_file(
+        project.mapfile, project
+    ):
+        if entry_fn_name == fn_name:
+            if result is not None:
+                fail(f"Found multiple occurrences of function {fn_name} in map file.")
+            result = (objfile_get(), rom)
+
+    if result is None:
+        return None, None
+    return result
+
+
+def dump_map_file(project: ProjectSettings) -> Dict[str, Tuple[str, int, int]]:
+    if not project.mapfile:
+        fail(f"No map file configured; cannot parse map file.")
+
+    functions = dict()
+
+    for objname, objfile_get, ram, rom, fn_name in parse_map_file(
+        project.mapfile, project
+    ):
+        functions[fn_name] = (objname, ram, rom)
+
+    return functions
+
+
+def parse_map_file(
+    mapfile: str, project: ProjectSettings
+) -> Generator[Tuple[str, Callable[[], str], int, int, str], None, None]:
     try:
-        with open(project.mapfile) as f:
+        with open(mapfile) as f:
             contents = f.read()
     except Exception:
-        fail(f"Failed to open map file {project.mapfile} for reading.")
+        fail(f"Failed to open map file {mapfile} for reading.")
 
     if project.map_format == "gnu":
+        fn_name_pattern = re.compile(r"[0-9a-zA-Z_]+")
+
         lines = contents.split("\n")
 
         try:
+            is_text = False
             cur_objfile = None
             ram_to_rom = None
-            cands = []
             last_line = ""
             for line in lines:
                 if line.startswith(" .text"):
                     cur_objfile = line.split()[3]
+                    is_text = True
+                elif line.startswith(" ."):
+                    is_text = False
                 if "load address" in line:
                     tokens = last_line.split() + line.split()
                     ram = int(tokens[1], 0)
                     rom = int(tokens[5], 0)
                     ram_to_rom = rom - ram
-                if line.endswith(" " + fn_name):
-                    ram = int(line.split()[0], 0)
-                    if cur_objfile is not None and ram_to_rom is not None:
-                        cands.append((cur_objfile, ram + ram_to_rom))
+                if is_text and cur_objfile is not None and ram_to_rom is not None:
+                    tokens = line.split()
+                    if len(tokens) == 2:
+                        try:
+                            ram = int(tokens[0], 0)
+                        except ValueError:
+                            ram = None
+                        fn_name = tokens[1]
+                        if ram is not None and fn_name_pattern.fullmatch(fn_name):
+                            yield (
+                                cur_objfile,
+                                lambda: cur_objfile,
+                                ram,
+                                ram + ram_to_rom,
+                                fn_name,
+                            )
                 last_line = line
         except Exception as e:
             import traceback
@@ -964,26 +1019,9 @@ def search_map_file(
             traceback.print_exc()
             fail(f"Internal error while parsing map file")
 
-        if len(cands) > 1:
-            fail(f"Found multiple occurrences of function {fn_name} in map file.")
-        if len(cands) == 1:
-            return cands[0]
     elif project.map_format == "mw":
-        find = re.findall(
-            re.compile(
-                #            ram   elf rom
-                r"  \S+ \S+ (\S+) (\S+)  . "
-                + fn_name
-                #                                         object name
-                + r"(?: \(entry of \.(?:init|text)\))? \t(\S+)"
-            ),
-            contents,
-        )
-        if len(find) > 1:
-            fail(f"Found multiple occurrences of function {fn_name} in map file.")
-        if len(find) == 1:
-            rom = int(find[0][1], 16)
-            objname = find[0][2]
+
+        def search_objfile(objname):
             # The metrowerks linker map format does not contain the full object path,
             # so we must complete it manually.
             objfiles = [
@@ -1000,19 +1038,31 @@ def search_map_file(
                 )
             if len(objfiles) == 1:
                 objfile = objfiles[0]
-                # TODO Currently the ram-rom conversion only works for diffing ELF
-                # executables, but it would likely be more convenient to diff DOLs.
-                # At this time it is recommended to always use -o when running the diff
-                # script as this mode does not make use of the ram-rom conversion.
-                return objfile, rom
+                return objfile
+
+        for m in re.finditer(
+            #            ram   elf rom
+            r"  \S+ \S+ (\S+) (\S+)  . "
+            #    function name
+            + r"(\S+)"
+            #                                         object name
+            + r"(?: \(entry of \.(?:init|text)\))? \t(\S+)",
+            contents,
+        ):
+            # TODO Currently the ram-rom conversion only works for diffing ELF
+            # executables, but it would likely be more convenient to diff DOLs.
+            # At this time it is recommended to always use -o when running the diff
+            # script as this mode does not make use of the ram-rom conversion.
+            ram = int(m.group(1), 16)
+            rom = int(m.group(2), 16)
+            fn_name = m.group(3)
+            objname = m.group(4)
+            yield (objname, lambda: search_objfile(objname), ram, rom, fn_name)
     else:
         fail(f"Linker map format {project.map_format} unrecognised.")
-    return None, None
 
 
 def dump_elf(
-    start: str,
-    end: Optional[str],
     diff_elf_symbol: str,
     config: Config,
     project: ProjectSettings,
@@ -1022,10 +1072,10 @@ def dump_elf(
     if config.base_shift:
         fail("--base-shift not compatible with -e")
 
-    start_addr = eval_int(start, "Start address must be an integer expression.")
+    start_addr = eval_int(config.start, "Start address must be an integer expression.")
 
-    if end is not None:
-        end_addr = eval_int(end, "End address must be an integer expression.")
+    if config.end is not None:
+        end_addr = eval_int(config.end, "End address must be an integer expression.")
     else:
         end_addr = start_addr + config.max_function_size_bytes
 
@@ -1051,8 +1101,10 @@ def dump_elf(
 
 
 def dump_objfile(
-    start: str, end: Optional[str], config: Config, project: ProjectSettings
+    config: Config, project: ProjectSettings
 ) -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
+    start = config.start
+    end = config.end
     if config.base_shift:
         fail("--base-shift not compatible with -o")
     if end is not None:
@@ -1083,12 +1135,14 @@ def dump_objfile(
 
 
 def dump_binary(
-    start: str, end: Optional[str], config: Config, project: ProjectSettings
+    config: Config, project: ProjectSettings
 ) -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
     if not project.baseimg or not project.myimg:
         fail("Missing myimg/baseimg in config.")
     if config.make:
         run_make(project.myimg, project)
+    start = config.start
+    end = config.end
     start_addr = maybe_eval_int(start)
     if start_addr is None:
         _, start_addr = search_map_file(start, project)
@@ -1890,7 +1944,7 @@ def debounced_fs_watch(
     outq: "queue.Queue[Optional[float]]",
     config: Config,
     project: ProjectSettings,
-) -> None:
+) -> Callable[[],None]:
     import watchdog.events  # type: ignore
     import watchdog.observers  # type: ignore
 
@@ -1923,7 +1977,14 @@ def debounced_fs_watch(
             if self.should_notify(path):
                 self.queue.put(time.time())
 
-    def debounce_thread() -> NoReturn:
+    run = [True]
+    def keep_running():
+        return run[0]
+# todo check keep/stop_running work as expected
+    def stop_running():
+        run[0] = False
+
+    def debounce_thread() -> None:
         listenq: "queue.Queue[float]" = queue.Queue()
         file_targets: List[str] = []
         event_handler = WatchEventHandler(listenq, file_targets)
@@ -1939,7 +2000,7 @@ def debounced_fs_watch(
                     observed.add(target)
                     observer.schedule(event_handler, target)
         observer.start()
-        while True:
+        while keep_running():
             t = listenq.get()
             more = True
             while more:
@@ -1955,9 +2016,17 @@ def debounced_fs_watch(
                 except queue.Empty:
                     pass
             outq.put(t)
+        observer.stop()
+        observer.join()
 
     th = threading.Thread(target=debounce_thread, daemon=True)
     th.start()
+
+    return stop_running
+
+
+WqMessage = str
+WQ_CHANGE_START: WqMessage = "WQ_CHANGE_START"
 
 
 class Display(abc.ABC):
@@ -2111,6 +2180,7 @@ class PagerDisplay(Display):
 
 
 class WebDisplay(Display):
+    project: ProjectSettings
     watch_queue: "queue.Queue[Optional[float]]"
     ready_queue: "queue.Queue[Optional[float]]"
     status_queue: "queue.Queue[str]"
@@ -2118,13 +2188,20 @@ class WebDisplay(Display):
     running_async: bool
     running: bool
 
+    def __init__(
+        self, basedump: str, mydump: str, config: Config, project: ProjectSettings
+    ) -> None:
+        super().__init__(basedump, mydump, config)
+        self.project = project
+
     def open_browser(self) -> None:
         if self.config.run_browser:
             env_browser_command = os.environ.get("ASMDW_BROWSER_CMD")
             if env_browser_command:
                 os.system(
                     env_browser_command.format(
-                        port=self.config.http_server_port, query="init"
+                        port=self.config.http_server_port,
+                        query=self.get_open_url_query(),
                     )
                 )
             else:
@@ -2134,7 +2211,11 @@ class WebDisplay(Display):
 
     def get_open_url(self) -> str:
         port = self.config.http_server_port
-        return f"http://localhost:{port}?init"
+        query = self.get_open_url_query()
+        return f"http://localhost:{port}?{query}"
+
+    def get_open_url_query(self) -> str:
+        return "init"
 
     def handle_request(self, req: http.server.BaseHTTPRequestHandler) -> None:
         if not self.running:
@@ -2172,7 +2253,32 @@ class WebDisplay(Display):
                     req.wfile.write(f.read().encode("utf-8"))
                 req.wfile.flush()
                 return
-        if "diff" in query:
+        if "info" in query:
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/plain; charset=UTF-8")
+            req.end_headers()
+            req.wfile.write(f"start {self.config.start}\n".encode("utf-8"))
+            req.wfile.flush()
+        elif "linkermap" in query:
+            if not self.project.mapfile:
+                req.send_response(http.HTTPStatus.NOT_FOUND)
+                req.end_headers()
+                return
+            try:
+                dump = dump_map_file(self.project)
+            except:
+                req.send_response(http.HTTPStatus.INTERNAL_SERVER_ERROR)
+                req.end_headers()
+                raise
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/plain; charset=UTF-8")
+            req.end_headers()
+            for fn_name, (objname, ram, rom) in dump.items():
+                req.wfile.write(
+                    f"{fn_name} {ram:X} {rom:X} {objname}\n".encode("utf-8")
+                )
+            req.wfile.flush()
+        elif "diff" in query:
             # serve diff or status message
             if self.running_async:
                 try:
@@ -2217,8 +2323,31 @@ class WebDisplay(Display):
                 req.wfile.write(f"{resInfo}\n".encode("utf-8"))
                 req.wfile.write(self.run_diff().encode("utf-8"))
             req.wfile.flush()
+        elif "set" in query:
+            if not self.running_async:
+                badRequest("WebDisplay is not running asynchronously")
+                return
+            queryStartVals: List[str] = query.get("start")
+            if not queryStartVals:
+                badRequest("start not set in set query")
+                return
+            newStart = queryStartVals[0]
+            if newStart == "":
+                badRequest(f"start cannot be {newStart!r}")
+                return
+            self.change_start(newStart)
+            req.send_response(http.HTTPStatus.OK)
+            req.send_header("Content-Type", "text/plain; charset=UTF-8")
+            req.end_headers()
         else:
             badRequest("Bad query")
+
+    def change_start(self, newStart: str) -> None:
+        self.config.start = newStart
+        self.last_diff_output = None
+        print("newStart =", newStart)
+        print("watch_queue.put", WQ_CHANGE_START)
+        self.watch_queue.put(WQ_CHANGE_START)
 
     def run_server(self, run_async: bool) -> None:
         class WebDisplayRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -2260,7 +2389,10 @@ class WebDisplay(Display):
             self.http_server.serve_forever()
 
     def run_sync(self) -> None:
-        self.run_server(False)
+        try:
+            self.run_server(False)
+        except KeyboardInterrupt:
+            print("")
 
     def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
         self.watch_queue = watch_queue
@@ -2317,116 +2449,164 @@ class ConsoleDisplay(Display):
         pass
 
 
-def main() -> None:
-    args = parser.parse_args()
+class Main:
+    args: argparse.Namespace
+    settings: Dict[str, Any]
+    project: ProjectSettings
+    config: Config
 
-    # Apply project-specific configuration.
-    settings: Dict[str, Any] = {}
-    diff_settings.apply(settings, args)  # type: ignore
-    project = create_project_settings(settings)
+    def with_args(self, args: argparse.Namespace):
+        self.args = args
+        self.settings = {}
+        diff_settings.apply(self.settings, args)  # type: ignore
+        self.project = create_project_settings(self.settings)
+        self.config = create_config(args, self.project)
 
-    config = create_config(args, project)
+        if self.config.threeway and not args.watch:
+            fail("Threeway diffing requires -w.")
 
-    if config.algorithm == "levenshtein":
-        try:
-            import Levenshtein
-        except ModuleNotFoundError as e:
-            fail(MISSING_PREREQUISITES.format(e.name))
+    def import_prerequisites(self):
+        if self.config.algorithm == "levenshtein":
+            try:
+                import Levenshtein
+            except ModuleNotFoundError as e:
+                fail(MISSING_PREREQUISITES.format(e.name))
 
-    if config.source:
-        try:
-            import cxxfilt
-        except ModuleNotFoundError as e:
-            fail(MISSING_PREREQUISITES.format(e.name))
+        if self.config.source:
+            try:
+                import cxxfilt
+            except ModuleNotFoundError as e:
+                fail(MISSING_PREREQUISITES.format(e.name))
 
-    if config.threeway and not args.watch:
-        fail("Threeway diffing requires -w.")
-
-    if args.diff_elf_symbol:
-        make_target, basecmd, mycmd = dump_elf(
-            args.start, args.end, args.diff_elf_symbol, config, project
-        )
-    elif config.diff_obj:
-        make_target, basecmd, mycmd = dump_objfile(
-            args.start, args.end, config, project
-        )
-    else:
-        make_target, basecmd, mycmd = dump_binary(args.start, args.end, config, project)
-
-    map_build_target_fn = getattr(diff_settings, "map_build_target", None)
-    if map_build_target_fn:
-        make_target = map_build_target_fn(make_target=make_target)
-
-    if args.write_asm is not None:
-        mydump = run_objdump(mycmd, config, project)
-        with open(args.write_asm, "w") as f:
-            f.write(mydump)
-        print(f"Wrote assembly to {args.write_asm}.")
-        sys.exit(0)
-
-    if args.base_asm is not None:
-        with open(args.base_asm) as f:
-            basedump = f.read()
-    else:
-        basedump = run_objdump(basecmd, config, project)
-
-    mydump = run_objdump(mycmd, config, project)
-
-    if config.use_pager:
-        display = PagerDisplay(basedump, mydump, config)
-    elif config.web_server:
-        display = WebDisplay(basedump, mydump, config)
-    else:
-        display = ConsoleDisplay(basedump, mydump, config)
-
-    if not args.watch:
-        display.run_sync()
-    else:
-        if not args.make and not args.no_make:
-            yn = input(
-                "Warning: watch-mode (-w) enabled without auto-make (-m). "
-                "You will have to run make manually. Ok? (Y/n) "
+    def update_dump_args(self):
+        if self.args.diff_elf_symbol:
+            self.make_target, self.basecmd, self.mycmd = dump_elf(
+                self.args.diff_elf_symbol, self.config, self.project
             )
-            if yn.lower() == "n":
-                return
-        if args.make:
-            watch_sources = None
-            watch_sources_for_target_fn = getattr(
-                diff_settings, "watch_sources_for_target", None
+        elif self.config.diff_obj:
+            self.make_target, self.basecmd, self.mycmd = dump_objfile(
+                self.config, self.project
             )
-            if watch_sources_for_target_fn:
-                watch_sources = watch_sources_for_target_fn(make_target)
-            watch_sources = watch_sources or project.source_directories
-            if not watch_sources:
-                fail("Missing source_directories config, don't know what to watch.")
         else:
-            watch_sources = [make_target]
-        q: "queue.Queue[Optional[float]]" = queue.Queue()
-        debounced_fs_watch(watch_sources, q, config, project)
-        display.run_async(q)
+            self.make_target, self.basecmd, self.mycmd = dump_binary(
+                self.config, self.project
+            )
+
+        map_build_target_fn = getattr(diff_settings, "map_build_target", None)
+        if map_build_target_fn:
+            self.make_target = map_build_target_fn(make_target=self.make_target)
+
+    def update_basedump(self):
+        if self.args.base_asm is not None:
+            with open(self.args.base_asm) as f:
+                self.basedump = f.read()
+        else:
+            self.basedump = run_objdump(self.basecmd, self.config, self.project)
+
+    def update_mydump(self):
+        self.mydump = run_objdump(self.mycmd, self.config, self.project)
+
+    def init_display(self):
+        if self.config.use_pager:
+            self.display = PagerDisplay(self.basedump, self.mydump, self.config)
+        elif self.config.web_server:
+            self.display = WebDisplay(
+                self.basedump, self.mydump, self.config, self.project
+            )
+        else:
+            self.display = ConsoleDisplay(self.basedump, self.mydump, self.config)
+
+    def run(self):
+        if not self.args.watch:
+            self.display.run_sync()
+        else:
+            if not self.args.make and not self.args.no_make:
+                yn = input(
+                    "Warning: watch-mode (-w) enabled without auto-make (-m). "
+                    "You will have to run make manually. Ok? (Y/n) "
+                )
+                if yn.lower() == "n":
+                    return
+            self.run_watch()
+
+    def run_watch(self):
+        q: "queue.Queue[Optional[float]]" = self.watch_start()
+        self.display.run_async(q)
         last_build = 0.0
         try:
             while True:
                 t = q.get()
                 if t is None:
                     break
+                if isinstance(t, WqMessage):
+                    print("WqMessage", t)
+                    if t == WQ_CHANGE_START:
+                        self.update_dump_args()
+                        self.update_basedump()
+                        self.display.basedump = self.basedump
+                        q = self.watch_start()
+                        self.display.watch_queue = q
+                        t = 0.0
+                        last_build = t - 1
+                    else:
+                        continue
                 if t < last_build:
                     continue
                 last_build = time.time()
-                if args.make:
-                    display.progress("Building...")
-                    ret = run_make_capture_output(make_target, project)
+                if self.args.make:
+                    self.display.progress("Building...")
+                    ret = run_make_capture_output(self.make_target, self.project)
                     if ret.returncode != 0:
-                        display.update_error(
+                        self.display.update_error(
                             ret.stderr.decode("utf-8-sig", "replace")
                             or ret.stdout.decode("utf-8-sig", "replace"),
                         )
                         continue
-                mydump = run_objdump(mycmd, config, project)
-                display.update(mydump)
+                self.mydump = run_objdump(self.mycmd, self.config, self.project)
+                self.display.update(self.mydump)
         except KeyboardInterrupt:
             print(" Terminating display...")
-            display.terminate()
+            self.display.terminate()
+
+    def watch_start(self):
+        if hasattr(self, "fs_watcher_stop_running_callback"):
+            self.fs_watcher_stop_running_callback()
+        if self.args.make:
+            watch_sources = None
+            watch_sources_for_target_fn = getattr(
+                diff_settings, "watch_sources_for_target", None
+            )
+            if watch_sources_for_target_fn:
+                watch_sources = watch_sources_for_target_fn(self.make_target)
+            watch_sources = watch_sources or self.project.source_directories
+            if not watch_sources:
+                fail("Missing source_directories config, don't know what to watch.")
+        else:
+            watch_sources = [self.make_target]
+        q: "queue.Queue[Optional[float]]" = queue.Queue()
+        self.fs_watcher_stop_running_callback = debounced_fs_watch(watch_sources, q, self.config, self.project)
+        return q
+
+
+def main() -> None:
+    args = parser.parse_args()
+    m = Main()
+    m.with_args(args)
+    m.import_prerequisites()
+    m.update_dump_args()
+
+    if args.write_asm is not None:
+        mydump = run_objdump(m.mycmd, m.config, m.project)
+        with open(args.write_asm, "w") as f:
+            f.write(mydump)
+        print(f"Wrote assembly to {args.write_asm}.")
+        sys.exit(0)
+
+    m.update_basedump()
+    m.update_mydump()
+
+    m.init_display()
+    m.run()
 
 
 if __name__ == "__main__":

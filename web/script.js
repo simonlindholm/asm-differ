@@ -301,6 +301,153 @@ function onMouseLeaveBranchIndicator(ev) {
     highlightBranchTempClear(ev.target.dataset.branchesClass);
 }
 
+function updateObjectNamesDataList() {
+    let objectNamesDataListElem = ASMDW.dom.objectNamesDataList;
+    while (objectNamesDataListElem.firstChild) {
+        objectNamesDataListElem.firstChild.remove();
+    }
+    for (let objname in ASMDW.mapFileDump.byObject) {
+        let dataListOptionElem = document.createElement('option');
+        dataListOptionElem.value = objname;
+        objectNamesDataListElem.appendChild(dataListOptionElem);
+    }
+}
+
+function updateFunctionNamesDataList() {
+    let functionNamesDataListElem = ASMDW.dom.functionNamesDataList;
+    while (functionNamesDataListElem.firstChild) {
+        functionNamesDataListElem.firstChild.remove();
+    }
+    if (ASMDW.dom.onlyShowFunctionsFromObjectCheckbox.checked) {
+        let targetObjname = ASMDW.dom.targetObjectInput.value;
+        if (targetObjname in ASMDW.mapFileDump.byObject) {
+            let objectFunctions = ASMDW.mapFileDump.byObject[targetObjname];
+            for (let funcInfo of objectFunctions) {
+                let dataListOptionElem = document.createElement('option');
+                dataListOptionElem.value = funcInfo.fn_name;
+                functionNamesDataListElem.appendChild(dataListOptionElem);
+            }
+        }
+    } else {
+        for (let fn_name in ASMDW.mapFileDump.byFunction) {
+            let dataListOptionElem = document.createElement('option');
+            dataListOptionElem.value = fn_name;
+            functionNamesDataListElem.appendChild(dataListOptionElem);
+        }
+    }
+}
+
+function parseMapFileDump(contents) {
+    let lines = contents.split('\n');
+    let mapFileDumpByFunction = {};
+    let mapFileDumpByObject = {};
+    for (let line of lines) {
+        if (line == '') {
+            continue;
+        }
+        let parts = line.split(' ', 4);
+        let fn_name = parts[0];
+        let ram = parseInt(parts[1], 16);
+        let rom = parseInt(parts[2], 16);
+        let objname = parts[3];
+        let lastPathSeparatorIdx = Math.max(objname.lastIndexOf('/'), objname.lastIndexOf('\\'));
+        if (lastPathSeparatorIdx >= 0) {
+            objname = objname.substr(lastPathSeparatorIdx + 1);
+        }
+        mapFileDumpByFunction[fn_name] = { ram, rom, objname };
+        if (!(objname in mapFileDumpByObject)) {
+            mapFileDumpByObject[objname] = [];
+        }
+        mapFileDumpByObject[objname].push({ fn_name, ram, rom, objname });
+    }
+    ASMDW.mapFileDump = {
+        byFunction: mapFileDumpByFunction,
+        byObject: mapFileDumpByObject,
+    };
+}
+
+function onMapFileDumpRequestStatusChange(httpRequest) {
+    if (httpRequest.readyState == XMLHttpRequest.DONE) {
+        if (httpRequest.status == 200) { // OK
+            parseMapFileDump(httpRequest.responseText);
+            updateObjectNamesDataList();
+            updateFunctionNamesDataList();
+        } else if (httpRequest.status == 404) {
+            // no linker map file set in diff_settings.py
+        } else { // error
+            addStatusText('Could not fetch the linker map file');
+        }
+        onMapFileDumpFinished();
+    }
+}
+
+function requestLinkerMapFileDump() {
+    let httpRequest = new XMLHttpRequest();
+    httpRequest.onreadystatechange = function () {
+        onMapFileDumpRequestStatusChange(httpRequest);
+    };
+    let url = '?linkermap';
+    httpRequest.open('GET', url);
+    httpRequest.send();
+}
+
+function onMapFileDumpFinished() {
+    if (ASMDW.info !== null) {
+        onMapFileDumpAndGetInfoFinished();
+    }
+}
+
+function onGetInfoFinished() {
+    if (ASMDW.mapFileDump !== null) {
+        onMapFileDumpAndGetInfoFinished();
+    }
+}
+
+function onMapFileDumpAndGetInfoFinished() {
+    let start = ASMDW.info.start;
+    if (start in ASMDW.mapFileDump.byFunction) {
+        let funcInfo = ASMDW.mapFileDump.byFunction[start];
+        ASMDW.dom.targetObjectInput.value = funcInfo.objname;
+        updateFunctionNamesDataList();
+        ASMDW.dom.targetFunctionInput.value = start;
+    } else {
+        console.log(start, 'not in mapFileDump.byFunction (TODO)')
+    }
+}
+
+function onInfoRequestStatusChange(httpRequest) {
+    if (httpRequest.readyState == XMLHttpRequest.DONE) {
+        if (httpRequest.status == 200) { // OK
+            let info = {};
+            let lines = httpRequest.responseText.split('\n');
+            for (let line of lines) {
+                if (line == '') {
+                    continue;
+                }
+                let parts = line.split(' ', 2);
+                if (parts.length != 2) {
+                    console.warn('Could not split info line into two parts:', line)
+                    continue;
+                }
+                info[parts[0]] = parts[1];
+            }
+            ASMDW.info = info;
+        } else { // error
+            addStatusText('Could not fetch info');
+        }
+    }
+}
+
+function requestInfo() {
+    let httpRequest = new XMLHttpRequest();
+    httpRequest.onreadystatechange = function () {
+        onInfoRequestStatusChange(httpRequest);
+    };
+    let url = '?info';
+    httpRequest.open('GET', url);
+    httpRequest.send();
+}
+
 function setDiffHtml(diffHtml) {
     ASMDW.dom.diffContainer.innerHTML = diffHtml;
     // looking for branch indicator elements
@@ -393,6 +540,13 @@ function requestContent() {
     httpRequest.send();
 }
 
+function onTargetFunctionChange() {
+    let httpRequest = new XMLHttpRequest();
+    let url = '?set&start=' + encodeURIComponent(ASMDW.dom.targetFunctionInput.value);
+    httpRequest.open('GET', url);
+    httpRequest.send();
+}
+
 function onClick(ev) {
     let elem = ev.target;
     if (elem.classList.contains('ignore')) {
@@ -419,10 +573,21 @@ function onBodyLoaded() {
     ASMDW.dom = {
         diffContainer: document.getElementById('diff-container'),
         statusContainer: document.getElementById('status-container'),
+        targetObjectInput: document.getElementById('target-object'),
+        targetFunctionInput: document.getElementById('target-function'),
+        onlyShowFunctionsFromObjectCheckbox: document.getElementById('only-functions-from-object'),
+        objectNamesDataList: document.getElementById('object-names'),
+        functionNamesDataList: document.getElementById('function-names'),
     };
     requestContent();
+    requestLinkerMapFileDump();
+    requestInfo();
     document.body.addEventListener('click', onClick);
+    ASMDW.dom.targetObjectInput.addEventListener('change', updateFunctionNamesDataList);
+    ASMDW.dom.onlyShowFunctionsFromObjectCheckbox.addEventListener('change', updateFunctionNamesDataList);
+    ASMDW.dom.targetFunctionInput.addEventListener('change', onTargetFunctionChange);
     requestAnimationFrame(animate);
+
 }
 
 // asm-differ web
@@ -432,4 +597,6 @@ window.ASMDW = {
     tryAgainAfterCommunicationFailureDelayMs: 0,
     statusSlideOutDurationMs: 500,
     statusElements: [],
+    mapFileDump: null,
+    info: null,
 };

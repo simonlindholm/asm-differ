@@ -33,6 +33,19 @@ body {
     text-decoration: underline;
 }
 
+/* settings style */
+
+#settings {
+    background-color: black;
+    position: fixed;
+    right: 0;
+    top: 0;
+}
+
+#target-function {
+    width: 200px;
+}
+
 /* branch indicators style */
 
 .branch-indicator:not(.ignore) {

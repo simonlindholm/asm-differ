@@ -9,6 +9,13 @@
 
 <body onload="onBodyLoaded()">
     <div id="status-container"></div>
+    <div id="settings">
+        <input id="target-object" type="text" list="object-names">
+        <datalist id="object-names"></datalist>
+        <input id="only-functions-from-object" type="checkbox" checked>
+        <input id="target-function" type="text" list="function-names">
+        <datalist id="function-names"></datalist>
+    </div>
     <div id="diff-container"></div>
 </body>
 
