@@ -578,9 +578,9 @@ class AnsiFormatter(Formatter):
         BasicFormat.DIFF_CHANGE: Fore.LIGHTBLUE_EX,
         BasicFormat.DIFF_ADD: Fore.GREEN,
         BasicFormat.DIFF_REMOVE: Fore.RED,
-        BasicFormat.SOURCE_FILENAME: Style.BRIGHT,
-        # Underline (not in colorama) + bright
-        BasicFormat.SOURCE_FUNCTION: Style.BRIGHT + "\u001b[4m",
+        BasicFormat.SOURCE_FILENAME: Style.DIM + Style.BRIGHT,
+        # Underline (not in colorama) + bright + dim
+        BasicFormat.SOURCE_FUNCTION: Style.DIM + Style.BRIGHT + "\u001b[4m",
         BasicFormat.SOURCE_OTHER: Style.DIM,
     }
 
