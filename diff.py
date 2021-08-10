@@ -117,11 +117,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--source",
+        "-c",
         action="store_true",
         help="Show source code (if possible). Only works with -o and -e.",
     )
     parser.add_argument(
         "--source-old-binutils",
+        "-C",
         action="store_true",
         help="Tweak --source handling to make it work with binutils < 2.33. Implies --source.",
     )
