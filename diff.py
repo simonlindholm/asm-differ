@@ -119,7 +119,7 @@ if __name__ == "__main__":
         "--source",
         "-c",
         action="store_true",
-        help="Show source code (if possible). Only works with -o and -e.",
+        help="Show source code (if possible). Only works with -o or -e.",
     )
     parser.add_argument(
         "--source-old-binutils",
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--inlines",
         action="store_true",
-        help="Show inline function calls (if possible). Only works with -o and -e.",
+        help="Show inline function calls (if possible). Only works with -o or -e.",
     )
     parser.add_argument(
         "--base-asm",
