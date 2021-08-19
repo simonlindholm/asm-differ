@@ -104,31 +104,34 @@ if __name__ == "__main__":
         "-o",
         dest="diff_obj",
         action="store_true",
-        help="Diff .o files rather than a whole binary. This makes it possible to "
-        "see symbol names. (Recommended)",
+        help="""Diff .o files rather than a whole binary. This makes it possible to
+        see symbol names. (Recommended)""",
     )
     parser.add_argument(
         "-e",
         "--elf",
         dest="diff_elf_symbol",
         metavar="SYMBOL",
-        help="Diff a given function in two ELFs, one being stripped and the other "
-        "one non-stripped. Requires objdump from binutils 2.33+.",
+        help="""Diff a given function in two ELFs, one being stripped and the other
+        one non-stripped. Requires objdump from binutils 2.33+.""",
     )
     parser.add_argument(
         "--source",
         "-c",
+        dest="source",
         action="store_true",
         help="Show source code (if possible). Only works with -o or -e.",
     )
     parser.add_argument(
         "--source-old-binutils",
         "-C",
+        dest="source_old_binutils",
         action="store_true",
         help="Tweak --source handling to make it work with binutils < 2.33. Implies --source.",
     )
     parser.add_argument(
         "--inlines",
+        dest="inlines",
         action="store_true",
         help="Show inline function calls (if possible). Only works with -o or -e.",
     )
@@ -155,17 +158,18 @@ if __name__ == "__main__":
         "-l",
         "--skip-lines",
         dest="skip_lines",
+        metavar="LINES",
         type=int,
         default=0,
-        metavar="LINES",
-        help="Skip the first N lines of output.",
+        help="Skip the first LINES lines of output.",
     )
     parser.add_argument(
         "-s",
         "--stop-jr-ra",
         dest="stop_jrra",
         action="store_true",
-        help="Stop disassembling at the first 'jr ra'. Some functions have multiple return points, so use with care!",
+        help="""Stop disassembling at the first 'jr ra'. Some functions have
+        multiple return points, so use with care!""",
     )
     parser.add_argument(
         "-i",
@@ -192,20 +196,21 @@ if __name__ == "__main__":
         "-S",
         "--base-shift",
         dest="base_shift",
+        metavar="N",
         type=str,
         default="0",
-        help="Diff position X in our img against position X + shift in the base img. "
-        'Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable '
-        "flag to pass if it is known that position 0x1234 in the base img syncs "
-        "up with position 0x4321 in our img. Not supported together with -o.",
+        help="""Diff position N in our img against position N + shift in the base img.
+        Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable
+        flag to pass if it is known that position 0x1234 in the base img syncs
+        up with position 0x4321 in our img. Not supported together with -o.""",
     )
     parser.add_argument(
         "-w",
         "--watch",
         dest="watch",
         action="store_true",
-        help="Automatically update when source/object files change. "
-        "Recommended in combination with -m.",
+        help="""Automatically update when source/object files change.
+        Recommended in combination with -m.""",
     )
     parser.add_argument(
         "-3",
@@ -213,8 +218,8 @@ if __name__ == "__main__":
         dest="threeway",
         action="store_const",
         const="prev",
-        help="Show a three-way diff between target asm, current asm, and asm "
-        "prior to -w rebuild. Requires -w.",
+        help="""Show a three-way diff between target asm, current asm, and asm
+        prior to -w rebuild. Requires -w.""",
     )
     parser.add_argument(
         "-b",
@@ -222,12 +227,13 @@ if __name__ == "__main__":
         dest="threeway",
         action="store_const",
         const="base",
-        help="Show a three-way diff between target asm, current asm, and asm "
-        "when diff.py was started. Requires -w.",
+        help="""Show a three-way diff between target asm, current asm, and asm
+        when diff.py was started. Requires -w.""",
     )
     parser.add_argument(
         "--width",
         dest="column_width",
+        metavar="COLS",
         type=int,
         default=50,
         help="Sets the width of the left and right view column.",
@@ -237,12 +243,13 @@ if __name__ == "__main__":
         dest="algorithm",
         default="levenshtein",
         choices=["levenshtein", "difflib"],
-        help="Diff algorithm to use. Levenshtein gives the minimum diff, while difflib "
-        "aims for long sections of equal opcodes. Defaults to %(default)s.",
+        help="""Diff algorithm to use. Levenshtein gives the minimum diff, while difflib
+        aims for long sections of equal opcodes. Defaults to %(default)s.""",
     )
     parser.add_argument(
         "--max-size",
         "--max-lines",
+        metavar="LINES",
         dest="max_lines",
         type=int,
         default=1024,
@@ -252,8 +259,8 @@ if __name__ == "__main__":
         "--no-pager",
         dest="no_pager",
         action="store_true",
-        help="Disable the pager; write output directly to stdout, then exit. "
-        "Incompatible with --watch.",
+        help="""Disable the pager; write output directly to stdout, then exit.
+        Incompatible with --watch.""",
     )
     parser.add_argument(
         "--format",
