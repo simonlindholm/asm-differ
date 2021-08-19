@@ -299,12 +299,11 @@ import time
 
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
-    "Run `python3 -m pip install --user colorama ansiwrap watchdog python-Levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
+    "Run `python3 -m pip install --user colorama watchdog python-Levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
 )
 
 try:
     from colorama import Fore, Style  # type: ignore
-    import ansiwrap  # type: ignore
     import watchdog  # type: ignore
 except ModuleNotFoundError as e:
     fail(MISSING_PREREQUISITES.format(e.name))
@@ -499,6 +498,9 @@ class Text:
     def __repr__(self) -> str:
         return f"<Text: {self.plain()!r}>"
 
+    def __bool__(self) -> bool:
+        return any(s for s, f in self.segments)
+
     def __str__(self) -> str:
         # Use Formatter.apply(...) instead
         return NotImplemented
@@ -541,6 +543,10 @@ class Text:
             result.segments.append((chunk[i:], f))
         return result
 
+    def ljust(self, column_width: int) -> "Text":
+        length = sum(len(x) for x, _ in self.segments)
+        return self + Text(" " * max(column_width - length, 0))
+
 
 class Formatter(abc.ABC):
     @abc.abstractmethod
@@ -550,7 +556,7 @@ class Formatter(abc.ABC):
 
     @abc.abstractmethod
     def table(
-        self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
+        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
     ) -> str:
         """Format a multi-column table with an optional `header`"""
         ...
@@ -567,12 +573,13 @@ class PlainFormatter(Formatter):
         return chunk
 
     def table(
-        self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
+        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
     ) -> str:
         if header:
             lines = [header] + lines
         return "\n".join(
-            "".join(x.ljust(self.column_width) for x in line) for line in lines
+            "".join(self.apply(x.ljust(self.column_width)) for x in line)
+            for line in lines
         )
 
 
@@ -621,19 +628,14 @@ class AnsiFormatter(Formatter):
         return f"{ansi_code}{chunk}{Style.RESET_ALL}"
 
     def table(
-        self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
+        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
     ) -> str:
         if header:
             lines = [header] + lines
-        return "\n".join("".join(self.ansi_ljust(x) for x in line) for line in lines)
-
-    def ansi_ljust(self, s: str) -> str:
-        """Like s.ljust(width), but accounting for ANSI colors."""
-        needed: int = self.column_width - ansiwrap.ansilen(s)
-        if needed > 0:
-            return s + " " * needed
-        else:
-            return s
+        return "\n".join(
+            "".join(self.apply(x.ljust(self.column_width)) for x in line)
+            for line in lines
+        )
 
 
 @dataclass
@@ -656,12 +658,13 @@ class HtmlFormatter(Formatter):
         return f"<span class='{class_name}' {data_attr}>{chunk}</span>"
 
     def table(
-        self, header: Optional[Tuple[str, ...]], lines: List[Tuple[str, ...]]
+        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
     ) -> str:
-        def table_row(line: Tuple[str, ...], cell_el: str) -> str:
+        def table_row(line: Tuple[Text, ...], cell_el: str) -> str:
             output_row = "    <tr>"
             for cell in line:
-                output_row += f"<{cell_el}>{cell}</{cell_el}>"
+                cell_html = self.apply(cell)
+                output_row += f"<{cell_el}>{cell_html}</{cell_el}>"
             output_row += "</tr>\n"
             return output_row
 
@@ -1688,6 +1691,9 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
 
 
 def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLine]]:
+    """Chunk a diff into an alternating list like A B A B ... A, where:
+    * A is a List[OutputLine] of insertions,
+    * B is a single non-insertion OutputLine, with .base != None."""
     cur_right: List[OutputLine] = []
     chunks: List[Union[List[OutputLine], OutputLine]] = []
     for output_line in diff:
@@ -1703,7 +1709,7 @@ def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLin
 
 def format_diff(
     old_diff: List[OutputLine], new_diff: List[OutputLine], config: Config
-) -> Tuple[Optional[Tuple[str, ...]], List[Tuple[str, ...]]]:
+) -> Tuple[Optional[Tuple[Text, ...]], List[Tuple[Text, ...]]]:
     fmt = config.formatter
     old_chunks = chunk_diff(old_diff)
     new_chunks = chunk_diff(new_diff)
@@ -1737,22 +1743,22 @@ def format_diff(
             output.append((new_chunk.base, old_chunk, new_chunk))
 
     # TODO: status line, with e.g. approximate permuter score?
-    header_line: Optional[Tuple[str, ...]]
-    diff_lines: List[Tuple[str, ...]]
+    header_line: Optional[Tuple[Text, ...]]
+    diff_lines: List[Tuple[Text, ...]]
     if config.threeway:
-        header_line = ("TARGET", "  CURRENT", "  PREVIOUS")
+        header_line = (Text("TARGET"), Text("  CURRENT"), Text("  PREVIOUS"))
         diff_lines = [
             (
-                fmt.apply(base),
-                fmt.apply(new.fmt2),
-                fmt.apply(old.fmt2) or "-" if old != new else "",
+                base,
+                new.fmt2,
+                old.fmt2 or Text("-") if old != new else Text(),
             )
             for (base, old, new) in output
         ]
     else:
         header_line = None
         diff_lines = [
-            (fmt.apply(base), fmt.apply(new.fmt2))
+            (base, new.fmt2)
             for (base, old, new) in output
             if base or new.key2 is not None
         ]
