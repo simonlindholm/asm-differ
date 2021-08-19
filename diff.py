@@ -1647,7 +1647,6 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
 
         part1 = format_part(out1, line1, line_color1, bts1, sc5)
         part2 = format_part(out2, line2, line_color2, bts2, sc6)
-        key2 = line2.original if line2 else None
 
         if line2:
             for source_line in line2.source_lines:
@@ -1684,6 +1683,13 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     )
                 )
 
+        key2 = line2.original if line2 else None
+        matching = line_prefix == " "
+        if matching:
+            # Canonicalize matching lines to have an empty string as key, to
+            # ensure they are treated as the same when three-way diffing. This
+            # matters for branches that match only relatively.
+            key2 = ""
         fmt2 = Text(line_prefix, sym_color) + " " + (part2 or Text())
         output.append(OutputLine(part1, fmt2, key2))
 
