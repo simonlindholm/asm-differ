@@ -268,6 +268,15 @@ if __name__ == "__main__":
         default="color",
         help="Output format, default is color. --format=html implies --no-pager.",
     )
+    parser.add_argument(
+        "-U",
+        "--compress",
+        metavar="N",
+        dest="compress_matching",
+        type=int,
+        help="""Compress streaks of matching lines, leaving N lines of context
+        around non-matching parts.""",
+    )
 
     # Project-specific flags, e.g. different versions/make arguments.
     add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
@@ -343,6 +352,7 @@ class Config:
     threeway: Optional[str]
     base_shift: int
     skip_lines: int
+    compress_matching: Optional[int]
     show_branches: bool
     stop_jrra: bool
     ignore_large_imms: bool
@@ -397,6 +407,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
             args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
         ),
         skip_lines=args.skip_lines,
+        compress_matching=args.compress_matching,
         show_branches=args.show_branches,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
@@ -1512,6 +1523,7 @@ class OutputLine:
     base: Optional[Text] = field(compare=False)
     fmt2: Text = field(compare=False)
     key2: Optional[str]
+    matching: bool = field(compare=False)
 
 
 def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
@@ -1680,6 +1692,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         None,
                         "  " + Text(source_line, line_format),
                         source_line,
+                        False,
                     )
                 )
 
@@ -1691,7 +1704,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
             # matters for branches that match only relatively.
             key2 = ""
         fmt2 = Text(line_prefix, sym_color) + " " + (part2 or Text())
-        output.append(OutputLine(part1, fmt2, key2))
+        output.append(OutputLine(part1, fmt2, key2, matching))
 
     return output
 
@@ -1713,6 +1726,37 @@ def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLin
     return chunks
 
 
+def compress_matching(
+    li: List[Tuple[Tuple[Text, ...], bool]], context: int
+) -> List[Tuple[Text, ...]]:
+    ret: List[Tuple[Text, ...]] = []
+    matching_streak: List[Tuple[Text, ...]] = []
+    context = max(context, 0)
+
+    def flush_matching() -> None:
+        if len(matching_streak) <= 2 * context + 1:
+            ret.extend(matching_streak)
+        else:
+            ret.extend(matching_streak[:context])
+            skipped = len(matching_streak) - 2 * context
+            filler = Text(f"<{skipped} lines>", BasicFormat.SOURCE_OTHER)
+            columns = len(matching_streak[0])
+            ret.append(tuple([filler] + [Text()] * (columns - 1)))
+            if context > 0:
+                ret.extend(matching_streak[-context:])
+        matching_streak.clear()
+
+    for (line, matching) in li:
+        if matching:
+            matching_streak.append(line)
+        else:
+            flush_matching()
+            ret.append(line)
+
+    flush_matching()
+    return ret
+
+
 def format_diff(
     old_diff: List[OutputLine], new_diff: List[OutputLine], config: Config
 ) -> Tuple[Optional[Tuple[Text, ...]], List[Tuple[Text, ...]]]:
@@ -1721,7 +1765,7 @@ def format_diff(
     new_chunks = chunk_diff(new_diff)
     output: List[Tuple[Text, OutputLine, OutputLine]] = []
     assert len(old_chunks) == len(new_chunks), "same target"
-    empty = OutputLine(Text(), Text(), None)
+    empty = OutputLine(Text(), Text(), None, True)
     for old_chunk, new_chunk in zip(old_chunks, new_chunks):
         if isinstance(old_chunk, list):
             assert isinstance(new_chunk, list)
@@ -1750,25 +1794,32 @@ def format_diff(
 
     # TODO: status line, with e.g. approximate permuter score?
     header_line: Optional[Tuple[Text, ...]]
-    diff_lines: List[Tuple[Text, ...]]
+    diff_lines: List[Tuple[Tuple[Text, ...], bool]]
     if config.threeway:
         header_line = (Text("TARGET"), Text("  CURRENT"), Text("  PREVIOUS"))
         diff_lines = [
             (
-                base,
-                new.fmt2,
-                old.fmt2 or Text("-") if old != new else Text(),
+                (
+                    base,
+                    new.fmt2,
+                    old.fmt2 or Text("-") if old != new else Text(),
+                ),
+                new.matching,
             )
             for (base, old, new) in output
         ]
     else:
         header_line = None
         diff_lines = [
-            (base, new.fmt2)
+            ((base, new.fmt2), new.matching)
             for (base, old, new) in output
             if base or new.key2 is not None
         ]
-    return header_line, diff_lines
+    if config.compress_matching is not None:
+        ret_lines = compress_matching(diff_lines, config.compress_matching)
+    else:
+        ret_lines = [line for line, _ in diff_lines]
+    return header_line, ret_lines
 
 
 def debounced_fs_watch(
