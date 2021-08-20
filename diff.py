@@ -1450,6 +1450,11 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
     return re.sub(arch.re_sprel, "addr(sp)", row)
 
 
+def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
+    # (this should probably be arch-specific)
+    return "(." in row
+
+
 def split_off_branch(line: str) -> Tuple[str, str]:
     parts = line.split(",")
     if len(parts) < 2:
@@ -1574,12 +1579,14 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                 out2 = out2.reformat(BasicFormat.DELAY_SLOT)
             else:
                 mnemonic = line1.original.split()[0]
-                branch1 = branch2 = Text()
+                branchless1, branch1 = out1.plain(), ""
+                branchless2, branch2 = out2.plain(), ""
                 if mnemonic in arch.instructions_with_address_immediates:
-                    out1, branch1 = map(Text, split_off_branch(out1.plain()))
-                    out2, branch2 = map(Text, split_off_branch(out2.plain()))
-                branchless1 = out1.plain()
-                branchless2 = out2.plain()
+                    branchless1, branch1 = split_off_branch(branchless1)
+                    branchless2, branch2 = split_off_branch(branchless2)
+
+                out1 = Text(branchless1)
+                out2 = Text(branchless2)
                 out1, out2 = format_fields(
                     arch.re_imm, out1, out2, lambda _: BasicFormat.IMMEDIATE
                 )
@@ -1594,16 +1601,13 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     ) - eval_line_num(line2.line_num)
                     same_relative_target = relative_target1 == relative_target2
 
-                if not same_relative_target and branch1.plain() != branch2.plain():
-                    branch1 = branch1.reformat(BasicFormat.IMMEDIATE)
-                    branch2 = branch2.reformat(BasicFormat.IMMEDIATE)
-
-                out1 += branch1
-                out2 += branch2
                 if normalize_imms(branchless1, arch) == normalize_imms(
                     branchless2, arch
                 ):
-                    if not same_relative_target:
+                    if imm_matches_everything(branchless2, arch):
+                        out1 = out1.reformat(BasicFormat.NONE)
+                        out2 = out2.reformat(BasicFormat.NONE)
+                    elif not same_relative_target:
                         # only imms differences
                         sym_color = BasicFormat.IMMEDIATE
                         line_prefix = "i"
@@ -1622,6 +1626,13 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         out1, out2 = format_fields(arch.re_reg, out1, out2, sc1, sc2)
                         line_color1 = line_color2 = sym_color = BasicFormat.REGISTER
                         line_prefix = "r"
+
+                if same_relative_target or branch1 == branch2:
+                    branch_imm_fmt = BasicFormat.NONE
+                else:
+                    branch_imm_fmt = BasicFormat.IMMEDIATE
+                out1 += Text(branch1, branch_imm_fmt)
+                out2 += Text(branch2, branch_imm_fmt)
         elif line1 and line2:
             line_prefix = "|"
             line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
