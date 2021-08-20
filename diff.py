@@ -1338,9 +1338,13 @@ def process(lines: List[str], config: Config) -> List[Line]:
         if lines and not lines[-1]:
             lines.pop()
 
+    i = 0
     output: List[Line] = []
     stop_after_delay_slot = False
-    for row in lines:
+    while i < len(lines):
+        row = lines[i]
+        i += 1
+
         if config.diff_obj and (">:" in row or not row):
             continue
 
@@ -1348,24 +1352,6 @@ def process(lines: List[str], config: Config) -> List[Line]:
             source_lines.append(row)
             continue
 
-        if "R_AARCH64_" in row:
-            # TODO: handle relocation
-            continue
-
-        if "R_MIPS_" in row:
-            # N.B. Don't transform the diff rows, they already ignore immediates
-            # if output[-1].diff_row != "<delay-slot>":
-            # output[-1] = output[-1].replace(diff_row=process_mips_reloc(row, output[-1].row_with_imm, arch))
-            new_original = process_mips_reloc(row, output[-1].original, arch)
-            output[-1] = replace(output[-1], original=new_original)
-            continue
-
-        if "R_PPC_" in row:
-            new_original = process_ppc_reloc(row, output[-1].original)
-            output[-1] = replace(output[-1], original=new_original)
-            continue
-
-        # match source lines here to avoid matching relocation lines
         if (
             config.source
             and config.source_old_binutils
@@ -1391,7 +1377,25 @@ def process(lines: List[str], config: Config) -> List[Line]:
 
         if mnemonic not in arch.instructions_with_address_immediates:
             row = re.sub(arch.re_int, lambda m: hexify_int(row, m, arch), row)
+
+        # Let 'original' be 'row' with relocations applied, while we continue
+        # transforming 'row' into a coarser version that ignores registers and
+        # immediates.
         original = row
+
+        while i < len(lines):
+            reloc_row = lines[i]
+            if "R_AARCH64_" in reloc_row:
+                # TODO: handle relocation
+                pass
+            elif "R_MIPS_" in reloc_row:
+                original = process_mips_reloc(reloc_row, original, arch)
+            elif "R_PPC_" in reloc_row:
+                original = process_ppc_reloc(reloc_row, original)
+            else:
+                break
+            i += 1
+
         normalized_original = normalizer.normalize(mnemonic, original)
         if skip_next:
             skip_next = False
