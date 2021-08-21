@@ -1732,7 +1732,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                         None,
                         "  " + Text(source_line, line_format),
                         source_line,
-                        False,
+                        True,
                     )
                 )
 
