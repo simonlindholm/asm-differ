@@ -516,14 +516,8 @@ FormatFunction = Callable[[str], Format]
 class Text:
     segments: List[Tuple[str, Format]]
 
-    def __init__(
-        self, line: Optional[str] = None, f: Format = BasicFormat.NONE
-    ) -> None:
-        self.segments = []
-        if line is not None:
-            self.segments.append((line, f))
-        elif f is not BasicFormat.NONE:
-            raise ValueError("Text constructor provided `f`, but no line to format")
+    def __init__(self, line: str = "", f: Format = BasicFormat.NONE) -> None:
+        self.segments = [(line, f)] if line else []
 
     def reformat(self, f: Format) -> "Text":
         return Text(self.plain(), f)
@@ -581,7 +575,7 @@ class Text:
 
     def ljust(self, column_width: int) -> "Text":
         length = sum(len(x) for x, _ in self.segments)
-        return self + Text(" " * max(column_width - length, 0))
+        return self + " " * max(column_width - length, 0)
 
 
 class Formatter(abc.ABC):
