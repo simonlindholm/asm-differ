@@ -1999,6 +1999,13 @@ class Display:
     def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
         output = self.run_diff()
 
+        # Windows Terminal does not handle buffers properly
+        # Janky hack to clear its scrollback buffer until it's fixed
+        clear_proc = subprocess.Popen(
+            ["echo", "-en", "\"\e[3J\""]
+        )
+        clear_proc.wait()
+
         # Pipe the output through 'tail' and only then to less, to ensure the
         # write call doesn't block. ('tail' has to buffer all its input before
         # it starts writing.) This also means we don't have to deal with pipe
