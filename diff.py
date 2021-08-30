@@ -1654,7 +1654,7 @@ def score_diff_lines(
     for index, (line1, line2) in enumerate(lines):
         if (line1 and line1.original == "...") or (line2 and line2.original == "..."):
             lines_were_truncated = True
-        if line1 is not None and line2 is not None and line1.mnemonic == line2.mnemonic:
+        if line1 and line2 and line1.mnemonic == line2.mnemonic:
             if start_index is None:
                 start_index = index
             streak_len = (index - start_index) + 1
