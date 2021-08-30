@@ -781,8 +781,11 @@ def eval_int(expr: str, emsg: str) -> int:
     return ret
 
 
-def eval_line_num(expr: str) -> int:
-    return int(expr.strip().replace(":", ""), 16)
+def eval_line_num(expr: str) -> Optional[int]:
+    expr = expr.strip().replace(":", "")
+    if expr == "":
+        return None
+    return int(expr, 16)
 
 
 def run_make(target: str, project: ProjectSettings) -> None:
@@ -806,6 +809,7 @@ def restrict_to_function(dump: str, fn_name: str, config: Config) -> str:
     for line in dump.split("\n"):
         if found:
             if len(out) >= config.max_function_size_lines:
+                out.append("\t\t...")
                 break
             out.append(line)
         elif search in line:
@@ -1353,7 +1357,7 @@ class Line:
     original: str
     normalized_original: str
     scorable_line: str
-    line_num: int
+    line_num: Optional[int]
     branch_target: Optional[int]
     source_lines: List[str]
     comment: Optional[str]
@@ -1637,22 +1641,32 @@ def score_diff_lines(
     def diff_delete(line: str) -> None:
         deletions.append(line)
 
-    # Find the end of the longest streak of matching mnemonics
-    max_index, max_len = 0, 0
+    # Find the end of the longest streak of matching mnemonics, if it looks
+    # like the objdump output was truncated. This is used to skip scoring
+    # misaligned lines at the end of the diff.
+    max_index = None
+    max_len = 0
     start_index = None
+    lines_were_truncated = False
     for index, (line1, line2) in enumerate(lines):
+        if (line1 is not None and line1.original == "...") or (
+            line2 is not None and line2.original == "..."
+        ):
+            lines_were_truncated = True
         if line1 is not None and line2 is not None and line1.mnemonic == line2.mnemonic:
             if start_index is None:
                 start_index = index
             streak_len = (index - start_index) + 1
             if streak_len >= max_len:
-                max_index, max_len = index, streak_len
+                max_index = index
+                max_len = streak_len
         else:
             start_index = None
+    if not lines_were_truncated:
+        max_index = None
 
     for index, (line1, line2) in enumerate(lines):
-        if index > max_index:
-            # Use the longest streak as a heuristic to truncate the two diffs
+        if max_index is not None and index > max_index:
             break
         if line1 is None:
             assert line2 is not None
@@ -1729,12 +1743,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
     line_num_offset = 0
     line_num_2to1 = {}
     for (line1, line2) in diffed_lines:
-        if line1 is not None:
+        if line1 is not None and line1.line_num is not None:
             line_num_base = line1.line_num
             line_num_offset = 0
         else:
             line_num_offset += 1
-        if line2 is not None:
+        if line2 is not None and line2.line_num is not None:
             line_num_2to1[line2.line_num] = (line_num_base, line_num_offset)
 
     for (line1, line2) in diffed_lines:
@@ -1779,6 +1793,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
                     if line2_target is None:
                         # If the target is outside the disassembly, extrapolate.
                         # This only matters near the bottom.
+                        assert line2.line_num is not None
                         line2_line = line_num_2to1[line2.line_num]
                         line2_target = (line2_line[0] + (target - line2.line_num), 0)
 
@@ -1856,6 +1871,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
         ) -> Optional[Text]:
             if line is None:
                 return None
+            if line.line_num is None:
+                return out
             in_arrow = Text("  ")
             out_arrow = Text()
             if config.show_branches:
