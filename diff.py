@@ -1637,7 +1637,23 @@ def score_diff_lines(
     def diff_delete(line: str) -> None:
         deletions.append(line)
 
-    for line1, line2 in lines:
+    # Find the end of the longest streak of matching mnemonics
+    max_index, max_len = 0, 0
+    start_index = None
+    for index, (line1, line2) in enumerate(lines):
+        if line1 is not None and line2 is not None and line1.mnemonic == line2.mnemonic:
+            if start_index is None:
+                start_index = index
+            streak_len = (index - start_index) + 1
+            if streak_len >= max_len:
+                max_index, max_len = index, streak_len
+        else:
+            start_index = None
+
+    for index, (line1, line2) in enumerate(lines):
+        if index > max_index:
+            # Use the longest streak as a heuristic to truncate the two diffs
+            break
         if line1 is None:
             assert line2 is not None
             diff_insert(line2.scorable_line)
