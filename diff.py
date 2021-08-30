@@ -301,6 +301,7 @@ if __name__ == "__main__":
 
 import abc
 import ast
+from collections import Counter
 from dataclasses import dataclass, field, replace
 import difflib
 import enum
@@ -373,6 +374,14 @@ class Config:
     ignore_large_imms: bool
     ignore_addr_diffs: bool
     algorithm: str
+
+    # Score options
+    score_stack_differences = True
+    penalty_stackdiff = 1
+    penalty_regalloc = 5
+    penalty_reordering = 60
+    penalty_insertion = 100
+    penalty_deletion = 100
 
 
 def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
@@ -772,8 +781,11 @@ def eval_int(expr: str, emsg: str) -> int:
     return ret
 
 
-def eval_line_num(expr: str) -> int:
-    return int(expr.strip().replace(":", ""), 16)
+def eval_line_num(expr: str) -> Optional[int]:
+    expr = expr.strip().replace(":", "")
+    if expr == "":
+        return None
+    return int(expr, 16)
 
 
 def run_make(target: str, project: ProjectSettings) -> None:
@@ -797,6 +809,7 @@ def restrict_to_function(dump: str, fn_name: str, config: Config) -> str:
     for line in dump.split("\n"):
         if found:
             if len(out) >= config.max_function_size_lines:
+                out.append("\t\t...")
                 break
             out.append(line)
         elif search in line:
@@ -1343,7 +1356,8 @@ class Line:
     diff_row: str
     original: str
     normalized_original: str
-    line_num: int
+    scorable_line: str
+    line_num: Optional[int]
     branch_target: Optional[int]
     source_lines: List[str]
     comment: Optional[str]
@@ -1418,12 +1432,22 @@ def process(lines: List[str], config: Config) -> List[Line]:
             i += 1
 
         normalized_original = normalizer.normalize(mnemonic, original)
+
+        scorable_line = normalized_original
+        if not config.score_stack_differences:
+            scorable_line = re.sub(arch.re_sprel, "addr(sp)", scorable_line)
+        if mnemonic in arch.branch_instructions:
+            # Replace the final argument with "<target>"
+            scorable_line = re.sub(r"[^, \t]+$", "<target>", scorable_line)
+
         if skip_next:
             skip_next = False
             row = "<delay-slot>"
             mnemonic = "<delay-slot>"
+            scorable_line = "<delay-slot>"
         if mnemonic in arch.branch_likely_instructions:
             skip_next = True
+
         row = re.sub(arch.re_reg, "<reg>", row)
         row = re.sub(arch.re_sprel, "addr(sp)", row)
         row_with_imm = row
@@ -1446,6 +1470,7 @@ def process(lines: List[str], config: Config) -> List[Line]:
                 diff_row=row,
                 original=original,
                 normalized_original=normalized_original,
+                scorable_line=scorable_line,
                 line_num=line_num,
                 branch_target=branch_target,
                 source_lines=source_lines,
@@ -1548,6 +1573,126 @@ def diff_lines(
     return ret
 
 
+def score_diff_lines(
+    lines: List[Tuple[Optional[Line], Optional[Line]]], config: Config
+) -> int:
+    # This logic is copied from `scorer.py` from the decomp permuter project
+    # https://github.com/simonlindholm/decomp-permuter/blob/main/src/scorer.py
+    score = 0
+    deletions = []
+    insertions = []
+
+    def lo_hi_match(old: str, new: str) -> bool:
+        # TODO: Make this arch-independent, like `imm_matches_everything()`
+        old_lo = old.find("%lo")
+        old_hi = old.find("%hi")
+        new_lo = new.find("%lo")
+        new_hi = new.find("%hi")
+
+        if old_lo != -1 and new_lo != -1:
+            old_idx = old_lo
+            new_idx = new_lo
+        elif old_hi != -1 and new_hi != -1:
+            old_idx = old_hi
+            new_idx = new_hi
+        else:
+            return False
+
+        if old[:old_idx] != new[:new_idx]:
+            return False
+
+        old_inner = old[old_idx + 4 : -1]
+        new_inner = new[new_idx + 4 : -1]
+        return old_inner.startswith(".") or new_inner.startswith(".")
+
+    def diff_sameline(old: str, new: str) -> None:
+        nonlocal score
+        if old == new:
+            return
+
+        if lo_hi_match(old, new):
+            return
+
+        ignore_last_field = False
+        if config.score_stack_differences:
+            oldsp = re.search(config.arch.re_sprel, old)
+            newsp = re.search(config.arch.re_sprel, new)
+            if oldsp and newsp:
+                oldrel = int(oldsp.group(1) or "0", 0)
+                newrel = int(newsp.group(1) or "0", 0)
+                score += abs(oldrel - newrel) * config.penalty_stackdiff
+                ignore_last_field = True
+
+        # Probably regalloc difference, or signed vs unsigned
+
+        # Compare each field in order
+        newfields, oldfields = new.split(","), old.split(",")
+        if ignore_last_field:
+            newfields = newfields[:-1]
+            oldfields = oldfields[:-1]
+        for nf, of in zip(newfields, oldfields):
+            if nf != of:
+                score += config.penalty_regalloc
+        # Penalize any extra fields
+        score += abs(len(newfields) - len(oldfields)) * config.penalty_regalloc
+
+    def diff_insert(line: str) -> None:
+        # Reordering or totally different codegen.
+        # Defer this until later when we can tell.
+        insertions.append(line)
+
+    def diff_delete(line: str) -> None:
+        deletions.append(line)
+
+    # Find the end of the last long streak of matching mnemonics, if it looks
+    # like the objdump output was truncated. This is used to skip scoring
+    # misaligned lines at the end of the diff.
+    max_index = None
+    max_len = 0
+    start_index = None
+    lines_were_truncated = False
+    for index, (line1, line2) in enumerate(lines):
+        if (line1 and line1.original == "...") or (line2 and line2.original == "..."):
+            lines_were_truncated = True
+        if line1 and line2 and line1.mnemonic == line2.mnemonic:
+            if start_index is None:
+                start_index = index
+            streak_len = (index - start_index) + 1
+            if streak_len >= 50:
+                max_index = index
+                max_len = streak_len
+        else:
+            start_index = None
+    if not lines_were_truncated:
+        max_index = None
+
+    for index, (line1, line2) in enumerate(lines):
+        if max_index is not None and index > max_index:
+            break
+        if line1 is None:
+            assert line2 is not None
+            diff_insert(line2.scorable_line)
+        elif line2 is None:
+            assert line1 is not None
+            diff_delete(line1.scorable_line)
+        else:
+            diff_sameline(line1.scorable_line, line2.scorable_line)
+
+    insertions_co = Counter(insertions)
+    deletions_co = Counter(deletions)
+    for item in insertions_co + deletions_co:
+        ins = insertions_co[item]
+        dels = deletions_co[item]
+        common = min(ins, dels)
+        score += (
+            (ins - common) * config.penalty_insertion
+            + (dels - common) * config.penalty_deletion
+            + config.penalty_reordering * common
+        )
+
+    return score
+
+
 @dataclass(frozen=True)
 class OutputLine:
     base: Optional[Text] = field(compare=False)
@@ -1556,7 +1701,13 @@ class OutputLine:
     boring: bool = field(compare=False)
 
 
-def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
+@dataclass(frozen=True)
+class Diff:
+    lines: List[OutputLine]
+    score: int
+
+
+def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
     if config.source:
         import cxxfilt  # type: ignore
     arch = config.arch
@@ -1587,16 +1738,18 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     sc(str(bt))
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
+    score = score_diff_lines(diffed_lines, config)
+
     line_num_base = -1
     line_num_offset = 0
     line_num_2to1 = {}
     for (line1, line2) in diffed_lines:
-        if line1 is not None:
+        if line1 is not None and line1.line_num is not None:
             line_num_base = line1.line_num
             line_num_offset = 0
         else:
             line_num_offset += 1
-        if line2 is not None:
+        if line2 is not None and line2.line_num is not None:
             line_num_2to1[line2.line_num] = (line_num_base, line_num_offset)
 
     for (line1, line2) in diffed_lines:
@@ -1641,6 +1794,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
                     if line2_target is None:
                         # If the target is outside the disassembly, extrapolate.
                         # This only matters near the bottom.
+                        assert line2.line_num is not None
                         line2_line = line_num_2to1[line2.line_num]
                         line2_target = (line2_line[0] + (target - line2.line_num), 0)
 
@@ -1718,6 +1872,8 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
         ) -> Optional[Text]:
             if line is None:
                 return None
+            if line.line_num is None:
+                return out
             in_arrow = Text("  ")
             out_arrow = Text()
             if config.show_branches:
@@ -1776,10 +1932,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> List[OutputLine]:
         fmt2 = Text(line_prefix, sym_color) + " " + (part2 or Text())
         output.append(OutputLine(part1, fmt2, key2, boring))
 
-    return output
+    return Diff(lines=output, score=score)
 
 
-def chunk_diff(diff: List[OutputLine]) -> List[Union[List[OutputLine], OutputLine]]:
+def chunk_diff_lines(
+    diff: List[OutputLine],
+) -> List[Union[List[OutputLine], OutputLine]]:
     """Chunk a diff into an alternating list like A B A B ... A, where:
     * A is a List[OutputLine] of insertions,
     * B is a single non-insertion OutputLine, with .base != None."""
@@ -1828,11 +1986,11 @@ def compress_matching(
 
 
 def format_diff(
-    old_diff: List[OutputLine], new_diff: List[OutputLine], config: Config
+    old_diff: Diff, new_diff: Diff, config: Config
 ) -> Tuple[Optional[Tuple[Text, ...]], List[Tuple[Text, ...]]]:
     fmt = config.formatter
-    old_chunks = chunk_diff(old_diff)
-    new_chunks = chunk_diff(new_diff)
+    old_chunks = chunk_diff_lines(old_diff.lines)
+    new_chunks = chunk_diff_lines(new_diff.lines)
     output: List[Tuple[Text, OutputLine, OutputLine]] = []
     assert len(old_chunks) == len(new_chunks), "same target"
     empty = OutputLine(Text(), Text(), None, True)
@@ -1866,7 +2024,11 @@ def format_diff(
     header_line: Optional[Tuple[Text, ...]]
     diff_lines: List[Tuple[Tuple[Text, ...], bool]]
     if config.threeway:
-        header_line = (Text("TARGET"), Text("  CURRENT"), Text("  PREVIOUS"))
+        header_line = (
+            Text("TARGET"),
+            Text(f"  CURRENT ({new_diff.score})"),
+            Text(f"  PREVIOUS ({old_diff.score})"),
+        )
         diff_lines = [
             (
                 (
@@ -1879,7 +2041,7 @@ def format_diff(
             for (base, old, new) in output
         ]
     else:
-        header_line = None
+        header_line = (Text("TARGET"), Text(f"  CURRENT ({new_diff.score})"))
         diff_lines = [
             ((base, new.fmt2), new.boring)
             for (base, old, new) in output
@@ -1972,7 +2134,7 @@ class Display:
     mydump: str
     config: Config
     emsg: Optional[str]
-    last_diff_output: Optional[List[OutputLine]]
+    last_diff_output: Optional[Diff]
     pending_update: Optional[Tuple[str, bool]]
     ready_queue: "queue.Queue[None]"
     watch_queue: "queue.Queue[Optional[float]]"
