@@ -1352,6 +1352,7 @@ class Line:
     diff_row: str
     original: str
     normalized_original: str
+    scorable_line: str
     line_num: int
     branch_target: Optional[int]
     source_lines: List[str]
@@ -1427,12 +1428,22 @@ def process(lines: List[str], config: Config) -> List[Line]:
             i += 1
 
         normalized_original = normalizer.normalize(mnemonic, original)
+
+        scorable_line = normalized_original
+        if not config.score_stack_differences:
+            scorable_line = re.sub(arch.re_sprel, "addr(sp)", scorable_line)
+        if mnemonic in arch.branch_instructions:
+            # Replace the final argument with "<target>"
+            scorable_line = re.sub(r"[^, \t]+$", "<target>", scorable_line)
+
         if skip_next:
             skip_next = False
             row = "<delay-slot>"
             mnemonic = "<delay-slot>"
+            scorable_line = "<delay-slot>"
         if mnemonic in arch.branch_likely_instructions:
             skip_next = True
+
         row = re.sub(arch.re_reg, "<reg>", row)
         row = re.sub(arch.re_sprel, "addr(sp)", row)
         row_with_imm = row
@@ -1455,6 +1466,7 @@ def process(lines: List[str], config: Config) -> List[Line]:
                 diff_row=row,
                 original=original,
                 normalized_original=normalized_original,
+                scorable_line=scorable_line,
                 line_num=line_num,
                 branch_target=branch_target,
                 source_lines=source_lines,
@@ -1628,12 +1640,12 @@ def score_diff_lines(
     for line1, line2 in lines:
         if line1 is None:
             assert line2 is not None
-            diff_insert(line2.original)
+            diff_insert(line2.scorable_line)
         elif line2 is None:
             assert line1 is not None
-            diff_delete(line1.original)
+            diff_delete(line1.scorable_line)
         else:
-            diff_sameline(line1.original, line2.original)
+            diff_sameline(line1.scorable_line, line2.scorable_line)
 
     insertions_co = Counter(insertions)
     deletions_co = Counter(deletions)
