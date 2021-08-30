@@ -1576,11 +1576,14 @@ def diff_lines(
 def score_diff_lines(
     lines: List[Tuple[Optional[Line], Optional[Line]]], config: Config
 ) -> int:
+    # This logic is copied from `scorer.py` from the decomp permuter project
+    # https://github.com/simonlindholm/decomp-permuter/blob/main/src/scorer.py
     score = 0
     deletions = []
     insertions = []
 
     def lo_hi_match(old: str, new: str) -> bool:
+        # TODO: Make this arch-independent, like `imm_matches_everything()`
         old_lo = old.find("%lo")
         old_hi = old.find("%hi")
         new_lo = new.find("%lo")
@@ -1641,7 +1644,7 @@ def score_diff_lines(
     def diff_delete(line: str) -> None:
         deletions.append(line)
 
-    # Find the end of the longest streak of matching mnemonics, if it looks
+    # Find the end of the last long streak of matching mnemonics, if it looks
     # like the objdump output was truncated. This is used to skip scoring
     # misaligned lines at the end of the diff.
     max_index = None
@@ -1649,15 +1652,13 @@ def score_diff_lines(
     start_index = None
     lines_were_truncated = False
     for index, (line1, line2) in enumerate(lines):
-        if (line1 is not None and line1.original == "...") or (
-            line2 is not None and line2.original == "..."
-        ):
+        if (line1 and line1.original == "...") or (line2 and line2.original == "..."):
             lines_were_truncated = True
         if line1 is not None and line2 is not None and line1.mnemonic == line2.mnemonic:
             if start_index is None:
                 start_index = index
             streak_len = (index - start_index) + 1
-            if streak_len >= max_len:
+            if streak_len >= 50:
                 max_index = index
                 max_len = streak_len
         else:
