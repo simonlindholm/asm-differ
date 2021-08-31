@@ -130,6 +130,13 @@ if __name__ == "__main__":
         help="Tweak --source handling to make it work with binutils < 2.33. Implies --source.",
     )
     parser.add_argument(
+        "-L",
+        "--line-numbers",
+        dest="line_numbers",
+        action="store_true",
+        help="Include column of source line numbers in output, when available",
+    )
+    parser.add_argument(
         "--inlines",
         dest="inlines",
         action="store_true",
@@ -371,6 +378,7 @@ class Config:
     skip_lines: int
     compress: Optional[Compress]
     show_branches: bool
+    show_line_numbers: bool
     stop_jrra: bool
     ignore_large_imms: bool
     ignore_addr_diffs: bool
@@ -446,6 +454,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         skip_lines=args.skip_lines,
         compress=compress,
         show_branches=args.show_branches,
+        show_line_numbers=args.line_numbers,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
@@ -511,6 +520,7 @@ class BasicFormat(enum.Enum):
     DIFF_REMOVE = enum.auto()
     SOURCE_FILENAME = enum.auto()
     SOURCE_FUNCTION = enum.auto()
+    SOURCE_LINE_NUM = enum.auto()
     SOURCE_OTHER = enum.auto()
 
 
@@ -644,6 +654,9 @@ class PlainFormatter(Formatter):
 
 @dataclass
 class AnsiFormatter(Formatter):
+    # Underline (not in colorama)
+    STYLE_UNDERLINE = "\u001b[4m"
+
     BASIC_ANSI_CODES = {
         BasicFormat.NONE: "",
         BasicFormat.IMMEDIATE: Fore.LIGHTBLUE_EX,
@@ -654,8 +667,8 @@ class AnsiFormatter(Formatter):
         BasicFormat.DIFF_ADD: Fore.GREEN,
         BasicFormat.DIFF_REMOVE: Fore.RED,
         BasicFormat.SOURCE_FILENAME: Style.DIM + Style.BRIGHT,
-        # Underline (not in colorama) + bright + dim
-        BasicFormat.SOURCE_FUNCTION: Style.DIM + Style.BRIGHT + "\u001b[4m",
+        BasicFormat.SOURCE_FUNCTION: Style.DIM + Style.BRIGHT + STYLE_UNDERLINE,
+        BasicFormat.SOURCE_LINE_NUM: Fore.LIGHTBLACK_EX,
         BasicFormat.SOURCE_OTHER: Style.DIM,
     }
 
@@ -797,6 +810,12 @@ class JsonFormatter(Formatter):
                         output_row[f"{prefix}_source_lines"] = line.source_lines
                     if line.comment is not None:
                         output_row[f"{prefix}_comment"] = line.comment
+                    if line.source_filename is not None:
+                        output_row[f"{prefix}_source_filename"] = os.path.basename(
+                            line.source_filename
+                        )
+                    if line.source_line_num is not None:
+                        output_row[f"{prefix}_source_line_num"] = line.source_line_num
             output_rows.append(output_row)
         output["rows"] = output_rows
         return json.dumps(output)
@@ -906,7 +925,6 @@ def maybe_get_objdump_source_flags(config: Config) -> List[str]:
 
     flags = [
         "--source",
-        "-l",
     ]
 
     if not config.source_old_binutils:
@@ -1053,7 +1071,7 @@ def dump_elf(
         f"--disassemble={diff_elf_symbol}",
     ]
 
-    objdump_flags = ["-drz", "-j", ".text"]
+    objdump_flags = ["-drzl", "-j", ".text"]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
@@ -1089,7 +1107,7 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    objdump_flags = ["-drz"]
+    objdump_flags = ["-drzl"]
     return (
         objfile,
         (objdump_flags, refobjfile, start),
@@ -1442,6 +1460,8 @@ class Line:
     scorable_line: str
     line_num: Optional[int]
     branch_target: Optional[int]
+    source_filename: Optional[str]
+    source_line_num: Optional[int]
     source_lines: List[str]
     comment: Optional[str]
 
@@ -1451,6 +1471,8 @@ def process(lines: List[str], config: Config) -> List[Line]:
     normalizer = arch.difference_normalizer(config)
     skip_next = False
     source_lines = []
+    source_filename = None
+    source_line_num = None
     if not config.diff_obj:
         lines = lines[7:]
         if lines and not lines[-1]:
@@ -1466,6 +1488,13 @@ def process(lines: List[str], config: Config) -> List[Line]:
         if config.diff_obj and (">:" in row or not row):
             continue
 
+        # This regex is conservative, and assumes the file path does not contain "weird"
+        # characters like colons, tabs, or angle brackets.
+        if row and re.match(r"^[^ \t<>:][^\t<>:]*:[0-9]+$", row):
+            source_filename, _, num = row.rpartition(":")
+            source_line_num = int(num)
+            continue
+
         if config.source and not config.source_old_binutils and (row and row[0] != " "):
             source_lines.append(row)
             continue
@@ -1476,6 +1505,11 @@ def process(lines: List[str], config: Config) -> List[Line]:
             and (row and not re.match(r"^ +[0-9a-f]+:\t", row))
         ):
             source_lines.append(row)
+            continue
+
+        # `objdump -l` includes function markers, even without `--source`
+        # For C++, these names seem to not be demangled, even with `--demangle`
+        if row and re.match(r"^[A-Za-z0-9_]+\(\):$", row):
             continue
 
         m_comment = re.search(arch.re_comment, row)
@@ -1556,6 +1590,8 @@ def process(lines: List[str], config: Config) -> List[Line]:
                 scorable_line=scorable_line,
                 line_num=line_num,
                 branch_target=branch_target,
+                source_filename=source_filename,
+                source_line_num=source_line_num,
                 source_lines=source_lines,
                 comment=comment,
             )
@@ -1994,10 +2030,11 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
                                 )
                             except:
                                 pass
+                padding = " " * 7 if config.show_line_numbers else " " * 2
                 output.append(
                     OutputLine(
                         base=None,
-                        fmt2="  " + Text(source_line, line_format),
+                        fmt2=padding + Text(source_line, line_format),
                         key2=source_line,
                         boring=True,
                         line1=None,
@@ -2011,7 +2048,17 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
             boring = True
         elif config.compress and config.compress.same_instr and line_prefix in "irs":
             boring = True
-        fmt2 = Text(line_prefix, sym_color) + " " + (part2 or Text())
+
+        if config.show_line_numbers:
+            if line2 and line2.source_line_num is not None:
+                num2 = Text(f"{line2.source_line_num:5}", BasicFormat.SOURCE_LINE_NUM)
+            else:
+                num2 = Text(" " * 5)
+        else:
+            num2 = Text()
+
+        fmt2 = Text(line_prefix, sym_color) + num2 + " " + (part2 or Text())
+
         output.append(
             OutputLine(
                 base=part1,
@@ -2088,13 +2135,14 @@ def align_diffs(
 ) -> Tuple[TableMetadata, List[Tuple[OutputLine, ...]]]:
     meta: TableMetadata
     diff_lines: List[Tuple[OutputLine, ...]]
+    padding = " " * 7 if config.show_line_numbers else " " * 2
 
     if config.threeway:
         meta = TableMetadata(
             headers=(
                 Text("TARGET"),
-                Text(f"  CURRENT ({new_diff.score})"),
-                Text(f"  PREVIOUS ({old_diff.score})"),
+                Text(f"{padding}CURRENT ({new_diff.score})"),
+                Text(f"{padding}PREVIOUS ({old_diff.score})"),
             ),
             current_score=new_diff.score,
             previous_score=old_diff.score,
@@ -2137,7 +2185,7 @@ def align_diffs(
         meta = TableMetadata(
             headers=(
                 Text("TARGET"),
-                Text(f"  CURRENT ({new_diff.score})"),
+                Text(f"{padding}CURRENT ({new_diff.score})"),
             ),
             current_score=new_diff.score,
             previous_score=None,
