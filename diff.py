@@ -1647,22 +1647,17 @@ def score_diff_lines(
     # Find the end of the last long streak of matching mnemonics, if it looks
     # like the objdump output was truncated. This is used to skip scoring
     # misaligned lines at the end of the diff.
+    last_mismatch = -1
     max_index = None
-    max_len = 0
-    start_index = None
     lines_were_truncated = False
     for index, (line1, line2) in enumerate(lines):
         if (line1 and line1.original == "...") or (line2 and line2.original == "..."):
             lines_were_truncated = True
         if line1 and line2 and line1.mnemonic == line2.mnemonic:
-            if start_index is None:
-                start_index = index
-            streak_len = (index - start_index) + 1
-            if streak_len >= 50:
+            if index - last_mismatch >= 50:
                 max_index = index
-                max_len = streak_len
         else:
-            start_index = None
+            last_mismatch = index
     if not lines_were_truncated:
         max_index = None
 
