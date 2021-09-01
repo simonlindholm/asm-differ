@@ -554,15 +554,25 @@ class Text:
         if isinstance(other, str):
             other = Text(other)
         result = Text()
-        result.segments = self.segments + other.segments
+        # If two adjacent segments have the same format, merge their lines
+        if (
+            self.segments
+            and other.segments
+            and self.segments[-1][1] == other.segments[0][1]
+        ):
+            result.segments = (
+                self.segments[:-1]
+                + [(self.segments[-1][0] + other.segments[0][0], self.segments[-1][1])]
+                + other.segments[1:]
+            )
+        else:
+            result.segments = self.segments + other.segments
         return result
 
     def __radd__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
             other = Text(other)
-        result = Text()
-        result.segments = other.segments + self.segments
-        return result
+        return other + self
 
     def finditer(self, pat: Pattern[str]) -> Iterator[Match[str]]:
         """Replacement for `pat.finditer(text)` that operates on the inner text,
@@ -579,33 +589,24 @@ class Text:
                 start, end = match.start(), match.end()
                 assert i <= start <= end <= len(chunk)
                 sub = sub_fn(match)
-                result.segments.append((chunk[i:start], f))
+                if i != start:
+                    result.segments.append((chunk[i:start], f))
                 result.segments.extend(sub.segments)
                 i = end
-            result.segments.append((chunk[i:], f))
+            if chunk[i:]:
+                result.segments.append((chunk[i:], f))
         return result
 
     def ljust(self, column_width: int) -> "Text":
         length = sum(len(x) for x, _ in self.segments)
         return self + " " * max(column_width - length, 0)
 
-    def condense(self) -> None:
-        """Merge adjacent segments with the same Format"""
-        new_segments = self.segments[:1]
-        for (line, f) in self.segments[1:]:
-            prev_line, prev_f = new_segments[-1]
-            if f == prev_f:
-                new_segments[-1] = (prev_line + line, prev_f)
-            else:
-                new_segments.append((line, f))
-        self.segments = new_segments
-
 
 @dataclass
 class TableMetadata:
     headers: Tuple[Text, ...]
     current_score: int
-    previous_score: int
+    previous_score: Optional[int]
 
 
 class Formatter(abc.ABC):
@@ -738,7 +739,8 @@ class JsonFormatter(Formatter):
     arch_str: str
 
     def apply_format(self, chunk: str, f: Format) -> str:
-        return chunk
+        # This method is unused by the this formatter
+        return NotImplemented
 
     def table(self, meta: TableMetadata, rows: List[Tuple["OutputLine", ...]]) -> str:
         def serialize_format(s: str, f: Format) -> Dict[str, Any]:
@@ -761,7 +763,6 @@ class JsonFormatter(Formatter):
         def serialize(text: Optional[Text]) -> List[Dict[str, Any]]:
             if text is None:
                 return []
-            text.condense()
             return [serialize_format(s, f) for s, f in text.segments]
 
         is_threeway = len(meta.headers) == 3
@@ -770,7 +771,7 @@ class JsonFormatter(Formatter):
         output["arch_str"] = self.arch_str
         output["headers"] = [serialize(h) for h in meta.headers]
         output["current_score"] = meta.current_score
-        if is_threeway:
+        if meta.previous_score is not None:
             output["previous_score"] = meta.previous_score
         output_rows: List[Dict[str, Any]] = []
         for row in rows:
@@ -782,6 +783,9 @@ class JsonFormatter(Formatter):
             ]
             if is_threeway:
                 iters.append(("previous", row[2].fmt2, row[2].line2))
+            if all(line is None for _, _, line in iters):
+                # This can happen for source code lines or comments
+                continue
             for prefix, text, line in iters:
                 output_row[f"{prefix}_text"] = serialize(text)
                 if line:
@@ -792,7 +796,7 @@ class JsonFormatter(Formatter):
                     if line.source_lines:
                         output_row[f"{prefix}_source_lines"] = line.source_lines
                     if line.comment is not None:
-                        output_row[f"{prefix}_comment"] = line.source_lines
+                        output_row[f"{prefix}_comment"] = line.comment
             output_rows.append(output_row)
         output["rows"] = output_rows
         return json.dumps(output)
@@ -1997,7 +2001,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
                         key2=source_line,
                         boring=True,
                         line1=None,
-                        line2=line2,
+                        line2=None,
                     )
                 )
 
@@ -2136,12 +2140,11 @@ def align_diffs(
                 Text(f"  CURRENT ({new_diff.score})"),
             ),
             current_score=new_diff.score,
-            previous_score=old_diff.score,
+            previous_score=None,
         )
         diff_lines = [(line, line) for line in new_diff.lines]
     if config.compress:
         diff_lines = compress_matching(diff_lines, config.compress.context)
-    # TODO: status line, with e.g. approximate permuter score?
     return meta, diff_lines
 
 
