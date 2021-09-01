@@ -739,7 +739,7 @@ class JsonFormatter(Formatter):
     arch_str: str
 
     def apply_format(self, chunk: str, f: Format) -> str:
-        # This method is unused by the this formatter
+        # This method is unused by this formatter
         return NotImplemented
 
     def table(self, meta: TableMetadata, rows: List[Tuple["OutputLine", ...]]) -> str:
@@ -784,7 +784,7 @@ class JsonFormatter(Formatter):
             if is_threeway:
                 iters.append(("previous", row[2].fmt2, row[2].line2))
             if all(line is None for _, _, line in iters):
-                # This can happen for source code lines or comments
+                # Skip rows that were only for displaying source code
                 continue
             for prefix, text, line in iters:
                 output_row[f"{prefix}_text"] = serialize(text)
