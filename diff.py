@@ -1490,9 +1490,9 @@ def process(lines: List[str], config: Config) -> List[Line]:
 
         # This regex is conservative, and assumes the file path does not contain "weird"
         # characters like colons, tabs, or angle brackets.
-        if row and re.match(r"^[^ \t<>:][^\t<>:]*:[0-9]+$", row):
-            source_filename, _, num = row.rpartition(":")
-            source_line_num = int(num)
+        if row and re.match(r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row):
+            source_filename, _, tail = row.rpartition(":")
+            source_line_num = int(tail.partition(" ")[0])
             continue
 
         if config.source and not config.source_old_binutils and (row and row[0] != " "):
