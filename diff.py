@@ -264,9 +264,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--format",
-        choices=("color", "plain", "html"),
+        choices=("color", "plain", "html", "json"),
         default="color",
-        help="Output format, default is color. --format=html implies --no-pager.",
+        help="Output format, default is color. --format=html or json implies --no-pager.",
     )
     parser.add_argument(
         "-U",
@@ -302,11 +302,12 @@ if __name__ == "__main__":
 import abc
 import ast
 from collections import Counter
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 import difflib
 import enum
 import html
 import itertools
+import json
 import os
 import queue
 import re
@@ -411,6 +412,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         formatter = AnsiFormatter(column_width=args.column_width)
     elif args.format == "html":
         formatter = HtmlFormatter()
+    elif args.format == "json":
+        formatter = JsonFormatter(arch_str=project.arch_str)
     else:
         raise ValueError(f"Unsupported --format: {args.format}")
 
@@ -551,15 +554,25 @@ class Text:
         if isinstance(other, str):
             other = Text(other)
         result = Text()
-        result.segments = self.segments + other.segments
+        # If two adjacent segments have the same format, merge their lines
+        if (
+            self.segments
+            and other.segments
+            and self.segments[-1][1] == other.segments[0][1]
+        ):
+            result.segments = (
+                self.segments[:-1]
+                + [(self.segments[-1][0] + other.segments[0][0], self.segments[-1][1])]
+                + other.segments[1:]
+            )
+        else:
+            result.segments = self.segments + other.segments
         return result
 
     def __radd__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
             other = Text(other)
-        result = Text()
-        result.segments = other.segments + self.segments
-        return result
+        return other + self
 
     def finditer(self, pat: Pattern[str]) -> Iterator[Match[str]]:
         """Replacement for `pat.finditer(text)` that operates on the inner text,
@@ -576,15 +589,24 @@ class Text:
                 start, end = match.start(), match.end()
                 assert i <= start <= end <= len(chunk)
                 sub = sub_fn(match)
-                result.segments.append((chunk[i:start], f))
+                if i != start:
+                    result.segments.append((chunk[i:start], f))
                 result.segments.extend(sub.segments)
                 i = end
-            result.segments.append((chunk[i:], f))
+            if chunk[i:]:
+                result.segments.append((chunk[i:], f))
         return result
 
     def ljust(self, column_width: int) -> "Text":
         length = sum(len(x) for x, _ in self.segments)
         return self + " " * max(column_width - length, 0)
+
+
+@dataclass
+class TableMetadata:
+    headers: Tuple[Text, ...]
+    current_score: int
+    previous_score: Optional[int]
 
 
 class Formatter(abc.ABC):
@@ -594,14 +616,16 @@ class Formatter(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def table(
-        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
-    ) -> str:
-        """Format a multi-column table with an optional `header`"""
+    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
+        """Format a multi-column table with metadata"""
         ...
 
     def apply(self, text: Text) -> str:
         return "".join(self.apply_format(chunk, f) for chunk, f in text.segments)
+
+    @staticmethod
+    def outputline_texts(lines: Tuple["OutputLine", ...]) -> Tuple[Text, ...]:
+        return tuple([lines[0].base or Text()] + [line.fmt2 for line in lines[1:]])
 
 
 @dataclass
@@ -611,14 +635,10 @@ class PlainFormatter(Formatter):
     def apply_format(self, chunk: str, f: Format) -> str:
         return chunk
 
-    def table(
-        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
-    ) -> str:
-        if header:
-            lines = [header] + lines
+    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
+        rows = [meta.headers] + [self.outputline_texts(ls) for ls in lines]
         return "\n".join(
-            "".join(self.apply(x.ljust(self.column_width)) for x in line)
-            for line in lines
+            "".join(self.apply(x.ljust(self.column_width)) for x in row) for row in rows
         )
 
 
@@ -666,14 +686,10 @@ class AnsiFormatter(Formatter):
             static_assert_unreachable(f)
         return f"{ansi_code}{chunk}{Style.RESET_ALL}"
 
-    def table(
-        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
-    ) -> str:
-        if header:
-            lines = [header] + lines
+    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
+        rows = [meta.headers] + [self.outputline_texts(ls) for ls in lines]
         return "\n".join(
-            "".join(self.apply(x.ljust(self.column_width)) for x in line)
-            for line in lines
+            "".join(self.apply(x.ljust(self.column_width)) for x in row) for row in rows
         )
 
 
@@ -696,9 +712,7 @@ class HtmlFormatter(Formatter):
             static_assert_unreachable(f)
         return f"<span class='{class_name}' {data_attr}>{chunk}</span>"
 
-    def table(
-        self, header: Optional[Tuple[Text, ...]], lines: List[Tuple[Text, ...]]
-    ) -> str:
+    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
         def table_row(line: Tuple[Text, ...], cell_el: str) -> str:
             output_row = "    <tr>"
             for cell in line:
@@ -708,15 +722,84 @@ class HtmlFormatter(Formatter):
             return output_row
 
         output = "<table class='diff'>\n"
-        if header:
-            output += "  <thead>\n"
-            output += table_row(header, "th")
-            output += "  </thead>\n"
+        output += "  <thead>\n"
+        output += table_row(meta.headers, "th")
+        output += "  </thead>\n"
         output += "  <tbody>\n"
-        output += "".join(table_row(line, "td") for line in lines)
+        output += "".join(
+            table_row(self.outputline_texts(line), "td") for line in lines
+        )
         output += "  </tbody>\n"
         output += "</table>\n"
         return output
+
+
+@dataclass
+class JsonFormatter(Formatter):
+    arch_str: str
+
+    def apply_format(self, chunk: str, f: Format) -> str:
+        # This method is unused by this formatter
+        return NotImplemented
+
+    def table(self, meta: TableMetadata, rows: List[Tuple["OutputLine", ...]]) -> str:
+        def serialize_format(s: str, f: Format) -> Dict[str, Any]:
+            if f == BasicFormat.NONE:
+                return {"text": s}
+            elif isinstance(f, BasicFormat):
+                return {"text": s, "format": f.name.lower()}
+            elif isinstance(f, RotationFormat):
+                attrs = asdict(f)
+                attrs.update(
+                    {
+                        "text": s,
+                        "format": "rotation",
+                    }
+                )
+                return attrs
+            else:
+                static_assert_unreachable(f)
+
+        def serialize(text: Optional[Text]) -> List[Dict[str, Any]]:
+            if text is None:
+                return []
+            return [serialize_format(s, f) for s, f in text.segments]
+
+        is_threeway = len(meta.headers) == 3
+
+        output: Dict[str, Any] = {}
+        output["arch_str"] = self.arch_str
+        output["headers"] = [serialize(h) for h in meta.headers]
+        output["current_score"] = meta.current_score
+        if meta.previous_score is not None:
+            output["previous_score"] = meta.previous_score
+        output_rows: List[Dict[str, Any]] = []
+        for row in rows:
+            output_row: Dict[str, Any] = {}
+            output_row["key"] = row[0].key2
+            iters = [
+                ("base", row[0].base, row[0].line1),
+                ("current", row[1].fmt2, row[1].line2),
+            ]
+            if is_threeway:
+                iters.append(("previous", row[2].fmt2, row[2].line2))
+            if all(line is None for _, _, line in iters):
+                # Skip rows that were only for displaying source code
+                continue
+            for prefix, text, line in iters:
+                output_row[f"{prefix}_text"] = serialize(text)
+                if line:
+                    if line.line_num is not None:
+                        output_row[f"{prefix}_line_num"] = line.line_num
+                    if line.branch_target is not None:
+                        output_row[f"{prefix}_branch_target"] = line.branch_target
+                    if line.source_lines:
+                        output_row[f"{prefix}_source_lines"] = line.source_lines
+                    if line.comment is not None:
+                        output_row[f"{prefix}_comment"] = line.comment
+            output_rows.append(output_row)
+        output["rows"] = output_rows
+        return json.dumps(output)
 
 
 def format_fields(
@@ -1694,6 +1777,8 @@ class OutputLine:
     fmt2: Text = field(compare=False)
     key2: Optional[str]
     boring: bool = field(compare=False)
+    line1: Optional[Line] = field(compare=False)
+    line2: Optional[Line] = field(compare=False)
 
 
 @dataclass(frozen=True)
@@ -1911,10 +1996,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
                                 pass
                 output.append(
                     OutputLine(
-                        None,
-                        "  " + Text(source_line, line_format),
-                        source_line,
-                        True,
+                        base=None,
+                        fmt2="  " + Text(source_line, line_format),
+                        key2=source_line,
+                        boring=True,
+                        line1=None,
+                        line2=None,
                     )
                 )
 
@@ -1925,7 +2012,16 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
         elif config.compress and config.compress.same_instr and line_prefix in "irs":
             boring = True
         fmt2 = Text(line_prefix, sym_color) + " " + (part2 or Text())
-        output.append(OutputLine(part1, fmt2, key2, boring))
+        output.append(
+            OutputLine(
+                base=part1,
+                fmt2=fmt2,
+                key2=key2,
+                boring=boring,
+                line1=line1,
+                line2=line2,
+            )
+        )
 
     return Diff(lines=output, score=score)
 
@@ -1950,10 +2046,10 @@ def chunk_diff_lines(
 
 
 def compress_matching(
-    li: List[Tuple[Tuple[Text, ...], bool]], context: int
-) -> List[Tuple[Text, ...]]:
-    ret: List[Tuple[Text, ...]] = []
-    matching_streak: List[Tuple[Text, ...]] = []
+    li: List[Tuple[OutputLine, ...]], context: int
+) -> List[Tuple[OutputLine, ...]]:
+    ret: List[Tuple[OutputLine, ...]] = []
+    matching_streak: List[Tuple[OutputLine, ...]] = []
     context = max(context, 0)
 
     def flush_matching() -> None:
@@ -1962,15 +2058,22 @@ def compress_matching(
         else:
             ret.extend(matching_streak[:context])
             skipped = len(matching_streak) - 2 * context
-            filler = Text(f"<{skipped} lines>", BasicFormat.SOURCE_OTHER)
+            filler = OutputLine(
+                base=Text(f"<{skipped} lines>", BasicFormat.SOURCE_OTHER),
+                fmt2=Text(),
+                key2=None,
+                boring=False,
+                line1=None,
+                line2=None,
+            )
             columns = len(matching_streak[0])
-            ret.append(tuple([filler] + [Text()] * (columns - 1)))
+            ret.append(tuple([filler] * columns))
             if context > 0:
                 ret.extend(matching_streak[-context:])
         matching_streak.clear()
 
-    for (line, matching) in li:
-        if matching:
+    for line in li:
+        if line[0].boring:
             matching_streak.append(line)
         else:
             flush_matching()
@@ -1980,73 +2083,69 @@ def compress_matching(
     return ret
 
 
-def format_diff(
+def align_diffs(
     old_diff: Diff, new_diff: Diff, config: Config
-) -> Tuple[Optional[Tuple[Text, ...]], List[Tuple[Text, ...]]]:
-    fmt = config.formatter
-    old_chunks = chunk_diff_lines(old_diff.lines)
-    new_chunks = chunk_diff_lines(new_diff.lines)
-    output: List[Tuple[Text, OutputLine, OutputLine]] = []
-    assert len(old_chunks) == len(new_chunks), "same target"
-    empty = OutputLine(Text(), Text(), None, True)
-    for old_chunk, new_chunk in zip(old_chunks, new_chunks):
-        if isinstance(old_chunk, list):
-            assert isinstance(new_chunk, list)
-            if not old_chunk and not new_chunk:
-                # Most of the time lines sync up without insertions/deletions,
-                # and there's no interdiffing to be done.
-                continue
-            differ = difflib.SequenceMatcher(a=old_chunk, b=new_chunk, autojunk=False)
-            for (tag, i1, i2, j1, j2) in differ.get_opcodes():
-                if tag in ["equal", "replace"]:
-                    for i, j in zip(range(i1, i2), range(j1, j2)):
-                        output.append((Text(), old_chunk[i], new_chunk[j]))
-                if tag in ["insert", "replace"]:
-                    for j in range(j1 + i2 - i1, j2):
-                        output.append((Text(), empty, new_chunk[j]))
-                if tag in ["delete", "replace"]:
-                    for i in range(i1 + j2 - j1, i2):
-                        output.append((Text(), old_chunk[i], empty))
-        else:
-            assert isinstance(new_chunk, OutputLine)
-            assert new_chunk.base
-            # old_chunk.base and new_chunk.base have the same text since
-            # both diffs are based on the same target, but they might
-            # differ in color. Use the new version.
-            output.append((new_chunk.base, old_chunk, new_chunk))
+) -> Tuple[TableMetadata, List[Tuple[OutputLine, ...]]]:
+    meta: TableMetadata
+    diff_lines: List[Tuple[OutputLine, ...]]
 
-    # TODO: status line, with e.g. approximate permuter score?
-    header_line: Optional[Tuple[Text, ...]]
-    diff_lines: List[Tuple[Tuple[Text, ...], bool]]
     if config.threeway:
-        header_line = (
-            Text("TARGET"),
-            Text(f"  CURRENT ({new_diff.score})"),
-            Text(f"  PREVIOUS ({old_diff.score})"),
+        meta = TableMetadata(
+            headers=(
+                Text("TARGET"),
+                Text(f"  CURRENT ({new_diff.score})"),
+                Text(f"  PREVIOUS ({old_diff.score})"),
+            ),
+            current_score=new_diff.score,
+            previous_score=old_diff.score,
         )
+        old_chunks = chunk_diff_lines(old_diff.lines)
+        new_chunks = chunk_diff_lines(new_diff.lines)
+        diff_lines = []
+        empty = OutputLine(Text(), Text(), None, True, None, None)
+        assert len(old_chunks) == len(new_chunks), "same target"
+        for old_chunk, new_chunk in zip(old_chunks, new_chunks):
+            if isinstance(old_chunk, list):
+                assert isinstance(new_chunk, list)
+                if not old_chunk and not new_chunk:
+                    # Most of the time lines sync up without insertions/deletions,
+                    # and there's no interdiffing to be done.
+                    continue
+                differ = difflib.SequenceMatcher(
+                    a=old_chunk, b=new_chunk, autojunk=False
+                )
+                for (tag, i1, i2, j1, j2) in differ.get_opcodes():
+                    if tag in ["equal", "replace"]:
+                        for i, j in zip(range(i1, i2), range(j1, j2)):
+                            diff_lines.append((empty, new_chunk[j], old_chunk[i]))
+                    if tag in ["insert", "replace"]:
+                        for j in range(j1 + i2 - i1, j2):
+                            diff_lines.append((empty, new_chunk[j], empty))
+                    if tag in ["delete", "replace"]:
+                        for i in range(i1 + j2 - j1, i2):
+                            diff_lines.append((empty, empty, old_chunk[i]))
+            else:
+                assert isinstance(new_chunk, OutputLine)
+                # old_chunk.base and new_chunk.base have the same text since
+                # both diffs are based on the same target, but they might
+                # differ in color. Use the new version.
+                diff_lines.append((new_chunk, new_chunk, old_chunk))
         diff_lines = [
-            (
-                (
-                    base,
-                    new.fmt2,
-                    old.fmt2 or Text("-") if old != new else Text(),
-                ),
-                new.boring,
-            )
-            for (base, old, new) in output
+            (base, new, old if old != new else empty) for base, new, old in diff_lines
         ]
     else:
-        header_line = (Text("TARGET"), Text(f"  CURRENT ({new_diff.score})"))
-        diff_lines = [
-            ((base, new.fmt2), new.boring)
-            for (base, old, new) in output
-            if base or new.key2 is not None
-        ]
+        meta = TableMetadata(
+            headers=(
+                Text("TARGET"),
+                Text(f"  CURRENT ({new_diff.score})"),
+            ),
+            current_score=new_diff.score,
+            previous_score=None,
+        )
+        diff_lines = [(line, line) for line in new_diff.lines]
     if config.compress:
-        ret_lines = compress_matching(diff_lines, config.compress.context)
-    else:
-        ret_lines = [line for line, _ in diff_lines]
-    return header_line, ret_lines
+        diff_lines = compress_matching(diff_lines, config.compress.context)
+    return meta, diff_lines
 
 
 def debounced_fs_watch(
@@ -2150,8 +2249,9 @@ class Display:
         last_diff_output = self.last_diff_output or diff_output
         if self.config.threeway != "base" or not self.last_diff_output:
             self.last_diff_output = diff_output
-        header, diff_lines = format_diff(last_diff_output, diff_output, self.config)
-        return self.config.formatter.table(header, diff_lines[self.config.skip_lines :])
+
+        meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
+        return self.config.formatter.table(meta, diff_lines[self.config.skip_lines :])
 
     def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
         output = self.run_diff()
@@ -2292,7 +2392,7 @@ def main() -> None:
 
     display = Display(basedump, mydump, config)
 
-    if args.no_pager or args.format == "html":
+    if args.no_pager or args.format in ("html", "json"):
         print(display.run_diff())
     elif not args.watch:
         display.run_sync()
