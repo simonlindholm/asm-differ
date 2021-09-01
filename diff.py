@@ -1490,7 +1490,9 @@ def process(lines: List[str], config: Config) -> List[Line]:
 
         # This regex is conservative, and assumes the file path does not contain "weird"
         # characters like colons, tabs, or angle brackets.
-        if row and re.match(r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row):
+        if row and re.match(
+            r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
+        ):
             source_filename, _, tail = row.rpartition(":")
             source_line_num = int(tail.partition(" ")[0])
             continue
@@ -2051,7 +2053,12 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
 
         if config.show_line_numbers:
             if line2 and line2.source_line_num is not None:
-                num2 = Text(f"{line2.source_line_num:5}", BasicFormat.SOURCE_LINE_NUM)
+                num_color = (
+                    BasicFormat.SOURCE_LINE_NUM
+                    if sym_color == BasicFormat.NONE
+                    else sym_color
+                )
+                num2 = Text(f"{line2.source_line_num:5}", num_color)
             else:
                 num2 = Text(" " * 5)
         else:
