@@ -810,10 +810,6 @@ class JsonFormatter(Formatter):
                         output_row[f"{prefix}_source_lines"] = line.source_lines
                     if line.comment is not None:
                         output_row[f"{prefix}_comment"] = line.comment
-                    if line.source_filename is not None:
-                        output_row[f"{prefix}_source_filename"] = os.path.basename(
-                            line.source_filename
-                        )
                     if line.source_line_num is not None:
                         output_row[f"{prefix}_source_line_num"] = line.source_line_num
             output_rows.append(output_row)
@@ -920,18 +916,19 @@ def restrict_to_function(dump: str, fn_name: str, config: Config) -> str:
 
 
 def maybe_get_objdump_source_flags(config: Config) -> List[str]:
-    if not config.source:
-        return []
+    flags = []
 
-    flags = [
-        "--source",
-    ]
+    if config.show_line_numbers or config.source:
+        flags.append("--line-numbers")
 
-    if not config.source_old_binutils:
-        flags.append("--source-comment=│ ")
+    if config.source:
+        flags.append("--source")
 
-    if config.inlines:
-        flags.append("--inlines")
+        if not config.source_old_binutils:
+            flags.append("--source-comment=│ ")
+
+        if config.inlines:
+            flags.append("--inlines")
 
     return flags
 
@@ -1071,7 +1068,7 @@ def dump_elf(
         f"--disassemble={diff_elf_symbol}",
     ]
 
-    objdump_flags = ["-drzl", "-j", ".text"]
+    objdump_flags = ["-drz", "-j", ".text"]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
@@ -1107,7 +1104,7 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    objdump_flags = ["-drzl"]
+    objdump_flags = ["-drz"]
     return (
         objfile,
         (objdump_flags, refobjfile, start),
@@ -1490,11 +1487,17 @@ def process(lines: List[str], config: Config) -> List[Line]:
 
         # This regex is conservative, and assumes the file path does not contain "weird"
         # characters like colons, tabs, or angle brackets.
-        if row and re.match(
-            r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
+        if (
+            config.show_line_numbers
+            and row
+            and re.match(
+                r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
+            )
         ):
             source_filename, _, tail = row.rpartition(":")
             source_line_num = int(tail.partition(" ")[0])
+            if config.source:
+                source_lines.append(row)
             continue
 
         if config.source and not config.source_old_binutils and (row and row[0] != " "):
@@ -1509,9 +1512,8 @@ def process(lines: List[str], config: Config) -> List[Line]:
             source_lines.append(row)
             continue
 
-        # `objdump -l` includes function markers, even without `--source`
-        # For C++, these names seem to not be demangled, even with `--demangle`
-        if row and re.match(r"^[A-Za-z0-9_]+\(\):$", row):
+        # `objdump --line-numbers` includes function markers, even without `--source`
+        if config.show_line_numbers and row and re.match(r"^[^ \t]+\(\):$", row):
             continue
 
         m_comment = re.search(arch.re_comment, row)
