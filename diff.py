@@ -2283,10 +2283,11 @@ def debounced_fs_watch(
 class Display:
     basedump: str
     mydump: str
+    last_refresh_key: object
     config: Config
     emsg: Optional[str]
     last_diff_output: Optional[Diff]
-    pending_update: Optional[Tuple[str, bool]]
+    pending_update: Optional[str]
     ready_queue: "queue.Queue[None]"
     watch_queue: "queue.Queue[Optional[float]]"
     less_proc: "Optional[subprocess.Popen[bytes]]"
@@ -2296,11 +2297,12 @@ class Display:
         self.basedump = basedump
         self.mydump = mydump
         self.emsg = None
+        self.last_refresh_key = None
         self.last_diff_output = None
 
-    def run_diff(self) -> str:
+    def run_diff(self) -> Tuple[str, object]:
         if self.emsg is not None:
-            return self.emsg
+            return (self.emsg, self.emsg)
 
         diff_output = do_diff(self.basedump, self.mydump, self.config)
         last_diff_output = self.last_diff_output or diff_output
@@ -2308,11 +2310,14 @@ class Display:
             self.last_diff_output = diff_output
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
-        return self.config.formatter.table(meta, diff_lines[self.config.skip_lines :])
+        diff_lines = diff_lines[self.config.skip_lines :]
+        output = self.config.formatter.table(meta, diff_lines)
+        refresh_key = [[col.key2 for col in x[1:]] for x in diff_lines]
+        return (output, refresh_key)
 
-    def run_less(self) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
-        output = self.run_diff()
-
+    def run_less(
+        self, output: str
+    ) -> "Tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]":
         # Pipe the output through 'tail' and only then to less, to ensure the
         # write call doesn't block. ('tail' has to buffer all its input before
         # it starts writing.) This also means we don't have to deal with pipe
@@ -2329,7 +2334,8 @@ class Display:
         return (buffer_proc, less_proc)
 
     def run_sync(self) -> None:
-        proca, procb = self.run_less()
+        output, _ = self.run_diff()
+        proca, procb = self.run_less(output)
         procb.wait()
         proca.wait()
 
@@ -2337,12 +2343,14 @@ class Display:
         self.watch_queue = watch_queue
         self.ready_queue = queue.Queue()
         self.pending_update = None
-        dthread = threading.Thread(target=self.display_thread)
+        output, refresh_key = self.run_diff()
+        self.last_refresh_key = refresh_key
+        dthread = threading.Thread(target=self.display_thread, args=(output,))
         dthread.start()
         self.ready_queue.get()
 
-    def display_thread(self) -> None:
-        proca, procb = self.run_less()
+    def display_thread(self, initial_output: str) -> None:
+        proca, procb = self.run_less(initial_output)
         self.less_proc = procb
         self.ready_queue.put(None)
         while True:
@@ -2354,14 +2362,9 @@ class Display:
                 os.system("tput reset")
             if ret != 0 and self.pending_update is not None:
                 # killed by program with the intent to refresh
-                msg, error = self.pending_update
+                output = self.pending_update
                 self.pending_update = None
-                if not error:
-                    self.mydump = msg
-                    self.emsg = None
-                else:
-                    self.emsg = msg
-                proca, procb = self.run_less()
+                proca, procb = self.run_less(output)
                 self.less_proc = procb
                 self.ready_queue.put(None)
             else:
@@ -2379,7 +2382,18 @@ class Display:
         if not error and not self.emsg and text == self.mydump:
             self.progress("Unchanged. ")
             return
-        self.pending_update = (text, error)
+        # self.progress("Diffing... ")
+        if not error:
+            self.mydump = text
+            self.emsg = None
+        else:
+            self.emsg = text
+        output, refresh_key = self.run_diff()
+        if refresh_key == self.last_refresh_key:
+            self.progress("Unchanged. ")
+            return
+        self.last_refresh_key = refresh_key
+        self.pending_update = output
         if not self.less_proc:
             return
         self.less_proc.kill()
@@ -2450,7 +2464,7 @@ def main() -> None:
     display = Display(basedump, mydump, config)
 
     if args.no_pager or args.format in ("html", "json"):
-        print(display.run_diff())
+        print(display.run_diff()[0])
     elif not args.watch:
         display.run_sync()
     else:
