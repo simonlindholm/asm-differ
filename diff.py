@@ -782,7 +782,10 @@ class JsonFormatter(Formatter):
 
         output: Dict[str, Any] = {}
         output["arch_str"] = self.arch_str
-        output["headers"] = [serialize(h) for h in meta.headers]
+        output["header"] = {
+            name: serialize(h)
+            for h, name in zip(meta.headers, ("base", "current", "previous"))
+        }
         output["current_score"] = meta.current_score
         if meta.previous_score is not None:
             output["previous_score"] = meta.previous_score
@@ -799,19 +802,22 @@ class JsonFormatter(Formatter):
             if all(line is None for _, _, line in iters):
                 # Skip rows that were only for displaying source code
                 continue
-            for prefix, text, line in iters:
-                output_row[f"{prefix}_text"] = serialize(text)
+            for column_name, text, line in iters:
+                column: Dict[str, Any] = {}
+                column["text"] = serialize(text)
                 if line:
                     if line.line_num is not None:
-                        output_row[f"{prefix}_line_num"] = line.line_num
+                        column["line"] = line.line_num
                     if line.branch_target is not None:
-                        output_row[f"{prefix}_branch_target"] = line.branch_target
+                        column["branch"] = line.branch_target
                     if line.source_lines:
-                        output_row[f"{prefix}_source_lines"] = line.source_lines
+                        column["src"] = line.source_lines
                     if line.comment is not None:
-                        output_row[f"{prefix}_comment"] = line.comment
+                        column["src_comment"] = line.comment
                     if line.source_line_num is not None:
-                        output_row[f"{prefix}_source_line_num"] = line.source_line_num
+                        column["src_line"] = line.source_line_num
+                if line or column["text"]:
+                    output_row[column_name] = column
             output_rows.append(output_row)
         output["rows"] = output_rows
         return json.dumps(output)
