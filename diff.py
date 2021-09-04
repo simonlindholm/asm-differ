@@ -333,7 +333,7 @@ MISSING_PREREQUISITES = (
 )
 
 try:
-    from colorama import Fore, Style  # type: ignore
+    from colorama import Back, Fore, Style  # type: ignore
     import watchdog  # type: ignore
 except ModuleNotFoundError as e:
     fail(MISSING_PREREQUISITES.format(e.name))
@@ -525,6 +525,8 @@ class BasicFormat(enum.Enum):
     SOURCE_FUNCTION = enum.auto()
     SOURCE_LINE_NUM = enum.auto()
     SOURCE_OTHER = enum.auto()
+    DATA_REF = enum.auto()
+    DATA_REF_DIFF = enum.auto()
 
 
 @dataclass(frozen=True)
@@ -673,6 +675,8 @@ class AnsiFormatter(Formatter):
         BasicFormat.SOURCE_FUNCTION: Style.DIM + Style.BRIGHT + STYLE_UNDERLINE,
         BasicFormat.SOURCE_LINE_NUM: Fore.LIGHTBLACK_EX,
         BasicFormat.SOURCE_OTHER: Style.DIM,
+        BasicFormat.DATA_REF: Back.BLACK,
+        BasicFormat.DATA_REF_DIFF: Back.BLACK + Fore.LIGHTBLUE_EX,
     }
 
     ROTATION_ANSI_COLORS = [
@@ -700,7 +704,7 @@ class AnsiFormatter(Formatter):
             ]
         else:
             static_assert_unreachable(f)
-        return f"{ansi_code}{chunk}{Style.RESET_ALL}"
+        return f"{ansi_code}{chunk}{Fore.RESET}"
 
     def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
         rows = [meta.headers] + [self.outputline_texts(ls) for ls in lines]
@@ -2035,7 +2039,15 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
         out1 = Text() if not line1 else Text(pad_mnemonic(line1.original))
         out2 = Text() if not line2 else Text(pad_mnemonic(line2.original))
         if line1 and line2 and line1.diff_row == line2.diff_row:
-            if (
+            if line1.diff_row == "<data-ref>":
+                if line1.normalized_original == line2.normalized_original:
+                    sym_color = BasicFormat.DATA_REF
+                else:
+                    line_prefix = "i"
+                    sym_color = BasicFormat.DATA_REF_DIFF
+                out1 = out1.reformat(sym_color)
+                out2 = out2.reformat(sym_color)
+            elif (
                 line1.normalized_original == line2.normalized_original
                 and line2.branch_target is None
             ):
