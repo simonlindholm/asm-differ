@@ -9,6 +9,7 @@ from typing import (
     Iterator,
     List,
     Match,
+    NamedTuple,
     NoReturn,
     Optional,
     Pattern,
@@ -308,7 +309,7 @@ if __name__ == "__main__":
 
 import abc
 import ast
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, replace
 import difflib
 import enum
@@ -319,9 +320,11 @@ import os
 import queue
 import re
 import string
+import struct
 import subprocess
 import threading
 import time
+import traceback
 
 
 MISSING_PREREQUISITES = (
@@ -921,6 +924,13 @@ def restrict_to_function(dump: str, fn_name: str, config: Config) -> str:
     return "\n".join(out)
 
 
+def serialize_data_references(references: List[Tuple[int, int, str]]) -> str:
+    return "".join(
+        f"DATAREF {text_offset} {from_offset} {from_section}\n"
+        for (text_offset, from_offset, from_section) in references
+    )
+
+
 def maybe_get_objdump_source_flags(config: Config) -> List[str]:
     flags = []
 
@@ -957,7 +967,16 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
         raise e
 
     if restrict is not None:
-        return restrict_to_function(out, restrict, config)
+        out = restrict_to_function(out, restrict, config)
+
+    if config.diff_obj:
+        with open(target, "rb") as f:
+            data = f.read()
+        out = serialize_data_references(parse_elf_data_references(data)) + out
+    else:
+        for i in range(7):
+            out = out[out.find("\n") + 1 :]
+        out = out.rstrip("\n")
     return out
 
 
@@ -995,8 +1014,6 @@ def search_map_file(
                         cands.append((cur_objfile, ram + ram_to_rom))
                 last_line = line
         except Exception as e:
-            import traceback
-
             traceback.print_exc()
             fail(f"Internal error while parsing map file")
 
@@ -1044,6 +1061,113 @@ def search_map_file(
     else:
         fail(f"Linker map format {project.map_format} unrecognised.")
     return None, None
+
+
+def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
+    e_ident = data[:16]
+    if e_ident[:4] != b"\x7FELF":
+        return []
+
+    SHT_SYMTAB = 2
+    SHT_REL = 9
+    SHT_RELA = 4
+
+    is_32bit = e_ident[4] == 1
+    is_little_endian = e_ident[5] == 1
+    str_end = "<" if is_little_endian else ">"
+    str_off = "I" if is_32bit else "Q"
+    sym_size = {"B": 1, "H": 2, "I": 4, "Q": 8}
+
+    def read(spec: str, offset: int) -> Tuple[int, ...]:
+        spec = spec.replace("P", str_off)
+        size = sum(sym_size[c] for c in spec)
+        return struct.unpack(str_end + spec, data[offset : offset + size])
+
+    (
+        e_type,
+        e_machine,
+        e_version,
+        e_entry,
+        e_phoff,
+        e_shoff,
+        e_flags,
+        e_ehsize,
+        e_phentsize,
+        e_phnum,
+        e_shentsize,
+        e_shnum,
+        e_shstrndx,
+    ) = read("HHIPPPIHHHHHH", 16)
+    if e_type != 1:  # relocatable
+        return []
+    assert e_shoff != 0
+    assert e_shnum != 0  # don't support > 0xFF00 sections
+    assert e_shstrndx != 0
+
+    class Section(NamedTuple):
+        sh_name: int
+        sh_type: int
+        sh_flags: int
+        sh_addr: int
+        sh_offset: int
+        sh_size: int
+        sh_link: int
+        sh_info: int
+        sh_addralign: int
+        sh_entsize: int
+
+    sections = [
+        Section(*read("IIPPPPIIPP", e_shoff + i * e_shentsize)) for i in range(e_shnum)
+    ]
+    shstr = sections[e_shstrndx]
+    sec_name_offs = [shstr.sh_offset + s.sh_name for s in sections]
+    sec_names = [data[offset : data.index(b"\0", offset)] for offset in sec_name_offs]
+
+    symtab_sections = [i for i in range(e_shnum) if sections[i].sh_type == SHT_SYMTAB]
+    assert len(symtab_sections) == 1
+    symtab = sections[symtab_sections[0]]
+
+    text_sections = [i for i in range(e_shnum) if sec_names[i] == b".text"]
+    assert len(text_sections) == 1
+    text_section = text_sections[0]
+
+    ret: List[Tuple[int, int, str]] = []
+    for s in sections:
+        if s.sh_type == SHT_REL or s.sh_type == SHT_RELA:
+            if s.sh_info == text_section:
+                # Skip .text -> .text references
+                continue
+            sec_name = sec_names[s.sh_info].decode("latin1")
+            sec_base = sections[s.sh_info].sh_offset
+            for i in range(0, s.sh_size, s.sh_entsize):
+                if s.sh_type == SHT_REL:
+                    r_offset, r_info = read("PP", s.sh_offset + i)
+                else:
+                    r_offset, r_info, r_addend = read("PPP", s.sh_offset + i)
+
+                if is_32bit:
+                    r_sym = r_info >> 8
+                    r_type = r_info & 0xFF
+                    sym_offset = symtab.sh_offset + symtab.sh_entsize * r_sym
+                    st_name, st_value, st_size, st_info, st_other, st_shndx = read(
+                        "IIIBBH", sym_offset
+                    )
+                else:
+                    r_sym = r_info >> 32
+                    r_type = r_info & 0xFFFFFFFF
+                    sym_offset = symtab.sh_offset + symtab.sh_entsize * r_sym
+                    st_name, st_info, st_other, st_shndx, st_value, st_size = read(
+                        "IBBHQQ", sym_offset
+                    )
+                if st_shndx == text_section:
+                    if s.sh_type == SHT_REL:
+                        if e_machine == 8 and r_type == 2:  # R_MIPS_32
+                            (r_addend,) = read("I", sec_base + r_offset)
+                        else:
+                            continue
+                    text_offset = (st_value + r_addend) & 0xFFFFFFFF
+                    ret.append((text_offset, r_offset, sec_name))
+    return ret
 
 
 def dump_elf(
@@ -1110,7 +1234,7 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    objdump_flags = ["-drz"]
+    objdump_flags = ["-drz", "-j", ".text"]
     return (
         objfile,
         (objdump_flags, refobjfile, start),
@@ -1476,12 +1600,9 @@ def process(lines: List[str], config: Config) -> List[Line]:
     source_lines = []
     source_filename = None
     source_line_num = None
-    if not config.diff_obj:
-        lines = lines[7:]
-        if lines and not lines[-1]:
-            lines.pop()
 
     i = 0
+    data_refs: Dict[int, Dict[str, List[int]]] = defaultdict(lambda: defaultdict(list))
     output: List[Line] = []
     stop_after_delay_slot = False
     while i < len(lines):
@@ -1489,6 +1610,14 @@ def process(lines: List[str], config: Config) -> List[Line]:
         i += 1
 
         if config.diff_obj and (">:" in row or not row):
+            continue
+
+        if row.startswith("DATAREF"):
+            parts = row.split(" ", 3)
+            text_offset = int(parts[1])
+            from_offset = int(parts[2])
+            from_section = parts[3]
+            data_refs[text_offset][from_section].append(from_offset)
             continue
 
         # This regex is conservative, and assumes the file path does not contain "weird"
@@ -1529,6 +1658,28 @@ def process(lines: List[str], config: Config) -> List[Line]:
         tabs = row.split("\t")
         row = "\t".join(tabs[2:])
         line_num = eval_line_num(tabs[0].strip())
+
+        if line_num in data_refs:
+            refs = data_refs[line_num]
+            ref_str = "; ".join(
+                section_name + "+" + ",".join(hex(off) for off in offs)
+                for section_name, offs in refs.items()
+            )
+            output.append(
+                Line(
+                    mnemonic="<data-ref>",
+                    diff_row="<data-ref>",
+                    original=ref_str,
+                    normalized_original=ref_str,
+                    scorable_line="<data-ref>",
+                    line_num=None,
+                    branch_target=None,
+                    source_filename=None,
+                    source_line_num=None,
+                    source_lines=[],
+                    comment=None,
+                )
+            )
 
         if "\t" in row:
             row_parts = row.split("\t", 1)
@@ -2388,7 +2539,6 @@ class Display:
         if not error and not self.emsg and text == self.mydump:
             self.progress("Unchanged. ")
             return
-        # self.progress("Diffing... ")
         if not error:
             self.mydump = text
             self.emsg = None
