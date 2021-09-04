@@ -525,8 +525,6 @@ class BasicFormat(enum.Enum):
     SOURCE_FUNCTION = enum.auto()
     SOURCE_LINE_NUM = enum.auto()
     SOURCE_OTHER = enum.auto()
-    DATA_REF = enum.auto()
-    DATA_REF_DIFF = enum.auto()
 
 
 @dataclass(frozen=True)
@@ -675,8 +673,6 @@ class AnsiFormatter(Formatter):
         BasicFormat.SOURCE_FUNCTION: Style.DIM + Style.BRIGHT + STYLE_UNDERLINE,
         BasicFormat.SOURCE_LINE_NUM: Fore.LIGHTBLACK_EX,
         BasicFormat.SOURCE_OTHER: Style.DIM,
-        BasicFormat.DATA_REF: Back.BLACK,
-        BasicFormat.DATA_REF_DIFF: Back.BLACK + Fore.LIGHTBLUE_EX,
     }
 
     ROTATION_ANSI_COLORS = [
@@ -707,9 +703,16 @@ class AnsiFormatter(Formatter):
         return f"{ansi_code}{chunk}{Fore.RESET}"
 
     def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
-        rows = [meta.headers] + [self.outputline_texts(ls) for ls in lines]
+        rows = [(meta.headers, False)] + [
+            (self.outputline_texts(line), line[1].is_data_ref) for line in lines
+        ]
         return "\n".join(
-            "".join(self.apply(x.ljust(self.column_width)) for x in row) for row in rows
+            "".join(
+                (Back.BLACK if is_data_ref else "")
+                + self.apply(x.ljust(self.column_width))
+                for x in row
+            )
+            for (row, is_data_ref) in rows
         )
 
 
@@ -800,6 +803,7 @@ class JsonFormatter(Formatter):
         for row in rows:
             output_row: Dict[str, Any] = {}
             output_row["key"] = row[0].key2
+            output_row["is_data_ref"] = row[1].is_data_ref
             iters = [
                 ("base", row[0].base, row[0].line1),
                 ("current", row[1].fmt2, row[1].line2),
@@ -1978,6 +1982,7 @@ class OutputLine:
     fmt2: Text = field(compare=False)
     key2: Optional[str]
     boring: bool = field(compare=False)
+    is_data_ref: bool = field(compare=False)
     line1: Optional[Line] = field(compare=False)
     line2: Optional[Line] = field(compare=False)
 
@@ -2036,17 +2041,17 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
     for (line1, line2) in diffed_lines:
         line_color1 = line_color2 = sym_color = BasicFormat.NONE
         line_prefix = " "
+        is_data_ref = False
         out1 = Text() if not line1 else Text(pad_mnemonic(line1.original))
         out2 = Text() if not line2 else Text(pad_mnemonic(line2.original))
         if line1 and line2 and line1.diff_row == line2.diff_row:
             if line1.diff_row == "<data-ref>":
-                if line1.normalized_original == line2.normalized_original:
-                    sym_color = BasicFormat.DATA_REF
-                else:
+                if line1.normalized_original != line2.normalized_original:
                     line_prefix = "i"
-                    sym_color = BasicFormat.DATA_REF_DIFF
-                out1 = out1.reformat(sym_color)
-                out2 = out2.reformat(sym_color)
+                    sym_color = BasicFormat.DIFF_CHANGE
+                    out1 = out1.reformat(sym_color)
+                    out2 = out2.reformat(sym_color)
+                is_data_ref = True
             elif (
                 line1.normalized_original == line2.normalized_original
                 and line2.branch_target is None
@@ -2210,6 +2215,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
                         fmt2=padding + Text(source_line, line_format),
                         key2=source_line,
                         boring=True,
+                        is_data_ref=False,
                         line1=None,
                         line2=None,
                     )
@@ -2243,6 +2249,7 @@ def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
                 fmt2=fmt2,
                 key2=key2,
                 boring=boring,
+                is_data_ref=is_data_ref,
                 line1=line1,
                 line2=line2,
             )
@@ -2288,6 +2295,7 @@ def compress_matching(
                 fmt2=Text(),
                 key2=None,
                 boring=False,
+                is_data_ref=False,
                 line1=None,
                 line2=None,
             )
@@ -2328,7 +2336,7 @@ def align_diffs(
         old_chunks = chunk_diff_lines(old_diff.lines)
         new_chunks = chunk_diff_lines(new_diff.lines)
         diff_lines = []
-        empty = OutputLine(Text(), Text(), None, True, None, None)
+        empty = OutputLine(Text(), Text(), None, True, False, None, None)
         assert len(old_chunks) == len(new_chunks), "same target"
         for old_chunk, new_chunk in zip(old_chunks, new_chunks):
             if isinstance(old_chunk, list):
