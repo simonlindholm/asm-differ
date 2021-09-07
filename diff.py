@@ -657,8 +657,11 @@ class PlainFormatter(Formatter):
 
 @dataclass
 class AnsiFormatter(Formatter):
-    # Underline (not in colorama)
-    STYLE_UNDERLINE = "\u001b[4m"
+    # Additional ansi escape codes not in colorama. See:
+    # https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
+    STYLE_UNDERLINE = "\x1b[4m"
+    STYLE_NO_UNDERLINE = "\x1b[24m"
+    STYLE_INVERT = "\x1b[7m"
 
     BASIC_ANSI_CODES = {
         BasicFormat.NONE: "",
@@ -673,6 +676,13 @@ class AnsiFormatter(Formatter):
         BasicFormat.SOURCE_FUNCTION: Style.DIM + Style.BRIGHT + STYLE_UNDERLINE,
         BasicFormat.SOURCE_LINE_NUM: Fore.LIGHTBLACK_EX,
         BasicFormat.SOURCE_OTHER: Style.DIM,
+    }
+
+    BASIC_ANSI_CODES_UNDO = {
+        BasicFormat.NONE: "",
+        BasicFormat.SOURCE_FILENAME: Style.NORMAL,
+        BasicFormat.SOURCE_FUNCTION: Style.NORMAL + STYLE_NO_UNDERLINE,
+        BasicFormat.SOURCE_OTHER: Style.NORMAL,
     }
 
     ROTATION_ANSI_COLORS = [
@@ -692,15 +702,17 @@ class AnsiFormatter(Formatter):
     def apply_format(self, chunk: str, f: Format) -> str:
         if f == BasicFormat.NONE:
             return chunk
+        undo_ansi_code = Fore.RESET
         if isinstance(f, BasicFormat):
             ansi_code = self.BASIC_ANSI_CODES[f]
+            undo_ansi_code = self.BASIC_ANSI_CODES_UNDO.get(f, undo_ansi_code)
         elif isinstance(f, RotationFormat):
             ansi_code = self.ROTATION_ANSI_COLORS[
                 f.index % len(self.ROTATION_ANSI_COLORS)
             ]
         else:
             static_assert_unreachable(f)
-        return f"{ansi_code}{chunk}{Fore.RESET}"
+        return f"{ansi_code}{chunk}{undo_ansi_code}"
 
     def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
         rows = [(meta.headers, False)] + [
@@ -708,7 +720,7 @@ class AnsiFormatter(Formatter):
         ]
         return "\n".join(
             "".join(
-                (Back.BLACK if is_data_ref else "")
+                (self.STYLE_INVERT if is_data_ref else "")
                 + self.apply(x.ljust(self.column_width))
                 for x in row
             )
@@ -1088,7 +1100,7 @@ def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
 
     def read(spec: str, offset: int) -> Tuple[int, ...]:
         spec = spec.replace("P", str_off)
-        size = sum(sym_size[c] for c in spec)
+        size = struct.calcsize(spec)
         return struct.unpack(str_end + spec, data[offset : offset + size])
 
     (
