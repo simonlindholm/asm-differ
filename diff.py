@@ -748,8 +748,9 @@ class HtmlFormatter(Formatter):
         return f"<span class='{class_name}' {data_attr}>{chunk}</span>"
 
     def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
-        def table_row(line: Tuple[Text, ...], cell_el: str) -> str:
-            output_row = "    <tr>"
+        def table_row(line: Tuple[Text, ...], is_data_ref: bool, cell_el: str) -> str:
+            tr_attrs = " class='data-ref'" if is_data_ref else ""
+            output_row = f"    <tr{tr_attrs}>"
             for cell in line:
                 cell_html = self.apply(cell)
                 output_row += f"<{cell_el}>{cell_html}</{cell_el}>"
@@ -758,11 +759,12 @@ class HtmlFormatter(Formatter):
 
         output = "<table class='diff'>\n"
         output += "  <thead>\n"
-        output += table_row(meta.headers, "th")
+        output += table_row(meta.headers, False, "th")
         output += "  </thead>\n"
         output += "  <tbody>\n"
         output += "".join(
-            table_row(self.outputline_texts(line), "td") for line in lines
+            table_row(self.outputline_texts(line), line[1].is_data_ref, "td")
+            for line in lines
         )
         output += "  </tbody>\n"
         output += "</table>\n"
