@@ -1966,14 +1966,13 @@ def score_diff_lines(
     for index, (line1, line2) in enumerate(lines):
         if max_index is not None and index > max_index:
             break
-        if line1 is None:
-            assert line2 is not None
-            diff_insert(line2.scorable_line)
-        elif line2 is None:
-            assert line1 is not None
-            diff_delete(line1.scorable_line)
-        else:
+        if line1 and line2 and line1.mnemonic == line2.mnemonic:
             diff_sameline(line1.scorable_line, line2.scorable_line)
+        else:
+            if line1:
+                diff_delete(line1.scorable_line)
+            if line2:
+                diff_insert(line2.scorable_line)
 
     insertions_co = Counter(insertions)
     deletions_co = Counter(deletions)
