@@ -1608,7 +1608,7 @@ class Line:
     comment: Optional[str] = None
 
 
-def process(lines: List[str], config: Config) -> List[Line]:
+def process(dump: str, config: Config) -> List[Line]:
     arch = config.arch
     normalizer = arch.difference_normalizer(config)
     skip_next = False
@@ -1621,6 +1621,7 @@ def process(lines: List[str], config: Config) -> List[Line]:
     data_refs: Dict[int, Dict[str, List[int]]] = defaultdict(lambda: defaultdict(list))
     output: List[Line] = []
     stop_after_delay_slot = False
+    lines = dump.split("\n")
     while i < len(lines):
         row = lines[i]
         i += 1
@@ -2007,15 +2008,12 @@ class Diff:
     score: int
 
 
-def do_diff(basedump: str, mydump: str, config: Config) -> Diff:
+def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.source:
         import cxxfilt  # type: ignore
     arch = config.arch
     fmt = config.formatter
     output: List[OutputLine] = []
-
-    lines1 = process(basedump.split("\n"), config)
-    lines2 = process(mydump.split("\n"), config)
 
     sc1 = symbol_formatter("base-reg", 0)
     sc2 = symbol_formatter("my-reg", 0)
@@ -2485,7 +2483,7 @@ class Display:
 
     def __init__(self, basedump: str, mydump: str, config: Config) -> None:
         self.config = config
-        self.basedump = basedump
+        self.base_lines = process(basedump, config)
         self.mydump = mydump
         self.emsg = None
         self.last_refresh_key = None
@@ -2495,7 +2493,8 @@ class Display:
         if self.emsg is not None:
             return (self.emsg, self.emsg)
 
-        diff_output = do_diff(self.basedump, self.mydump, self.config)
+        my_lines = process(self.mydump, self.config)
+        diff_output = do_diff(self.base_lines, my_lines, self.config)
         last_diff_output = self.last_diff_output or diff_output
         if self.config.threeway != "base" or not self.last_diff_output:
             self.last_diff_output = diff_output
