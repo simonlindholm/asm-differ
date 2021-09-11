@@ -41,7 +41,7 @@ if __name__ == "__main__":
     sys.path.pop(0)
 
     try:
-        import argcomplete  # type: ignore
+        import argcomplete
     except ModuleNotFoundError:
         argcomplete = None
 
@@ -333,8 +333,8 @@ MISSING_PREREQUISITES = (
 )
 
 try:
-    from colorama import Back, Fore, Style  # type: ignore
-    import watchdog  # type: ignore
+    from colorama import Back, Fore, Style
+    import watchdog
 except ModuleNotFoundError as e:
     fail(MISSING_PREREQUISITES.format(e.name))
 
@@ -1846,9 +1846,10 @@ def diff_sequences(
 
     rem1 = remap(seq1)
     rem2 = remap(seq2)
-    import Levenshtein  # type: ignore
+    import Levenshtein
 
-    return Levenshtein.opcodes(rem1, rem2)  # type: ignore
+    ret: List[Tuple[str, int, int, int, int]] = Levenshtein.opcodes(rem1, rem2)
+    return ret
 
 
 def diff_lines(
@@ -2010,7 +2011,7 @@ class Diff:
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.source:
-        import cxxfilt  # type: ignore
+        import cxxfilt
     arch = config.arch
     fmt = config.formatter
     output: List[OutputLine] = []
@@ -2400,10 +2401,10 @@ def debounced_fs_watch(
     config: Config,
     project: ProjectSettings,
 ) -> None:
-    import watchdog.events  # type: ignore
-    import watchdog.observers  # type: ignore
+    import watchdog.events
+    import watchdog.observers
 
-    class WatchEventHandler(watchdog.events.FileSystemEventHandler):  # type: ignore
+    class WatchEventHandler(watchdog.events.FileSystemEventHandler):
         def __init__(
             self, queue: "queue.Queue[float]", file_targets: List[str]
         ) -> None:
