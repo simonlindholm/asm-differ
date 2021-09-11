@@ -931,19 +931,12 @@ def run_make_capture_output(
     )
 
 
-def restrict_to_function(dump: str, fn_name: str, config: Config) -> str:
-    out: List[str] = []
-    search = f"<{fn_name}>:"
-    found = False
-    for line in dump.split("\n"):
-        if found:
-            if len(out) >= config.max_function_size_lines:
-                out.append("\t\t...")
-                break
-            out.append(line)
-        elif search in line:
-            found = True
-    return "\n".join(out)
+def restrict_to_function(dump: str, fn_name: str) -> str:
+    try:
+        ind = dump.index("\n", dump.index(f"<{fn_name}>:"))
+        return dump[ind + 1 :]
+    except ValueError:
+        return ""
 
 
 def serialize_data_references(references: List[Tuple[int, int, str]]) -> str:
@@ -989,7 +982,7 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
         raise e
 
     if restrict is not None:
-        out = restrict_to_function(out, restrict, config)
+        out = restrict_to_function(out, restrict)
 
     if config.diff_obj:
         with open(target, "rb") as f:
@@ -1607,12 +1600,12 @@ class Line:
     original: str
     normalized_original: str
     scorable_line: str
-    line_num: Optional[int]
-    branch_target: Optional[int]
-    source_filename: Optional[str]
-    source_line_num: Optional[int]
-    source_lines: List[str]
-    comment: Optional[str]
+    line_num: Optional[int] = None
+    branch_target: Optional[int] = None
+    source_filename: Optional[str] = None
+    source_line_num: Optional[int] = None
+    source_lines: List[str] = field(default_factory=list)
+    comment: Optional[str] = None
 
 
 def process(lines: List[str], config: Config) -> List[Line]:
@@ -1624,6 +1617,7 @@ def process(lines: List[str], config: Config) -> List[Line]:
     source_line_num = None
 
     i = 0
+    num_instr = 0
     data_refs: Dict[int, Dict[str, List[int]]] = defaultdict(lambda: defaultdict(list))
     output: List[Line] = []
     stop_after_delay_slot = False
@@ -1641,6 +1635,18 @@ def process(lines: List[str], config: Config) -> List[Line]:
             from_section = parts[3]
             data_refs[text_offset][from_section].append(from_offset)
             continue
+
+        if config.diff_obj and num_instr >= config.max_function_size_lines:
+            output.append(
+                Line(
+                    mnemonic="...",
+                    diff_row="...",
+                    original="...",
+                    normalized_original="...",
+                    scorable_line="...",
+                )
+            )
+            break
 
         # This regex is conservative, and assumes the file path does not contain "weird"
         # characters like colons, tabs, or angle brackets.
@@ -1694,12 +1700,6 @@ def process(lines: List[str], config: Config) -> List[Line]:
                     original=ref_str,
                     normalized_original=ref_str,
                     scorable_line="<data-ref>",
-                    line_num=None,
-                    branch_target=None,
-                    source_filename=None,
-                    source_line_num=None,
-                    source_lines=[],
-                    comment=None,
                 )
             )
 
@@ -1779,6 +1779,7 @@ def process(lines: List[str], config: Config) -> List[Line]:
                 comment=comment,
             )
         )
+        num_instr += 1
         source_lines = []
 
         if config.stop_jrra and mnemonic == "jr" and row_parts[1].strip() == "ra":
