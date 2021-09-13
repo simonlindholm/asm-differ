@@ -9,7 +9,6 @@ from typing import (
     Iterator,
     List,
     Match,
-    NamedTuple,
     NoReturn,
     Optional,
     Pattern,
@@ -1135,7 +1134,8 @@ def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
     assert e_shnum != 0  # don't support > 0xFF00 sections
     assert e_shstrndx != 0
 
-    class Section(NamedTuple):
+    @dataclass
+    class Section:
         sh_name: int
         sh_type: int
         sh_flags: int
