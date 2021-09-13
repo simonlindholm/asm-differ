@@ -2519,7 +2519,10 @@ class Display:
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
         diff_lines = diff_lines[self.config.skip_lines :]
         output = self.config.formatter.table(meta, diff_lines)
-        refresh_key = [[col.key2 for col in x[1:]] for x in diff_lines]
+        refresh_key = (
+            [[col.key2 for col in x[1:]] for x in diff_lines],
+            diff_output.score,
+        )
         return (output, refresh_key)
 
     def run_less(
