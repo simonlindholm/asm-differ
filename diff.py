@@ -117,25 +117,35 @@ if __name__ == "__main__":
         one non-stripped. Requires objdump from binutils 2.33+.""",
     )
     parser.add_argument(
-        "--source",
         "-c",
+        "--source",
         dest="source",
         action="store_true",
         help="Show source code (if possible). Only works with -o or -e.",
     )
     parser.add_argument(
-        "--source-old-binutils",
         "-C",
+        "--source-old-binutils",
         dest="source_old_binutils",
         action="store_true",
-        help="Tweak --source handling to make it work with binutils < 2.33. Implies --source.",
+        help="""Tweak --source handling to make it work with binutils < 2.33.
+        Implies --source.""",
     )
     parser.add_argument(
         "-L",
         "--line-numbers",
-        dest="line_numbers",
-        action="store_true",
-        help="Include column of source line numbers in output, when available",
+        dest="show_line_numbers",
+        action="store_const",
+        const=True,
+        help="""Show source line numbers in output, when available. May be enabled by
+        default depending on diff_settings.py.""",
+    )
+    parser.add_argument(
+        "--no-line-numbers",
+        dest="show_line_numbers",
+        action="store_const",
+        const=False,
+        help="Hide source line numbers in output.",
     )
     parser.add_argument(
         "--inlines",
@@ -353,6 +363,7 @@ class ProjectSettings:
     mapfile: Optional[str]
     source_directories: Optional[List[str]]
     source_extensions: List[str]
+    show_line_numbers_default: bool
 
 
 @dataclass
@@ -412,6 +423,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_executable=get_objdump_executable(settings.get("objdump_executable")),
         map_format=settings.get("map_format", "gnu"),
         mw_build_dir=settings.get("mw_build_dir", "build/"),
+        show_line_numbers_default=settings.get("show_line_numbers_default", True),
     )
 
 
@@ -438,6 +450,10 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
             )
         compress = Compress(args.compress_sameinstr, True)
 
+    show_line_numbers = args.show_line_numbers
+    if show_line_numbers is None:
+        show_line_numbers = project.show_line_numbers_default
+
     return Config(
         arch=get_arch(project.arch_str),
         # Build/objdump options
@@ -457,7 +473,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         skip_lines=args.skip_lines,
         compress=compress,
         show_branches=args.show_branches,
-        show_line_numbers=args.line_numbers,
+        show_line_numbers=show_line_numbers,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
