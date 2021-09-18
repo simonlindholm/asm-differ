@@ -44,7 +44,9 @@ if __name__ == "__main__":
     except ModuleNotFoundError:
         argcomplete = None
 
-    parser = argparse.ArgumentParser(description="Diff MIPS, PPC, AArch64, or ARM32 assembly.")
+    parser = argparse.ArgumentParser(
+        description="Diff MIPS, PPC, AArch64, or ARM32 assembly."
+    )
 
     start_argument = parser.add_argument(
         "start",
@@ -427,6 +429,8 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
 
 
 def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
+    arch = get_arch(project.arch_str)
+
     formatter: Formatter
     if args.format == "plain":
         formatter = PlainFormatter(column_width=args.column_width)
@@ -435,7 +439,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
     elif args.format == "html":
         formatter = HtmlFormatter()
     elif args.format == "json":
-        formatter = JsonFormatter(arch_str=project.arch_str)
+        formatter = JsonFormatter(arch_str=arch.name)
     else:
         raise ValueError(f"Unsupported --format: {args.format}")
 
@@ -454,7 +458,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         show_line_numbers = project.show_line_numbers_default
 
     return Config(
-        arch=get_arch(project.arch_str),
+        arch=arch,
         # Build/objdump options
         diff_obj=args.diff_obj,
         make=args.make,
@@ -503,15 +507,10 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
 
 
 def get_arch(arch_str: str) -> "ArchSettings":
-    if arch_str == "mips":
-        return MIPS_SETTINGS
-    if arch_str == "arm32":
-        return ARM32_SETTINGS
-    if arch_str == "aarch64":
-        return AARCH64_SETTINGS
-    if arch_str == "ppc":
-        return PPC_SETTINGS
-    return fail(f"Unknown architecture: {arch_str}")
+    for settings in ARCH_SETTINGS:
+        if arch_str == settings.name:
+            return settings
+    raise ValueError(f"Unknown architecture: {arch_str}")
 
 
 BUFFER_CMD: List[str] = ["tail", "-c", str(10 ** 9)]
@@ -998,17 +997,37 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
             fail("** Try using --source-old-binutils instead of --source **")
         raise e
 
-    if restrict is not None:
-        out = restrict_to_function(out, restrict)
-
+    obj_data: Optional[bytes] = None
     if config.diff_obj:
         with open(target, "rb") as f:
-            data = f.read()
-        out = serialize_data_references(parse_elf_data_references(data)) + out
+            obj_data = f.read()
+
+    return preprocess_objdump_out(restrict, obj_data, out)
+
+
+def preprocess_objdump_out(
+    restrict: Optional[str], obj_data: Optional[bytes], objdump_out: str
+) -> str:
+    """
+    Preprocess the output of objdump into a format that `process()` expects.
+    This format is suitable for saving to disk with `--write-asm`.
+
+    - Optionally filter the output to a single function (`restrict`)
+    - Otherwise, strip objdump header (7 lines)
+    - Prepend .data references ("DATAREF" lines) when working with object files
+    """
+    out = objdump_out
+
+    if restrict is not None:
+        out = restrict_to_function(out, restrict)
     else:
         for i in range(7):
             out = out[out.find("\n") + 1 :]
         out = out.rstrip("\n")
+
+    if obj_data:
+        out = serialize_data_references(parse_elf_data_references(obj_data)) + out
+
     return out
 
 
@@ -1369,6 +1388,7 @@ class DifferenceNormalizerAArch64(DifferenceNormalizer):
 
         return row
 
+
 class DifferenceNormalizerARM32(DifferenceNormalizer):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -1388,6 +1408,7 @@ class DifferenceNormalizerARM32(DifferenceNormalizer):
 
 @dataclass
 class ArchSettings:
+    name: str
     re_int: Pattern[str]
     re_comment: Pattern[str]
     re_reg: Pattern[str]
@@ -1450,10 +1471,12 @@ ARM32_CONDS = {
     "al",
 }
 ARM32_SUFFIXES = {"", ".n", ".w"}
-ARM32_BRANCH_INSTRUCTIONS = {f"{prefix}{cond}{suffix}"
+ARM32_BRANCH_INSTRUCTIONS = {
+    f"{prefix}{cond}{suffix}"
     for prefix in ARM32_PREFIXES
     for cond in ARM32_CONDS
-    for suffix in ARM32_SUFFIXES}
+    for suffix in ARM32_SUFFIXES
+}
 
 AARCH64_BRANCH_INSTRUCTIONS = {
     "bl",
@@ -1506,6 +1529,7 @@ PPC_BRANCH_INSTRUCTIONS = {
 }
 
 MIPS_SETTINGS = ArchSettings(
+    name="mips",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
@@ -1521,6 +1545,7 @@ MIPS_SETTINGS = ArchSettings(
 )
 
 ARM32_SETTINGS = ArchSettings(
+    name="arm32",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*?>|//.*$)"),
     # Includes:
@@ -1528,7 +1553,9 @@ ARM32_SETTINGS = ArchSettings(
     #   - Frame pointer registers: lr (r14), pc (r15)
     #   - VFP/NEON registers: s0..31, d0..31, q0..15, fpscr, fpexc, fpsid
     # SP should not be in this list.
-    re_reg=re.compile(r"\$?\b([rq][0-9]|[rq]1[0-5]|pc|lr|[ds][12]?[0-9]|[ds]3[01]|fp(scr|exc|sid))\b"),
+    re_reg=re.compile(
+        r"\$?\b([rq][0-9]|[rq]1[0-5]|pc|lr|[ds][12]?[0-9]|[ds]3[01]|fp(scr|exc|sid))\b"
+    ),
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
@@ -1538,6 +1565,7 @@ ARM32_SETTINGS = ArchSettings(
 )
 
 AARCH64_SETTINGS = ArchSettings(
+    name="aarch64",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*?>|//.*$)"),
     # GPRs and FP registers: X0-X30, W0-W30, [DSHQ]0..31
@@ -1552,6 +1580,7 @@ AARCH64_SETTINGS = ArchSettings(
 )
 
 PPC_SETTINGS = ArchSettings(
+    name="ppc",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*?>|//.*$)"),
     re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
@@ -1561,6 +1590,13 @@ PPC_SETTINGS = ArchSettings(
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
 )
+
+ARCH_SETTINGS = [
+    MIPS_SETTINGS,
+    ARM32_SETTINGS,
+    AARCH64_SETTINGS,
+    PPC_SETTINGS,
+]
 
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
@@ -2691,7 +2727,10 @@ def main() -> None:
     diff_settings.apply(settings, args)  # type: ignore
     project = create_project_settings(settings)
 
-    config = create_config(args, project)
+    try:
+        config = create_config(args, project)
+    except ValueError as e:
+        fail(str(e))
 
     if config.algorithm == "levenshtein":
         try:
