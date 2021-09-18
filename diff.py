@@ -44,7 +44,7 @@ if __name__ == "__main__":
     except ModuleNotFoundError:
         argcomplete = None
 
-    parser = argparse.ArgumentParser(description="Diff MIPS, PPC or AArch64 assembly.")
+    parser = argparse.ArgumentParser(description="Diff MIPS, PPC, AArch64, or ARM32 assembly.")
 
     start_argument = parser.add_argument(
         "start",
@@ -200,7 +200,7 @@ if __name__ == "__main__":
         "--ignore-addr-diffs",
         dest="ignore_addr_diffs",
         action="store_true",
-        help="Ignore address differences. Currently only affects AArch64.",
+        help="Ignore address differences. Currently only affects AArch64 and ARM32.",
     )
     parser.add_argument(
         "-B",
@@ -505,6 +505,8 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
 def get_arch(arch_str: str) -> "ArchSettings":
     if arch_str == "mips":
         return MIPS_SETTINGS
+    if arch_str == "arm32":
+        return ARM32_SETTINGS
     if arch_str == "aarch64":
         return AARCH64_SETTINGS
     if arch_str == "ppc":
@@ -1367,6 +1369,22 @@ class DifferenceNormalizerAArch64(DifferenceNormalizer):
 
         return row
 
+class DifferenceNormalizerARM32(DifferenceNormalizer):
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+
+    def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
+        if self.config.ignore_addr_diffs:
+            row = self._normalize_bl(mnemonic, row)
+        return row
+
+    def _normalize_bl(self, mnemonic: str, row: str) -> str:
+        if mnemonic != "bl":
+            return row
+
+        row, _ = split_off_address(row)
+        return row + "<ignore>"
+
 
 @dataclass
 class ArchSettings:
@@ -1411,6 +1429,31 @@ MIPS_BRANCH_INSTRUCTIONS = MIPS_BRANCH_LIKELY_INSTRUCTIONS.union(
         "bc1f",
     }
 )
+
+ARM32_PREFIXES = {"b", "bl"}
+ARM32_CONDS = {
+    "",
+    "eq",
+    "ne",
+    "cs",
+    "cc",
+    "mi",
+    "pl",
+    "vs",
+    "vc",
+    "hi",
+    "ls",
+    "ge",
+    "lt",
+    "gt",
+    "le",
+    "al",
+}
+ARM32_SUFFIXES = {"", ".n", ".w"}
+ARM32_BRANCH_INSTRUCTIONS = {f"{prefix}{cond}{suffix}"
+    for prefix in ARM32_PREFIXES
+    for cond in ARM32_CONDS
+    for suffix in ARM32_SUFFIXES}
 
 AARCH64_BRANCH_INSTRUCTIONS = {
     "bl",
@@ -1475,6 +1518,23 @@ MIPS_SETTINGS = ArchSettings(
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"jal", "j"}),
+)
+
+ARM32_SETTINGS = ArchSettings(
+    re_int=re.compile(r"[0-9]+"),
+    re_comment=re.compile(r"(<.*?>|//.*$)"),
+    # Includes:
+    #   - General purpose registers: r0..13
+    #   - Frame pointer registers: lr (r14), pc (r15)
+    #   - VFP/NEON registers: s0..31, d0..31, q0..15, fpscr, fpexc, fpsid
+    # SP should not be in this list.
+    re_reg=re.compile(r"\$?\b([rq][0-9]|[rq]1[0-5]|pc|lr|[ds][12]?[0-9]|[ds]3[01]|fp(scr|exc|sid))\b"),
+    re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
+    re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
+    re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
+    branch_instructions=ARM32_BRANCH_INSTRUCTIONS,
+    instructions_with_address_immediates=ARM32_BRANCH_INSTRUCTIONS.union({"adr"}),
+    difference_normalizer=DifferenceNormalizerARM32,
 )
 
 AARCH64_SETTINGS = ArchSettings(
@@ -1599,6 +1659,12 @@ def process_ppc_reloc(row: str, prev: str) -> str:
     elif "R_PPC_EMB_SDA21" in row:
         # small data area
         pass
+    return before + repl + after
+
+
+def process_arm_reloc(row: str, prev: str, arch: ArchSettings) -> str:
+    before, imm, after = parse_relocated_line(prev)
+    repl = row.split()[-1]
     return before + repl + after
 
 
@@ -1744,6 +1810,8 @@ def process(dump: str, config: Config) -> List[Line]:
                 original = process_mips_reloc(reloc_row, original, arch)
             elif "R_PPC_" in reloc_row:
                 original = process_ppc_reloc(reloc_row, original)
+            elif "R_ARM_" in reloc_row:
+                original = process_arm_reloc(reloc_row, original, arch)
             else:
                 break
             i += 1
