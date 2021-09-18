@@ -1530,7 +1530,7 @@ ARM32_SETTINGS = ArchSettings(
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     branch_instructions=ARM32_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=AARCH64_BRANCH_INSTRUCTIONS.union({"adr"}),
+    instructions_with_address_immediates=ARM32_BRANCH_INSTRUCTIONS.union({"adr"}),
     difference_normalizer=DifferenceNormalizerARM32,
 )
 
