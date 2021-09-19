@@ -965,11 +965,10 @@ def serialize_data_references(references: List[Tuple[int, int, str]]) -> str:
 def maybe_get_objdump_source_flags(config: Config) -> List[str]:
     flags = []
 
-    if config.show_line_numbers or config.show_source or True:
+    if config.show_line_numbers or config.show_source:
         flags.append("--line-numbers")
 
-    config.source_old_binutils = True
-    if config.show_source or True:
+    if config.show_source:
         flags.append("--source")
 
         if not config.source_old_binutils:
