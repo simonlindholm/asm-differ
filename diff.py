@@ -120,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--source",
-        dest="source",
+        dest="show_source",
         action="store_true",
         help="Show source code (if possible). Only works with -o or -e.",
     )
@@ -380,7 +380,6 @@ class Config:
     # Build/objdump options
     diff_obj: bool
     make: bool
-    source: bool
     source_old_binutils: bool
     inlines: bool
     max_function_size_lines: int
@@ -394,6 +393,7 @@ class Config:
     compress: Optional[Compress]
     show_branches: bool
     show_line_numbers: bool
+    show_source: bool
     stop_jrra: bool
     ignore_large_imms: bool
     ignore_addr_diffs: bool
@@ -462,7 +462,6 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         # Build/objdump options
         diff_obj=args.diff_obj,
         make=args.make,
-        source=args.source or args.source_old_binutils,
         source_old_binutils=args.source_old_binutils,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
@@ -477,6 +476,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         compress=compress,
         show_branches=args.show_branches,
         show_line_numbers=show_line_numbers,
+        show_source=args.show_source or args.source_old_binutils,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
@@ -965,10 +965,11 @@ def serialize_data_references(references: List[Tuple[int, int, str]]) -> str:
 def maybe_get_objdump_source_flags(config: Config) -> List[str]:
     flags = []
 
-    if config.show_line_numbers or config.source:
+    if config.show_line_numbers or config.show_source or True:
         flags.append("--line-numbers")
 
-    if config.source:
+    config.source_old_binutils = True
+    if config.show_source or True:
         flags.append("--source")
 
         if not config.source_old_binutils:
@@ -1771,35 +1772,15 @@ def process(dump: str, config: Config) -> List[Line]:
             )
             break
 
-        # This regex is conservative, and assumes the file path does not contain "weird"
-        # characters like colons, tabs, or angle brackets.
-        if (
-            config.show_line_numbers
-            and row
-            and re.match(
+        if row and not re.match(r"^ +[0-9a-f]+:\t", row):
+            # This regex is conservative, and assumes the file path does not contain "weird"
+            # characters like colons, tabs, or angle brackets.
+            if re.match(
                 r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
-            )
-        ):
-            source_filename, _, tail = row.rpartition(":")
-            source_line_num = int(tail.partition(" ")[0])
-            if config.source:
-                source_lines.append(row)
-            continue
-
-        if config.source and not config.source_old_binutils and (row and row[0] != " "):
+            ):
+                source_filename, _, tail = row.rpartition(":")
+                source_line_num = int(tail.partition(" ")[0])
             source_lines.append(row)
-            continue
-
-        if (
-            config.source
-            and config.source_old_binutils
-            and (row and not re.match(r"^ +[0-9a-f]+:\t", row))
-        ):
-            source_lines.append(row)
-            continue
-
-        # `objdump --line-numbers` includes function markers, even without `--source`
-        if config.show_line_numbers and row and re.match(r"^[^ \t]+\(\):$", row):
             continue
 
         m_comment = re.search(arch.re_comment, row)
@@ -2134,7 +2115,7 @@ class Diff:
 
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
-    if config.source:
+    if config.show_source:
         import cxxfilt
     arch = config.arch
     fmt = config.formatter
@@ -2291,7 +2272,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             out1 = Text()
             out2 = out2.reformat(line_color2)
 
-        if config.source and line2 and line2.comment:
+        if config.show_source and line2 and line2.comment:
             out2 += f" {line2.comment}"
 
         def format_part(
@@ -2318,7 +2299,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
         part1 = format_part(out1, line1, line_color1, bts1, sc5)
         part2 = format_part(out2, line2, line_color2, bts2, sc6)
 
-        if line2:
+        if config.show_source and line2:
             for source_line in line2.source_lines:
                 line_format = BasicFormat.SOURCE_OTHER
                 if config.source_old_binutils:
@@ -2742,7 +2723,7 @@ def main() -> None:
         except ModuleNotFoundError as e:
             fail(MISSING_PREREQUISITES.format(e.name))
 
-    if config.source:
+    if config.show_source:
         try:
             import cxxfilt
         except ModuleNotFoundError as e:
