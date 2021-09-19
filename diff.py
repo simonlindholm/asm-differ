@@ -1310,7 +1310,7 @@ def dump_binary(
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
         end_addr = start_addr + config.max_function_size_bytes
-    objdump_flags = ["-Dz", "-bbinary", "-EB"]
+    objdump_flags = ["-Dz", "-bbinary"] + ["-EB" if config.arch.big_endian else "-EL"]
     flags1 = [
         f"--start-address={start_addr + config.base_shift}",
         f"--stop-address={end_addr + config.base_shift}",
@@ -1421,6 +1421,7 @@ class ArchSettings:
     arch_flags: List[str] = field(default_factory=list)
     branch_likely_instructions: Set[str] = field(default_factory=set)
     difference_normalizer: Type[DifferenceNormalizer] = DifferenceNormalizer
+    big_endian: Optional[bool] = True
 
 
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
@@ -1544,6 +1545,8 @@ MIPS_SETTINGS = ArchSettings(
     instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"jal", "j"}),
 )
 
+MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
+
 ARM32_SETTINGS = ArchSettings(
     name="arm32",
     re_int=re.compile(r"[0-9]+"),
@@ -1593,6 +1596,7 @@ PPC_SETTINGS = ArchSettings(
 
 ARCH_SETTINGS = [
     MIPS_SETTINGS,
+    MIPSEL_SETTINGS,
     ARM32_SETTINGS,
     AARCH64_SETTINGS,
     PPC_SETTINGS,
