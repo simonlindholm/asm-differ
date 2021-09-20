@@ -1774,7 +1774,7 @@ def process(dump: str, config: Config) -> List[Line]:
             )
             break
 
-        if row and not re.match(r"^ +[0-9a-f]+:\t", row):
+        if not re.match(r"^ +[0-9a-f]+:\t", row):
             # This regex is conservative, and assumes the file path does not contain "weird"
             # characters like colons, tabs, or angle brackets.
             if re.match(
