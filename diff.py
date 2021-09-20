@@ -1748,7 +1748,10 @@ def process(dump: str, config: Config) -> List[Line]:
         row = lines[i]
         i += 1
 
-        if config.diff_obj and (">:" in row or not row):
+        if not row:
+            continue
+
+        if re.match(r"^[0-9a-f]+ <.*>:$", row):
             continue
 
         if row.startswith("DATAREF"):
