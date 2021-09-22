@@ -488,7 +488,8 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
     if objdump_executable is not None:
         return objdump_executable
 
-    for objdump_cand in ["mips-linux-gnu-objdump", "mips64-elf-objdump"]:
+    objdump_candidates = ["mips-linux-gnu-objdump", "mips64-elf-objdump", "mips-elf-objdump"]
+    for objdump_cand in objdump_candidates:
         try:
             subprocess.check_call(
                 [objdump_cand, "--version"],
@@ -502,7 +503,7 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
             pass
 
     return fail(
-        "Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist, or configure objdump_executable."
+        f"Missing binutils; please ensure {' or '.join(objdump_candidates)} exists, or configure objdump_executable."
     )
 
 
