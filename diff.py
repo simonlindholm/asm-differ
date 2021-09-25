@@ -44,7 +44,9 @@ if __name__ == "__main__":
     except ModuleNotFoundError:
         argcomplete = None
 
-    parser = argparse.ArgumentParser(description="Diff MIPS, PPC, AArch64, or ARM32 assembly.")
+    parser = argparse.ArgumentParser(
+        description="Diff MIPS, PPC, AArch64, or ARM32 assembly."
+    )
 
     start_argument = parser.add_argument(
         "start",
@@ -118,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--source",
-        dest="source",
+        dest="show_source",
         action="store_true",
         help="Show source code (if possible). Only works with -o or -e.",
     )
@@ -378,7 +380,6 @@ class Config:
     # Build/objdump options
     diff_obj: bool
     make: bool
-    source: bool
     source_old_binutils: bool
     inlines: bool
     max_function_size_lines: int
@@ -392,6 +393,7 @@ class Config:
     compress: Optional[Compress]
     show_branches: bool
     show_line_numbers: bool
+    show_source: bool
     stop_jrra: bool
     ignore_large_imms: bool
     ignore_addr_diffs: bool
@@ -427,6 +429,8 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
 
 
 def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
+    arch = get_arch(project.arch_str)
+
     formatter: Formatter
     if args.format == "plain":
         formatter = PlainFormatter(column_width=args.column_width)
@@ -435,7 +439,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
     elif args.format == "html":
         formatter = HtmlFormatter()
     elif args.format == "json":
-        formatter = JsonFormatter(arch_str=project.arch_str)
+        formatter = JsonFormatter(arch_str=arch.name)
     else:
         raise ValueError(f"Unsupported --format: {args.format}")
 
@@ -454,11 +458,10 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         show_line_numbers = project.show_line_numbers_default
 
     return Config(
-        arch=get_arch(project.arch_str),
+        arch=arch,
         # Build/objdump options
         diff_obj=args.diff_obj,
         make=args.make,
-        source=args.source or args.source_old_binutils,
         source_old_binutils=args.source_old_binutils,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
@@ -473,6 +476,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         compress=compress,
         show_branches=args.show_branches,
         show_line_numbers=show_line_numbers,
+        show_source=args.show_source or args.source_old_binutils,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
@@ -484,7 +488,8 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
     if objdump_executable is not None:
         return objdump_executable
 
-    for objdump_cand in ["mips-linux-gnu-objdump", "mips64-elf-objdump"]:
+    objdump_candidates = ["mips-linux-gnu-objdump", "mips64-elf-objdump", "mips-elf-objdump"]
+    for objdump_cand in objdump_candidates:
         try:
             subprocess.check_call(
                 [objdump_cand, "--version"],
@@ -498,20 +503,15 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
             pass
 
     return fail(
-        "Missing binutils; please ensure mips-linux-gnu-objdump or mips64-elf-objdump exist, or configure objdump_executable."
+        f"Missing binutils; please ensure {' or '.join(objdump_candidates)} exists, or configure objdump_executable."
     )
 
 
 def get_arch(arch_str: str) -> "ArchSettings":
-    if arch_str == "mips":
-        return MIPS_SETTINGS
-    if arch_str == "arm32":
-        return ARM32_SETTINGS
-    if arch_str == "aarch64":
-        return AARCH64_SETTINGS
-    if arch_str == "ppc":
-        return PPC_SETTINGS
-    return fail(f"Unknown architecture: {arch_str}")
+    for settings in ARCH_SETTINGS:
+        if arch_str == settings.name:
+            return settings
+    raise ValueError(f"Unknown architecture: {arch_str}")
 
 
 BUFFER_CMD: List[str] = ["tail", "-c", str(10 ** 9)]
@@ -966,10 +966,10 @@ def serialize_data_references(references: List[Tuple[int, int, str]]) -> str:
 def maybe_get_objdump_source_flags(config: Config) -> List[str]:
     flags = []
 
-    if config.show_line_numbers or config.source:
+    if config.show_line_numbers or config.show_source:
         flags.append("--line-numbers")
 
-    if config.source:
+    if config.show_source:
         flags.append("--source")
 
         if not config.source_old_binutils:
@@ -998,17 +998,37 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
             fail("** Try using --source-old-binutils instead of --source **")
         raise e
 
-    if restrict is not None:
-        out = restrict_to_function(out, restrict)
-
+    obj_data: Optional[bytes] = None
     if config.diff_obj:
         with open(target, "rb") as f:
-            data = f.read()
-        out = serialize_data_references(parse_elf_data_references(data)) + out
+            obj_data = f.read()
+
+    return preprocess_objdump_out(restrict, obj_data, out)
+
+
+def preprocess_objdump_out(
+    restrict: Optional[str], obj_data: Optional[bytes], objdump_out: str
+) -> str:
+    """
+    Preprocess the output of objdump into a format that `process()` expects.
+    This format is suitable for saving to disk with `--write-asm`.
+
+    - Optionally filter the output to a single function (`restrict`)
+    - Otherwise, strip objdump header (7 lines)
+    - Prepend .data references ("DATAREF" lines) when working with object files
+    """
+    out = objdump_out
+
+    if restrict is not None:
+        out = restrict_to_function(out, restrict)
     else:
         for i in range(7):
             out = out[out.find("\n") + 1 :]
         out = out.rstrip("\n")
+
+    if obj_data:
+        out = serialize_data_references(parse_elf_data_references(obj_data)) + out
+
     return out
 
 
@@ -1291,7 +1311,7 @@ def dump_binary(
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
         end_addr = start_addr + config.max_function_size_bytes
-    objdump_flags = ["-Dz", "-bbinary", "-EB"]
+    objdump_flags = ["-Dz", "-bbinary"] + ["-EB" if config.arch.big_endian else "-EL"]
     flags1 = [
         f"--start-address={start_addr + config.base_shift}",
         f"--stop-address={end_addr + config.base_shift}",
@@ -1489,6 +1509,7 @@ class DifferenceNormalizerAArch64(DifferenceNormalizer):
 
         return row
 
+
 class DifferenceNormalizerARM32(DifferenceNormalizer):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
@@ -1507,6 +1528,7 @@ class DifferenceNormalizerARM32(DifferenceNormalizer):
 
 @dataclass
 class ArchSettings:
+    name: str
     re_int: Pattern[str]
     re_comment: Pattern[str]
     re_reg: Pattern[str]
@@ -1521,6 +1543,7 @@ class ArchSettings:
     branch_likely_instructions: Set[str] = field(default_factory=set)
     difference_normalizer: Type[DifferenceNormalizer] = DifferenceNormalizer
     reloc_proc: Type[RelocationProcessor] = RelocationProcessor
+    big_endian: Optional[bool] = True
 
 
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
@@ -1571,10 +1594,12 @@ ARM32_CONDS = {
     "al",
 }
 ARM32_SUFFIXES = {"", ".n", ".w"}
-ARM32_BRANCH_INSTRUCTIONS = {f"{prefix}{cond}{suffix}"
+ARM32_BRANCH_INSTRUCTIONS = {
+    f"{prefix}{cond}{suffix}"
     for prefix in ARM32_PREFIXES
     for cond in ARM32_CONDS
-    for suffix in ARM32_SUFFIXES}
+    for suffix in ARM32_SUFFIXES
+}
 
 AARCH64_BRANCH_INSTRUCTIONS = {
     "bl",
@@ -1629,6 +1654,7 @@ PPC_BRANCH_INSTRUCTIONS = {
 }
 
 MIPS_SETTINGS = ArchSettings(
+    name="mips",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
@@ -1644,7 +1670,11 @@ MIPS_SETTINGS = ArchSettings(
     instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"jal", "j"}),
     reloc_proc=RelocationProcessorMIPS,
 )
+
+MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
+
 ARM32_SETTINGS = ArchSettings(
+    name="arm32",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*?>|//.*$)"),
     # Includes:
@@ -1652,7 +1682,9 @@ ARM32_SETTINGS = ArchSettings(
     #   - Frame pointer registers: lr (r14), pc (r15)
     #   - VFP/NEON registers: s0..31, d0..31, q0..15, fpscr, fpexc, fpsid
     # SP should not be in this list.
-    re_reg=re.compile(r"\$?\b([rq][0-9]|[rq]1[0-5]|pc|lr|[ds][12]?[0-9]|[ds]3[01]|fp(scr|exc|sid))\b"),
+    re_reg=re.compile(
+        r"\$?\b([rq][0-9]|[rq]1[0-5]|pc|lr|[ds][12]?[0-9]|[ds]3[01]|fp(scr|exc|sid))\b"
+    ),
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
@@ -1664,6 +1696,7 @@ ARM32_SETTINGS = ArchSettings(
 )
 
 AARCH64_SETTINGS = ArchSettings(
+    name="aarch64",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*?>|//.*$)"),
     # GPRs and FP registers: X0-X30, W0-W30, [DSHQ]0..31
@@ -1680,6 +1713,7 @@ AARCH64_SETTINGS = ArchSettings(
 )
 
 PPC_SETTINGS = ArchSettings(
+    name="ppc",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*?>|//.*$)"),
     re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
@@ -1691,6 +1725,14 @@ PPC_SETTINGS = ArchSettings(
     instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
     reloc_proc=RelocationProcessorPPC,
 )
+
+ARCH_SETTINGS = [
+    MIPS_SETTINGS,
+    MIPSEL_SETTINGS,
+    ARM32_SETTINGS,
+    AARCH64_SETTINGS,
+    PPC_SETTINGS,
+]
 
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
@@ -1766,7 +1808,10 @@ def process(dump: str, config: Config) -> List[Line]:
         row = lines[i]
         i += 1
 
-        if config.diff_obj and (">:" in row or not row):
+        if not row:
+            continue
+
+        if re.match(r"^[0-9a-f]+ <.*>:$", row):
             continue
 
         if row.startswith("DATAREF"):
@@ -1789,35 +1834,15 @@ def process(dump: str, config: Config) -> List[Line]:
             )
             break
 
-        # This regex is conservative, and assumes the file path does not contain "weird"
-        # characters like colons, tabs, or angle brackets.
-        if (
-            config.show_line_numbers
-            and row
-            and re.match(
+        if not re.match(r"^ +[0-9a-f]+:\t", row):
+            # This regex is conservative, and assumes the file path does not contain "weird"
+            # characters like colons, tabs, or angle brackets.
+            if re.match(
                 r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
-            )
-        ):
-            source_filename, _, tail = row.rpartition(":")
-            source_line_num = int(tail.partition(" ")[0])
-            if config.source:
-                source_lines.append(row)
-            continue
-
-        if config.source and not config.source_old_binutils and (row and row[0] != " "):
+            ):
+                source_filename, _, tail = row.rpartition(":")
+                source_line_num = int(tail.partition(" ")[0])
             source_lines.append(row)
-            continue
-
-        if (
-            config.source
-            and config.source_old_binutils
-            and (row and not re.match(r"^ +[0-9a-f]+:\t", row))
-        ):
-            source_lines.append(row)
-            continue
-
-        # `objdump --line-numbers` includes function markers, even without `--source`
-        if config.show_line_numbers and row and re.match(r"^[^ \t]+\(\):$", row):
             continue
 
         m_comment = re.search(arch.re_comment, row)
@@ -2170,7 +2195,7 @@ class Diff:
 
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
-    if config.source:
+    if config.show_source:
         import cxxfilt
     arch = config.arch
     fmt = config.formatter
@@ -2327,7 +2352,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             out1 = Text()
             out2 = out2.reformat(line_color2)
 
-        if config.source and line2 and line2.comment:
+        if config.show_source and line2 and line2.comment:
             out2 += f" {line2.comment}"
 
         def format_part(
@@ -2354,7 +2379,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
         part1 = format_part(out1, line1, line_color1, bts1, sc5)
         part2 = format_part(out2, line2, line_color2, bts2, sc6)
 
-        if line2:
+        if config.show_source and line2:
             for source_line in line2.source_lines:
                 line_format = BasicFormat.SOURCE_OTHER
                 if config.source_old_binutils:
@@ -2769,7 +2794,10 @@ def main() -> None:
     diff_settings.apply(settings, args)  # type: ignore
     project = create_project_settings(settings)
 
-    config = create_config(args, project)
+    try:
+        config = create_config(args, project)
+    except ValueError as e:
+        fail(str(e))
 
     if config.algorithm == "levenshtein":
         try:
@@ -2777,7 +2805,7 @@ def main() -> None:
         except ModuleNotFoundError as e:
             fail(MISSING_PREREQUISITES.format(e.name))
 
-    if config.source:
+    if config.show_source:
         try:
             import cxxfilt
         except ModuleNotFoundError as e:
