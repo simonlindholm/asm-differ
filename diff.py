@@ -1343,7 +1343,7 @@ class RelocationProcessorMIPS(RelocationProcessor):
         # Remove previous line in order to replace it with reloc-processed line
         prevLineIdx = len(lines) - 1
         prevLine = lines.pop(prevLineIdx)
-        return self._process_mips_reloc(curLine, prevLine, self.config.arch)
+        return self._process_mips_reloc(curLine, prevLine.original, self.config.arch)
 
     def _process_mips_reloc(self, row: str, prev: str, arch: "ArchSettings") -> str:
         before, imm, after = parse_relocated_line(prev)
@@ -1389,7 +1389,7 @@ class RelocationProcessorPPC(RelocationProcessor):
         # Remove previous line in order to replace it with reloc-processed line
         prevLineIdx = len(lines) - 1
         prevLine = lines.pop(prevLineIdx)
-        return self._process_ppc_reloc(self, curLine, prevLine)
+        return self._process_ppc_reloc(curLine, prevLine.original)
 
     def _process_ppc_reloc(self, row: str, prev: str) -> str:
         assert any(
