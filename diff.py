@@ -488,7 +488,11 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
     if objdump_executable is not None:
         return objdump_executable
 
-    objdump_candidates = ["mips-linux-gnu-objdump", "mips64-elf-objdump", "mips-elf-objdump"]
+    objdump_candidates = [
+        "mips-linux-gnu-objdump",
+        "mips64-elf-objdump",
+        "mips-elf-objdump",
+    ]
     for objdump_cand in objdump_candidates:
         try:
             subprocess.check_call(
@@ -1323,27 +1327,29 @@ def dump_binary(
         (objdump_flags + flags2, project.myimg, None),
     )
 
+
 RELOC_PLACEHOLDER = "RELOCATION_PLACEHOLDER-OFFSET_{}"
 RELOC_PLACEHOLDER_PATTERN = re.compile(r"RELOCATION_PLACEHOLDER-OFFSET_([a-zA-z0-9]+)")
+
 
 class RelocationProcessor:
     def __init__(self, config: Config) -> None:
         self.config = config
 
     # The base class is a no-op.
-    def process(self, curLine: str, lines: List["Line"]) -> Optional[str]:
-        return curLine
+    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
+        return cur_line
 
 
 class RelocationProcessorMIPS(RelocationProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-    def process(self, curLine: str, lines: List["Line"]) -> Optional[str]:
+    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
         # Remove previous line in order to replace it with reloc-processed line
-        prevLineIdx = len(lines) - 1
-        prevLine = lines.pop(prevLineIdx)
-        return self._process_mips_reloc(curLine, prevLine.original, self.config.arch)
+        prev_line_idx = len(lines) - 1
+        prev_line = lines.pop(prev_line_idx)
+        return self._process_mips_reloc(cur_line, prev_line.original, self.config.arch)
 
     def _process_mips_reloc(self, row: str, prev: str, arch: "ArchSettings") -> str:
         before, imm, after = parse_relocated_line(prev)
@@ -1385,11 +1391,11 @@ class RelocationProcessorPPC(RelocationProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-    def process(self, curLine: str, lines: List["Line"]) -> Optional[str]:
+    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
         # Remove previous line in order to replace it with reloc-processed line
-        prevLineIdx = len(lines) - 1
-        prevLine = lines.pop(prevLineIdx)
-        return self._process_ppc_reloc(curLine, prevLine.original)
+        prev_line_idx = len(lines) - 1
+        prev_line = lines.pop(prev_line_idx)
+        return self._process_ppc_reloc(cur_line, prev_line.original)
 
     def _process_ppc_reloc(self, row: str, prev: str) -> str:
         assert any(
@@ -1426,18 +1432,18 @@ class RelocationProcessorARM32(RelocationProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-    def process(self, curLine: str, lines: List["Line"]) -> Optional[str]:
-        pool_match = re.search(ARM32_LOAD_POOL_PATTERN, curLine)
+    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
+        pool_match = re.search(ARM32_LOAD_POOL_PATTERN, cur_line)
         if pool_match:
-            offset = pool_match.group(3).split(' ')[0][1:]
+            offset = pool_match.group(3).split(" ")[0][1:]
             repl = RELOC_PLACEHOLDER.format(offset)
             return pool_match.group(1) + repl
 
         # Remove previous line in order to replace it with reloc-processed line
-        prevLineIdx = len(lines) - 1
-        prevLine = lines.pop(prevLineIdx)
-        return self._process_branch_reloc(curLine, prevLine.original)
-        
+        prev_line_idx = len(lines) - 1
+        prev_line = lines.pop(prev_line_idx)
+        return self._process_branch_reloc(cur_line, prev_line.original)
+
     def _process_branch_reloc(self, row: str, prev: str) -> str:
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1]
@@ -1525,6 +1531,7 @@ class DifferenceNormalizerARM32(DifferenceNormalizer):
 
         row, _ = split_off_address(row)
         return row + "<ignore>"
+
 
 @dataclass
 class ArchSettings:
@@ -1688,7 +1695,9 @@ ARM32_SETTINGS = ArchSettings(
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
-    re_reloc=re.compile("|".join(f"({e})" for e in ["R_ARM_", ARM32_LOAD_POOL_PATTERN])),
+    re_reloc=re.compile(
+        "|".join(f"({e})" for e in ["R_ARM_", ARM32_LOAD_POOL_PATTERN])
+    ),
     branch_instructions=ARM32_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=ARM32_BRANCH_INSTRUCTIONS.union({"adr"}),
     difference_normalizer=DifferenceNormalizerARM32,
@@ -1952,6 +1961,7 @@ def process(dump: str, config: Config) -> List[Line]:
 def post_process(lines: List[Line]):
     post_process_relocations(lines)
 
+
 def post_process_relocations(lines: List[Line]):
     for line in lines:
         reloc_match = re.search(RELOC_PLACEHOLDER_PATTERN, line.original)
@@ -1965,9 +1975,11 @@ def post_process_relocations(lines: List[Line]):
         value = line_original.split()[1]
 
         # Replace relocation placeholder with value
-        replaced = re.sub(RELOC_PLACEHOLDER_PATTERN, 
-                          f"={value} ({line_number})", line.original)
+        replaced = re.sub(
+            RELOC_PLACEHOLDER_PATTERN, f"={value} ({line_number})", line.original
+        )
         line.original = replaced
+
 
 def get_line(lines: List[Line], line_number: int) -> Optional[Line]:
     for line in lines:
