@@ -2616,7 +2616,7 @@ class Display:
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
         output = self.config.formatter.table(meta, diff_lines)
         refresh_key = (
-            [[col.key2 for col in x[1:]] for x in diff_lines],
+            [line.key2 for line in diff_output.lines],
             diff_output.score,
         )
         return (output, refresh_key)
