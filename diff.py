@@ -488,7 +488,11 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
     if objdump_executable is not None:
         return objdump_executable
 
-    objdump_candidates = ["mips-linux-gnu-objdump", "mips64-elf-objdump", "mips-elf-objdump"]
+    objdump_candidates = [
+        "mips-linux-gnu-objdump",
+        "mips64-elf-objdump",
+        "mips-elf-objdump",
+    ]
     for objdump_cand in objdump_candidates:
         try:
             subprocess.check_call(
@@ -2376,6 +2380,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             )
         )
 
+    output = output[config.skip_lines :]
     return Diff(lines=output, score=score)
 
 
@@ -2609,7 +2614,6 @@ class Display:
             self.last_diff_output = diff_output
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
-        diff_lines = diff_lines[self.config.skip_lines :]
         output = self.config.formatter.table(meta, diff_lines)
         refresh_key = (
             [[col.key2 for col in x[1:]] for x in diff_lines],
