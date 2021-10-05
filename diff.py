@@ -1641,6 +1641,11 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
 
 
 def process_mips_reloc(row: str, prev: str, arch: ArchSettings) -> str:
+    if "R_MIPS_NONE" in row:
+        # GNU as emits no-op relocations immediately after real ones when
+        # assembling with -mabi=64. Return without trying to parse 'imm' as an
+        # integer.
+        return prev
     before, imm, after = parse_relocated_line(prev)
     repl = row.split()[-1]
     if imm != "0":
