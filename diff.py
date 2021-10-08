@@ -1328,30 +1328,20 @@ def dump_binary(
     )
 
 
-RELOC_PLACEHOLDER = "RELOCATION_PLACEHOLDER-OFFSET_{}"
-RELOC_PLACEHOLDER_PATTERN = re.compile(r"RELOCATION_PLACEHOLDER-OFFSET_([a-zA-z0-9]+)")
-
-
 class RelocationProcessor:
     def __init__(self, config: Config) -> None:
         self.config = config
 
     # The base class is a no-op.
-    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
-        return cur_line
+    def process(self, row: str, prev: str, arch: "ArchSettings") -> str:
+        return prev
 
 
 class RelocationProcessorMIPS(RelocationProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
-        # Remove previous line in order to replace it with reloc-processed line
-        prev_line_idx = len(lines) - 1
-        prev_line = lines.pop(prev_line_idx)
-        return self._process_mips_reloc(cur_line, prev_line.original, self.config.arch)
-
-    def _process_mips_reloc(self, row: str, prev: str, arch: "ArchSettings") -> str:
+    def process(self, row: str, prev: str, arch: "ArchSettings") -> str:
         if "R_MIPS_NONE" in row:
             # GNU as emits no-op relocations immediately after real ones when
             # assembling with -mabi=64. Return without trying to parse 'imm' as an
@@ -1396,13 +1386,7 @@ class RelocationProcessorPPC(RelocationProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
-        # Remove previous line in order to replace it with reloc-processed line
-        prev_line_idx = len(lines) - 1
-        prev_line = lines.pop(prev_line_idx)
-        return self._process_ppc_reloc(cur_line, prev_line.original)
-
-    def _process_ppc_reloc(self, row: str, prev: str) -> str:
+    def process(self, row: str, prev: str, arch: "ArchSettings") -> str:
         assert any(
             r in row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
         ), f"unknown relocation type '{row}' for line '{prev}'"
@@ -1437,22 +1421,19 @@ class RelocationProcessorARM32(RelocationProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-    def process(self, cur_line: str, lines: List["Line"]) -> Optional[str]:
-        pool_match = re.search(ARM32_LOAD_POOL_PATTERN, cur_line)
-        if pool_match:
-            offset = pool_match.group(3).split(" ")[0][1:]
-            repl = RELOC_PLACEHOLDER.format(offset)
-            return pool_match.group(1) + repl
-
-        # Remove previous line in order to replace it with reloc-processed line
-        prev_line_idx = len(lines) - 1
-        prev_line = lines.pop(prev_line_idx)
-        return self._process_branch_reloc(cur_line, prev_line.original)
-
-    def _process_branch_reloc(self, row: str, prev: str) -> str:
+    def process(self, row: str, prev: str, arch: "ArchSettings") -> str:
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1]
         return before + repl + after
+
+
+DATA_POOL_PLACEHOLDER = "DATA_POOL_PLACEHOLDER-OFFSET_{}"
+DATA_POOL_PLACEHOLDER_PATTERN = re.compile(
+    r"DATA_POOL_PLACEHOLDER-OFFSET_([a-zA-z0-9]+)"
+)
+
+# Example: "ldr r4, [pc, #56]    ; (4c <AddCoins+0x4c>)"
+ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*;\s*)(\([a-fA-F0-9]+.*\))"
 
 
 class DifferenceNormalizer:
@@ -1528,6 +1509,7 @@ class DifferenceNormalizerARM32(DifferenceNormalizer):
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
         if self.config.ignore_addr_diffs:
             row = self._normalize_bl(mnemonic, row)
+        row = self._normalize_data_pool(row)
         return row
 
     def _normalize_bl(self, mnemonic: str, row: str) -> str:
@@ -1536,6 +1518,57 @@ class DifferenceNormalizerARM32(DifferenceNormalizer):
 
         row, _ = split_off_address(row)
         return row + "<ignore>"
+
+    def _normalize_data_pool(self, row: str) -> str:
+        pool_match = re.search(ARM32_LOAD_POOL_PATTERN, row)
+        if pool_match:
+            offset = pool_match.group(3).split(" ")[0][1:]
+            repl = DATA_POOL_PLACEHOLDER.format(offset)
+            return pool_match.group(1) + repl
+        return row
+
+
+class PostProcessor:
+    def __init__(self, config: Config) -> None:
+        self.config = config
+
+    def post_process(self, lines: List["Line"]) -> None:
+        return
+
+
+class PostProcessorARM32(PostProcessor):
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+        self.lines_by_line_number = {}
+
+    def post_process(self, lines: List["Line"]) -> None:
+        self.lines_by_line_number = self.extract_lines_by_line_number_(lines)
+        for line in lines:
+            reloc_match = re.search(
+                DATA_POOL_PLACEHOLDER_PATTERN, line.normalized_original
+            )
+            if reloc_match is None:
+                continue
+
+            # Get value at relocation
+            reloc = reloc_match.group(0)
+            line_number = re.search(DATA_POOL_PLACEHOLDER_PATTERN, reloc).group(1)
+            line_original = self.lines_by_line_number[int(line_number, 16)].original
+            value = line_original.split()[1]
+
+            # Replace relocation placeholder with value
+            replaced = re.sub(
+                DATA_POOL_PLACEHOLDER_PATTERN,
+                f"={value} ({line_number})",
+                line.normalized_original,
+            )
+            line.original = replaced
+
+    def extract_lines_by_line_number_(self, lines: List["Line"]) -> Dict[int, "Line"]:
+        lines_by_line_number = {}
+        for line in lines:
+            lines_by_line_number[line.line_num] = line
+        return lines_by_line_number
 
 
 @dataclass
@@ -1555,6 +1588,7 @@ class ArchSettings:
     branch_likely_instructions: Set[str] = field(default_factory=set)
     difference_normalizer: Type[DifferenceNormalizer] = DifferenceNormalizer
     reloc_proc: Type[RelocationProcessor] = RelocationProcessor
+    post_proc: Type[PostProcessor] = PostProcessor
     big_endian: Optional[bool] = True
 
 
@@ -1637,8 +1671,6 @@ AARCH64_BRANCH_INSTRUCTIONS = {
     "tbz",
     "tbnz",
 }
-# Example: "ldr r4, [pc, #56]    ; (4c <AddCoins+0x4c>)"
-ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*;\s*)(\([a-fA-F0-9]+.*\))"
 
 PPC_BRANCH_INSTRUCTIONS = {
     "b",
@@ -1700,12 +1732,11 @@ ARM32_SETTINGS = ArchSettings(
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
-    re_reloc=re.compile(
-        "|".join(f"({e})" for e in ["R_ARM_", ARM32_LOAD_POOL_PATTERN])
-    ),
+    re_reloc=re.compile(r"R_ARM_"),
     branch_instructions=ARM32_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=ARM32_BRANCH_INSTRUCTIONS.union({"adr"}),
     difference_normalizer=DifferenceNormalizerARM32,
+    post_proc=PostProcessorARM32,
     reloc_proc=RelocationProcessorARM32,
 )
 
@@ -1807,6 +1838,7 @@ def process(dump: str, config: Config) -> List[Line]:
     arch = config.arch
     normalizer = arch.difference_normalizer(config)
     reloc_processor = arch.reloc_proc(config)
+    post_processor = arch.post_proc(config)
     skip_next = False
     source_lines = []
     source_filename = None
@@ -1898,9 +1930,11 @@ def process(dump: str, config: Config) -> List[Line]:
         # transforming 'row' into a coarser version that ignores registers and
         # immediates.
         original = row
-        if re.search(arch.re_reloc, row):
-            processed_row = reloc_processor.process(row, output)
-            original = processed_row if processed_row else row
+        if i < len(lines):
+            reloc_row = lines[i]
+            if re.search(arch.re_reloc, reloc_row):
+                original = reloc_processor.process(reloc_row, original, arch)
+                i += 1
 
         normalized_original = normalizer.normalize(mnemonic, original)
 
@@ -1958,39 +1992,8 @@ def process(dump: str, config: Config) -> List[Line]:
         elif stop_after_delay_slot:
             break
 
+    post_processor.post_process(output)
     return output
-
-
-# Post-process the asm lines in-place. Includes:
-#  - De-referencing relocations
-def post_process(lines: List[Line]):
-    post_process_relocations(lines)
-
-
-def post_process_relocations(lines: List[Line]):
-    for line in lines:
-        reloc_match = re.search(RELOC_PLACEHOLDER_PATTERN, line.original)
-        if reloc_match is None:
-            continue
-
-        # Get value at relocation
-        reloc = reloc_match.group(0)
-        line_number = re.search(RELOC_PLACEHOLDER_PATTERN, reloc).group(1)
-        line_original = get_line(lines, int(line_number, 16)).original
-        value = line_original.split()[1]
-
-        # Replace relocation placeholder with value
-        replaced = re.sub(
-            RELOC_PLACEHOLDER_PATTERN, f"={value} ({line_number})", line.original
-        )
-        line.original = replaced
-
-
-def get_line(lines: List[Line], line_number: int) -> Optional[Line]:
-    for line in lines:
-        if line.line_num == line_number:
-            return line
-    return None
 
 
 def normalize_imms(row: str, arch: ArchSettings) -> str:
@@ -2688,7 +2691,6 @@ class Display:
     def __init__(self, basedump: str, mydump: str, config: Config) -> None:
         self.config = config
         self.base_lines = process(basedump, config)
-        post_process(self.base_lines)
         self.mydump = mydump
         self.emsg = None
         self.last_refresh_key = None
@@ -2699,7 +2701,6 @@ class Display:
             return (self.emsg, self.emsg)
 
         my_lines = process(self.mydump, self.config)
-        post_process(my_lines)
         diff_output = do_diff(self.base_lines, my_lines, self.config)
         last_diff_output = self.last_diff_output or diff_output
         if self.config.threeway != "base" or not self.last_diff_output:
