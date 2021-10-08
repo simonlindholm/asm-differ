@@ -1352,6 +1352,11 @@ class RelocationProcessorMIPS(RelocationProcessor):
         return self._process_mips_reloc(cur_line, prev_line.original, self.config.arch)
 
     def _process_mips_reloc(self, row: str, prev: str, arch: "ArchSettings") -> str:
+        if "R_MIPS_NONE" in row:
+            # GNU as emits no-op relocations immediately after real ones when
+            # assembling with -mabi=64. Return without trying to parse 'imm' as an
+            # integer.
+            return prev
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1]
         if imm != "0":
@@ -2465,6 +2470,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             )
         )
 
+    output = output[config.skip_lines :]
     return Diff(lines=output, score=score)
 
 
@@ -2700,10 +2706,9 @@ class Display:
             self.last_diff_output = diff_output
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
-        diff_lines = diff_lines[self.config.skip_lines :]
         output = self.config.formatter.table(meta, diff_lines)
         refresh_key = (
-            [[col.key2 for col in x[1:]] for x in diff_lines],
+            [line.key2 for line in diff_output.lines],
             diff_output.score,
         )
         return (output, refresh_key)
