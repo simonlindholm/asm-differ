@@ -1431,9 +1431,6 @@ class ArchSettings:
     big_endian: Optional[bool] = True
     delay_slot_instructions: Set[str] = field(default_factory=set)
 
-    def has_delay_slot(self, mnemonic: str) -> bool:
-        return mnemonic in self.delay_slot_instructions
-
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "beql",
     "bnel",
@@ -2133,12 +2130,12 @@ class Diff:
     max_score: int
 
 
-def get_trim_point(lines: List[Line], arch_settings: ArchSettings) -> bool:
-    for index, line in enumerate(reversed(lines)):
+def trim_nops(lines: List[Line], arch: ArchSettings) -> List[Line]:
+    for index, line in reversed(list(enumerate(lines))):
         rindex = len(lines) - index - 1
-        if line.mnemonic != "nop" or arch_settings.has_delay_slot(lines[rindex - 1].mnemonic):
-            return rindex + 1
-    return 0
+        if line.mnemonic != "nop" or (rindex > 0 and lines[rindex - 1].mnemonic in arch.delay_slot_instructions):
+            return lines[:rindex + 1]
+    return []
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.show_source:
@@ -2167,8 +2164,8 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                     btset.add(bt)
                     sc(str(bt))
 
-    lines1 = lines1[:get_trim_point(lines1, config.arch)]
-    lines2 = lines2[:get_trim_point(lines2, config.arch)]
+    lines1 = trim_nops(lines1, arch)
+    lines2 = trim_nops(lines2, arch)
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
     score = score_diff_lines(diffed_lines, config)
