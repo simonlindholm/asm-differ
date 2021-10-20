@@ -1429,7 +1429,10 @@ class ArchSettings:
     branch_likely_instructions: Set[str] = field(default_factory=set)
     difference_normalizer: Type[DifferenceNormalizer] = DifferenceNormalizer
     big_endian: Optional[bool] = True
+    delay_slot_instructions: Set[str] = field(default_factory=set)
 
+    def has_delay_slot(self, mnemonic: str) -> bool:
+        return mnemonic in self.delay_slot_instructions
 
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "beql",
@@ -1550,6 +1553,7 @@ MIPS_SETTINGS = ArchSettings(
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"jal", "j"}),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr"}),
 )
 
 MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
@@ -2129,8 +2133,12 @@ class Diff:
     max_score: int
 
 
-def is_nops(lines: List[Line]) -> bool:
-    return all(line.mnemonic == "nop" for line in lines)
+def get_trim_point(lines: List[Line], arch_settings: ArchSettings) -> bool:
+    for index, line in enumerate(reversed(lines)):
+        rindex = len(lines) - index - 1
+        if line.mnemonic != "nop" or arch_settings.has_delay_slot(lines[rindex - 1].mnemonic):
+            return rindex + 1
+    return 0
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.show_source:
@@ -2159,10 +2167,8 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                     btset.add(bt)
                     sc(str(bt))
 
-    if len(lines1) > len(lines2) and is_nops(lines1[len(lines2):]):
-        lines1 = lines1[:len(lines2)]
-    elif len(lines1) < len(lines2) and is_nops(lines2[len(lines1):]):
-        lines2 = lines2[:len(lines1)]
+    lines1 = lines1[:get_trim_point(lines1, config.arch)]
+    lines2 = lines2[:get_trim_point(lines2, config.arch)]
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
     score = score_diff_lines(diffed_lines, config)
