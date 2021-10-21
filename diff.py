@@ -640,6 +640,7 @@ class Text:
 class TableMetadata:
     headers: Tuple[Text, ...]
     current_score: int
+    max_score: int
     previous_score: Optional[int]
 
 
@@ -832,6 +833,7 @@ class JsonFormatter(Formatter):
             for h, name in zip(meta.headers, ("base", "current", "previous"))
         }
         output["current_score"] = meta.current_score
+        output["max_score"] = meta.max_score
         if meta.previous_score is not None:
             output["previous_score"] = meta.previous_score
         output_rows: List[Dict[str, Any]] = []
@@ -1427,7 +1429,7 @@ class ArchSettings:
     branch_likely_instructions: Set[str] = field(default_factory=set)
     difference_normalizer: Type[DifferenceNormalizer] = DifferenceNormalizer
     big_endian: Optional[bool] = True
-
+    delay_slot_instructions: Set[str] = field(default_factory=set)
 
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "beql",
@@ -1547,6 +1549,7 @@ MIPS_SETTINGS = ArchSettings(
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"jal", "j"}),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr"}),
 )
 
 MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
@@ -2123,7 +2126,14 @@ class OutputLine:
 class Diff:
     lines: List[OutputLine]
     score: int
+    max_score: int
 
+
+def trim_nops(lines: List[Line], arch: ArchSettings) -> List[Line]:
+    lines = lines[:]
+    while lines and lines[-1].mnemonic == "nop" and (len(lines) == 1 or lines[-2].mnemonic not in arch.delay_slot_instructions):
+        lines.pop()
+    return lines
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.show_source:
@@ -2152,8 +2162,12 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                     btset.add(bt)
                     sc(str(bt))
 
+    lines1 = trim_nops(lines1, arch)
+    lines2 = trim_nops(lines2, arch)
+
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
     score = score_diff_lines(diffed_lines, config)
+    max_score = len(lines1) * config.penalty_deletion
 
     line_num_base = -1
     line_num_offset = 0
@@ -2385,7 +2399,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
         )
 
     output = output[config.skip_lines :]
-    return Diff(lines=output, score=score)
+    return Diff(lines=output, score=score, max_score=max_score)
 
 
 def chunk_diff_lines(
@@ -2461,6 +2475,7 @@ def align_diffs(
                 Text(f"{padding}PREVIOUS ({old_diff.score})"),
             ),
             current_score=new_diff.score,
+            max_score=new_diff.max_score,
             previous_score=old_diff.score,
         )
         old_chunks = chunk_diff_lines(old_diff.lines)
@@ -2504,6 +2519,7 @@ def align_diffs(
                 Text(f"{padding}CURRENT ({new_diff.score})"),
             ),
             current_score=new_diff.score,
+            max_score=new_diff.max_score,
             previous_score=None,
         )
         diff_lines = [(line, line) for line in new_diff.lines]
