@@ -2131,11 +2131,11 @@ class Diff:
 
 
 def trim_nops(lines: List[Line], arch: ArchSettings) -> List[Line]:
-    for index, line in reversed(list(enumerate(lines))):
-        rindex = len(lines) - index - 1
-        if line.mnemonic != "nop" or (rindex > 0 and lines[rindex - 1].mnemonic in arch.delay_slot_instructions):
-            return lines[:rindex + 1]
-    return []
+    while lines:
+        if lines[-1].mnemonic != "nop" or (len(lines) > 1 and lines[-2].mnemonic in arch.delay_slot_instructions):
+            return lines
+        lines.pop()
+    return lines
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.show_source:
