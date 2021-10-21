@@ -2131,9 +2131,8 @@ class Diff:
 
 
 def trim_nops(lines: List[Line], arch: ArchSettings) -> List[Line]:
-    while lines:
-        if lines[-1].mnemonic != "nop" or (len(lines) > 1 and lines[-2].mnemonic in arch.delay_slot_instructions):
-            return lines
+    lines = lines[:]
+    while lines and lines[-1].mnemonic == "nop" and (len(lines) == 1 or lines[-2].mnemonic not in arch.delay_slot_instructions):
         lines.pop()
     return lines
 
