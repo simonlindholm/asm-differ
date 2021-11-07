@@ -640,6 +640,7 @@ class Text:
 class TableMetadata:
     headers: Tuple[Text, ...]
     current_score: int
+    max_score: int
     previous_score: Optional[int]
 
 
@@ -832,6 +833,7 @@ class JsonFormatter(Formatter):
             for h, name in zip(meta.headers, ("base", "current", "previous"))
         }
         output["current_score"] = meta.current_score
+        output["max_score"] = meta.max_score
         if meta.previous_score is not None:
             output["previous_score"] = meta.previous_score
         output_rows: List[Dict[str, Any]] = []
@@ -1590,7 +1592,7 @@ class ArchSettings:
     reloc_proc: Type[RelocationProcessor] = RelocationProcessor
     post_proc: Type[PostProcessor] = PostProcessor
     big_endian: Optional[bool] = True
-
+    delay_slot_instructions: Set[str] = field(default_factory=set)
 
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "beql",
@@ -1648,7 +1650,6 @@ ARM32_BRANCH_INSTRUCTIONS = {
 }
 
 AARCH64_BRANCH_INSTRUCTIONS = {
-    "bl",
     "b",
     "b.eq",
     "b.ne",
@@ -1702,7 +1703,7 @@ MIPS_SETTINGS = ArchSettings(
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"<.*?>"),
     re_reg=re.compile(
-        r"\$?\b(a[0-3]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|k[01]|fp|ra|zero)\b"
+        r"\$?\b(a[0-7]|t[0-9]|s[0-8]|at|v[01]|f[12]?[0-9]|f3[01]|kt?[01]|fp|ra|zero)\b"
     ),
     re_sprel=re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
@@ -1712,6 +1713,7 @@ MIPS_SETTINGS = ArchSettings(
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"jal", "j"}),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr"}),
     reloc_proc=RelocationProcessorMIPS,
 )
 
@@ -1752,7 +1754,7 @@ AARCH64_SETTINGS = ArchSettings(
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_reloc=re.compile(r"R_AARCH64_"),
     branch_instructions=AARCH64_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=AARCH64_BRANCH_INSTRUCTIONS.union({"adrp"}),
+    instructions_with_address_immediates=AARCH64_BRANCH_INSTRUCTIONS.union({"bl", "adrp"}),
     difference_normalizer=DifferenceNormalizerAArch64,
     reloc_proc=RelocationProcessor,
 )
@@ -2212,7 +2214,14 @@ class OutputLine:
 class Diff:
     lines: List[OutputLine]
     score: int
+    max_score: int
 
+
+def trim_nops(lines: List[Line], arch: ArchSettings) -> List[Line]:
+    lines = lines[:]
+    while lines and lines[-1].mnemonic == "nop" and (len(lines) == 1 or lines[-2].mnemonic not in arch.delay_slot_instructions):
+        lines.pop()
+    return lines
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.show_source:
@@ -2241,8 +2250,12 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                     btset.add(bt)
                     sc(str(bt))
 
+    lines1 = trim_nops(lines1, arch)
+    lines2 = trim_nops(lines2, arch)
+
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
     score = score_diff_lines(diffed_lines, config)
+    max_score = len(lines1) * config.penalty_deletion
 
     line_num_base = -1
     line_num_offset = 0
@@ -2474,7 +2487,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
         )
 
     output = output[config.skip_lines :]
-    return Diff(lines=output, score=score)
+    return Diff(lines=output, score=score, max_score=max_score)
 
 
 def chunk_diff_lines(
@@ -2550,6 +2563,7 @@ def align_diffs(
                 Text(f"{padding}PREVIOUS ({old_diff.score})"),
             ),
             current_score=new_diff.score,
+            max_score=new_diff.max_score,
             previous_score=old_diff.score,
         )
         old_chunks = chunk_diff_lines(old_diff.lines)
@@ -2593,6 +2607,7 @@ def align_diffs(
                 Text(f"{padding}CURRENT ({new_diff.score})"),
             ),
             current_score=new_diff.score,
+            max_score=new_diff.max_score,
             previous_score=None,
         )
         diff_lines = [(line, line) for line in new_diff.lines]
