@@ -1187,7 +1187,8 @@ def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
     symtab = sections[symtab_sections[0]]
 
     text_sections = [i for i in range(e_shnum) if sec_names[i] == b".text" and sections[i].sh_size != 0]
-    assert len(text_sections) == 1
+    if len(text_sections) != 1:
+        return []
     text_section = text_sections[0]
 
     ret: List[Tuple[int, int, str]] = []
