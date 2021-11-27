@@ -1270,7 +1270,12 @@ def dump_elf(
         f"--disassemble={diff_elf_symbol}",
     ]
 
-    objdump_flags = ["-drz", "-j", ".text"]
+    if config.diff_section is not None:
+        section = config.diff_section
+    else:
+        section = ".text"
+
+    objdump_flags = ["-drz", "-j", section]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
@@ -1306,7 +1311,12 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    objdump_flags = ["-drz", "-j", ".text"]
+    if config.diff_section is not None:
+        section = config.diff_section
+    else:
+        section = ".text"
+
+    objdump_flags = ["-drz", "-j", section]
     return (
         objfile,
         (objdump_flags, refobjfile, start),
@@ -1330,7 +1340,7 @@ def dump_binary(
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
         end_addr = start_addr + config.max_function_size_bytes
-    objdump_flags = ["-Dz"] + ["-belf32-littlearm" if config.arch.name == "armel" else "-bbinary"] + ["-EB" if config.arch.big_endian else "-EL"]
+    objdump_flags = ["-Dz", "-bbinary"] + ["-EB" if config.arch.big_endian else "-EL"]
     flags1 = [
         f"--start-address={start_addr + config.base_shift}",
         f"--stop-address={end_addr + config.base_shift}",
