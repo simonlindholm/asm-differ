@@ -133,6 +133,13 @@ if __name__ == "__main__":
         Implies --source.""",
     )
     parser.add_argument(
+        "-j",
+        "--section",
+        dest="diff_section",
+        metavar="SECTION",
+        help="Diff restricted to a given output section.",
+    )
+    parser.add_argument(
         "-L",
         "--line-numbers",
         dest="show_line_numbers",
@@ -381,6 +388,7 @@ class Config:
     diff_obj: bool
     make: bool
     source_old_binutils: bool
+    diff_section: str
     inlines: bool
     max_function_size_lines: int
     max_function_size_bytes: int
@@ -463,6 +471,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         diff_obj=args.diff_obj,
         make=args.make,
         source_old_binutils=args.source_old_binutils,
+        diff_section=args.diff_section,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
         max_function_size_bytes=args.max_lines * 4,
@@ -984,6 +993,9 @@ def maybe_get_objdump_source_flags(config: Config) -> List[str]:
         if config.inlines:
             flags.append("--inlines")
 
+    if config.diff_section is not None:
+        flags.append("-j" + config.diff_section)
+
     return flags
 
 
@@ -1318,12 +1330,14 @@ def dump_binary(
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
         end_addr = start_addr + config.max_function_size_bytes
-    objdump_flags = ["-Dz", "-bbinary"] + ["-EB" if config.arch.big_endian else "-EL"]
+    objdump_flags = ["-Dz"] + ["-belf32-littlearm" if config.arch.name == "armel" else "-bbinary"] + ["-EB" if config.arch.big_endian else "-EL"]
     flags1 = [
         f"--start-address={start_addr + config.base_shift}",
         f"--stop-address={end_addr + config.base_shift}",
     ]
     flags2 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
+    if config.diff_section is not None:
+        flags2 = flags2 + [f"-j" + config.diff_section]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
@@ -1575,6 +1589,8 @@ ARM32_SETTINGS = ArchSettings(
     difference_normalizer=DifferenceNormalizerARM32,
 )
 
+ARMEL_SETTINGS = replace(ARM32_SETTINGS, name="armel", big_endian=False)
+
 AARCH64_SETTINGS = ArchSettings(
     name="aarch64",
     re_int=re.compile(r"[0-9]+"),
@@ -1606,6 +1622,7 @@ ARCH_SETTINGS = [
     MIPS_SETTINGS,
     MIPSEL_SETTINGS,
     ARM32_SETTINGS,
+    ARMEL_SETTINGS,
     AARCH64_SETTINGS,
     PPC_SETTINGS,
 ]
