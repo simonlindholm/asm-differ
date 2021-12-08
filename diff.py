@@ -1198,6 +1198,9 @@ def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
                 # Skip .text -> .text references
                 continue
             sec_name = sec_names[s.sh_info].decode("latin1")
+            if sec_name == ".mwcats.text":
+                # Skip Metrowerks CATS Utility section
+                continue
             sec_base = sections[s.sh_info].sh_offset
             for i in range(0, s.sh_size, s.sh_entsize):
                 if s.sh_type == SHT_REL:
@@ -1357,7 +1360,7 @@ class AsmProcessor:
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
         return row
-    
+
     def post_process(self, lines: List["Line"]) -> None:
         return
 
