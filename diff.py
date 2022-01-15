@@ -1697,7 +1697,7 @@ AARCH64_SETTINGS = ArchSettings(
     # GPRs and FP registers: X0-X30, W0-W30, [BHSDVQ]0..31
     # (FP registers may be followed by data width and number of elements, e.g. V0.4S)
     # The zero registers and SP should not be in this list.
-    re_reg=re.compile(r"\$?\b([bhsdvq][12]?[0-9](\.\d\d?[bhsdvq])?|[bhsdvq]3[01](\.\d\d?[bhsdvq])?|[xw][12]?[0-9]|[xw]30)\b"),
+    re_reg=re.compile(r"\$?\b([bhsdvq]([12]?[0-9]|3[01])(\.\d\d?[bhsdvq])?|[xw][12]?[0-9]|[xw]30)\b"),
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
