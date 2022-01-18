@@ -1398,6 +1398,8 @@ class AsmProcessorMIPS(AsmProcessor):
             # Branch to glabel. This gives confusing output, but there's not much
             # we can do here.
             pass
+        elif "R_MIPS_GPREL16" in row:
+            repl = f"%gp_rel({repl})"
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
         return before + repl + after
