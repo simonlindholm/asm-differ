@@ -136,6 +136,7 @@ if __name__ == "__main__":
         "-j",
         "--section",
         dest="diff_section",
+        default=".text",
         metavar="SECTION",
         help="Diff restricted to a given output section.",
     )
@@ -1067,9 +1068,8 @@ def search_map_file(
             ram_to_rom = None
             cands = []
             last_line = ""
-            section = config.diff_section or ".text"
             for line in lines:
-                if line.startswith(" " + section):
+                if line.startswith(" " + config.diff_section):
                     cur_objfile = line.split()[3]
                 if "load address" in line:
                     tokens = last_line.split() + line.split()
@@ -1090,14 +1090,14 @@ def search_map_file(
         if len(cands) == 1:
             return cands[0]
     elif project.map_format == "mw":
-        section_patten = config.diff_section or r"\.(?:init|text)"
+        section_pattern = re.escape(config.diff_section)
         find = re.findall(
             re.compile(
                 #            ram   elf rom
                 r"  \S+ \S+ (\S+) (\S+)  . "
                 + fn_name
                 #                                         object name
-                + r"(?: \(entry of " + section_patten + r"\))? \t(\S+)"
+                + r"(?: \(entry of " + section_pattern + r"\))? \t(\S+)"
             ),
             contents,
         )
@@ -1197,7 +1197,7 @@ def parse_elf_data_references(data: bytes, config: Config) -> List[Tuple[int, in
     assert len(symtab_sections) == 1
     symtab = sections[symtab_sections[0]]
 
-    section_name = config.diff_section or b".text"
+    section_name = config.diff_section.encode("utf-8")
     text_sections = [i for i in range(e_shnum) if sec_names[i] == section_name and sections[i].sh_size != 0]
     if len(text_sections) != 1:
         return []
@@ -1273,9 +1273,7 @@ def dump_elf(
         f"--disassemble={diff_elf_symbol}",
     ]
 
-    section = config.diff_section or ".text"
-
-    objdump_flags = ["-drz", "-j", section]
+    objdump_flags = ["-drz", "-j", config.diff_section]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
@@ -1311,9 +1309,7 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    section = config.diff_section or ".text"
-
-    objdump_flags = ["-drz", "-j", section]
+    objdump_flags = ["-drz", "-j", config.diff_section]
     return (
         objfile,
         (objdump_flags, refobjfile, start),
