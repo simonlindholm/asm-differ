@@ -373,6 +373,7 @@ class ProjectSettings:
     source_directories: Optional[List[str]]
     source_extensions: List[str]
     show_line_numbers_default: bool
+    disassemble_all: bool
 
 
 @dataclass
@@ -434,6 +435,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         map_format=settings.get("map_format", "gnu"),
         mw_build_dir=settings.get("mw_build_dir", "build/"),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
+        disassemble_all=settings.get("disassemble_all", False)
     )
 
 
@@ -1269,11 +1271,16 @@ def dump_elf(
         f"--stop-address={end_addr}",
     ]
 
+    if project.disassemble_all:
+        disassemble_flag = "-D"
+    else:
+        disassemble_flag = "-d"
+
     flags2 = [
         f"--disassemble={diff_elf_symbol}",
     ]
 
-    objdump_flags = ["-drz", "-j", config.diff_section]
+    objdump_flags = [disassemble_flag, "-rz", "-j", config.diff_section]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
@@ -1309,7 +1316,12 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    objdump_flags = ["-drz", "-j", config.diff_section]
+    if project.disassemble_all:
+        disassemble_flag = "-D"
+    else:
+        disassemble_flag = "-d"
+
+    objdump_flags = [disassemble_flag, "-rz", "-j", config.diff_section]
     return (
         objfile,
         (objdump_flags, refobjfile, start),
