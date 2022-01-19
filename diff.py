@@ -993,9 +993,6 @@ def maybe_get_objdump_source_flags(config: Config) -> List[str]:
         if config.inlines:
             flags.append("--inlines")
 
-    if config.diff_section is not None:
-        flags.append("-j" + config.diff_section)
-
     return flags
 
 
@@ -1021,11 +1018,11 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
         with open(target, "rb") as f:
             obj_data = f.read()
 
-    return preprocess_objdump_out(restrict, obj_data, out)
+    return preprocess_objdump_out(restrict, obj_data, out, config)
 
 
 def preprocess_objdump_out(
-    restrict: Optional[str], obj_data: Optional[bytes], objdump_out: str
+    restrict: Optional[str], obj_data: Optional[bytes], objdump_out: str, config: Config
 ) -> str:
     """
     Preprocess the output of objdump into a format that `process()` expects.
@@ -1045,13 +1042,13 @@ def preprocess_objdump_out(
         out = out.rstrip("\n")
 
     if obj_data:
-        out = serialize_data_references(parse_elf_data_references(obj_data)) + out
+        out = serialize_data_references(parse_elf_data_references(obj_data, config)) + out
 
     return out
 
 
 def search_map_file(
-    fn_name: str, project: ProjectSettings
+    fn_name: str, project: ProjectSettings, config: Config
 ) -> Tuple[Optional[str], Optional[int]]:
     if not project.mapfile:
         fail(f"No map file configured; cannot find function {fn_name}.")
@@ -1070,8 +1067,9 @@ def search_map_file(
             ram_to_rom = None
             cands = []
             last_line = ""
+            section = config.diff_section or ".text"
             for line in lines:
-                if line.startswith(" .text"):
+                if line.startswith(" " + section):
                     cur_objfile = line.split()[3]
                 if "load address" in line:
                     tokens = last_line.split() + line.split()
@@ -1092,13 +1090,14 @@ def search_map_file(
         if len(cands) == 1:
             return cands[0]
     elif project.map_format == "mw":
+        section_patten = config.diff_section or r"\.(?:init|text)"
         find = re.findall(
             re.compile(
                 #            ram   elf rom
                 r"  \S+ \S+ (\S+) (\S+)  . "
                 + fn_name
                 #                                         object name
-                + r"(?: \(entry of \.(?:init|text)\))? \t(\S+)"
+                + r"(?: \(entry of " + section_patten + r"\))? \t(\S+)"
             ),
             contents,
         )
@@ -1133,7 +1132,7 @@ def search_map_file(
     return None, None
 
 
-def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
+def parse_elf_data_references(data: bytes, config: Config) -> List[Tuple[int, int, str]]:
     e_ident = data[:16]
     if e_ident[:4] != b"\x7FELF":
         return []
@@ -1198,7 +1197,8 @@ def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
     assert len(symtab_sections) == 1
     symtab = sections[symtab_sections[0]]
 
-    text_sections = [i for i in range(e_shnum) if sec_names[i] == b".text" and sections[i].sh_size != 0]
+    section_name = config.diff_section or b".text"
+    text_sections = [i for i in range(e_shnum) if sec_names[i] == section_name and sections[i].sh_size != 0]
     if len(text_sections) != 1:
         return []
     text_section = text_sections[0]
@@ -1207,7 +1207,7 @@ def parse_elf_data_references(data: bytes) -> List[Tuple[int, int, str]]:
     for s in sections:
         if s.sh_type == SHT_REL or s.sh_type == SHT_RELA:
             if s.sh_info == text_section:
-                # Skip .text -> .text references
+                # Skip section_name -> section_name references
                 continue
             sec_name = sec_names[s.sh_info].decode("latin1")
             if sec_name == ".mwcats.text":
@@ -1273,10 +1273,7 @@ def dump_elf(
         f"--disassemble={diff_elf_symbol}",
     ]
 
-    if config.diff_section is not None:
-        section = config.diff_section
-    else:
-        section = ".text"
+    section = config.diff_section or ".text"
 
     objdump_flags = ["-drz", "-j", section]
     return (
@@ -1300,7 +1297,7 @@ def dump_objfile(
     if start.startswith("0"):
         fail("numerical start address not supported with -o; pass a function name")
 
-    objfile, _ = search_map_file(start, project)
+    objfile, _ = search_map_file(start, project, config)
     if not objfile:
         fail("Not able to find .o file for function.")
 
@@ -1314,10 +1311,7 @@ def dump_objfile(
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
-    if config.diff_section is not None:
-        section = config.diff_section
-    else:
-        section = ".text"
+    section = config.diff_section or ".text"
 
     objdump_flags = ["-drz", "-j", section]
     return (
@@ -1336,7 +1330,7 @@ def dump_binary(
         run_make(project.myimg, project)
     start_addr = maybe_eval_int(start)
     if start_addr is None:
-        _, start_addr = search_map_file(start, project)
+        _, start_addr = search_map_file(start, project, config)
         if start_addr is None:
             fail("Not able to find function in map file.")
     if end is not None:
@@ -1349,8 +1343,6 @@ def dump_binary(
         f"--stop-address={end_addr + config.base_shift}",
     ]
     flags2 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
-    if config.diff_section is not None:
-        flags2 = flags2 + [f"-j" + config.diff_section]
     return (
         project.myimg,
         (objdump_flags + flags1, project.baseimg, None),
