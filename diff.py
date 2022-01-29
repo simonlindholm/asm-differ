@@ -1472,7 +1472,8 @@ class AsmProcessorARM32(AsmProcessor):
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
         if self.config.ignore_addr_diffs:
             row = self._normalize_bl(mnemonic, row)
-        row = self._normalize_data_pool(row)
+        if self.config.arch != "thumb":
+            row = self._normalize_data_pool(row)
         return row
 
     def _normalize_bl(self, mnemonic: str, row: str) -> str:
@@ -1698,7 +1699,7 @@ MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
 ARM32_SETTINGS = ArchSettings(
     name="arm32",
     re_int=re.compile(r"[0-9]+"),
-    re_comment=re.compile(r"(<.*?>|//.*$)"),
+    re_comment=re.compile(r"(;.*|<.*?>|//.*$)"),
     # Includes:
     #   - General purpose registers: r0..13
     #   - Frame pointer registers: lr (r14), pc (r15)
@@ -1717,6 +1718,8 @@ ARM32_SETTINGS = ArchSettings(
 )
 
 ARMEL_SETTINGS = replace(ARM32_SETTINGS, name="armel", big_endian=False)
+
+THUMB_SETTINGS = replace(ARM32_SETTINGS, name="thumb", big_endian=False, arch_flags=['-m', 'armv4t', '-M', 'force-thumb'])
 
 AARCH64_SETTINGS = ArchSettings(
     name="aarch64",
@@ -1754,6 +1757,7 @@ ARCH_SETTINGS = [
     MIPSEL_SETTINGS,
     ARM32_SETTINGS,
     ARMEL_SETTINGS,
+    THUMB_SETTINGS,
     AARCH64_SETTINGS,
     PPC_SETTINGS,
 ]
@@ -1873,7 +1877,7 @@ def process(dump: str, config: Config) -> List[Line]:
         # the symbol.
         data_pool_addr = None
         pool_match = re.search(ARM32_LOAD_POOL_PATTERN, row)
-        if pool_match:
+        if pool_match and arch.name != "thumb":
             offset = pool_match.group(3).split(" ")[0][1:]
             data_pool_addr = int(offset, 16)
 
