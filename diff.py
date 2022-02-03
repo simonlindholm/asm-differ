@@ -1424,6 +1424,8 @@ class AsmProcessorMIPS(AsmProcessor):
             pass
         elif "R_MIPS_GPREL16" in row:
             repl = f"%gp_rel({repl})"
+        elif "R_MIPS_GOT16" in row:
+            repl = f"%got({repl})"
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
         return before + repl + after
