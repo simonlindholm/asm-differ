@@ -1147,7 +1147,6 @@ def parse_elf_data_references(data: bytes, config: Config) -> List[Tuple[int, in
     is_little_endian = e_ident[5] == 1
     str_end = "<" if is_little_endian else ">"
     str_off = "I" if is_32bit else "Q"
-    sym_size = {"B": 1, "H": 2, "I": 4, "Q": 8}
 
     def read(spec: str, offset: int) -> Tuple[int, ...]:
         spec = spec.replace("P", str_off)
