@@ -1958,8 +1958,6 @@ def process(dump: str, config: Config) -> List[Line]:
         branch_target = None
         if mnemonic in arch.branch_instructions:
             branch_target = int(row_parts[1].strip().split(",")[-1], 16)
-            if mnemonic in arch.branch_likely_instructions:
-                branch_target -= 4
 
         output.append(
             Line(
