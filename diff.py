@@ -110,6 +110,15 @@ if __name__ == "__main__":
         see symbol names. (Recommended)""",
     )
     parser.add_argument(
+        "-f",
+        "--objfile",
+        dest="objfile",
+        type=str,
+        help="""File path for an object file being diffed. When used
+        the map file isn't searched for the function given. Useful for dynamically
+        linked libraries."""
+    )
+    parser.add_argument(
         "-e",
         "--elf",
         dest="diff_elf_symbol",
@@ -388,6 +397,7 @@ class Config:
 
     # Build/objdump options
     diff_obj: bool
+    objfile: str
     make: bool
     source_old_binutils: bool
     diff_section: str
@@ -472,6 +482,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         arch=arch,
         # Build/objdump options
         diff_obj=args.diff_obj,
+        objfile=args.objfile,
         make=args.make,
         source_old_binutils=args.source_old_binutils,
         diff_section=args.diff_section,
@@ -1301,7 +1312,10 @@ def dump_objfile(
     if start.startswith("0"):
         fail("numerical start address not supported with -o; pass a function name")
 
-    objfile, _ = search_map_file(start, project, config)
+    objfile = config.objfile
+    if not objfile:
+        objfile, _ = search_map_file(start, project, config)
+    
     if not objfile:
         fail("Not able to find .o file for function.")
 
