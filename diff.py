@@ -49,8 +49,7 @@ if __name__ == "__main__":
     )
 
     start_argument = parser.add_argument(
-        "start",
-        help="Function name or address to start diffing from.",
+        "start", help="Function name or address to start diffing from."
     )
 
     if argcomplete:
@@ -97,11 +96,7 @@ if __name__ == "__main__":
 
         setattr(start_argument, "completer", complete_symbol)
 
-    parser.add_argument(
-        "end",
-        nargs="?",
-        help="Address to end diff at.",
-    )
+    parser.add_argument("end", nargs="?", help="Address to end diff at.")
     parser.add_argument(
         "-o",
         dest="diff_obj",
@@ -116,7 +111,7 @@ if __name__ == "__main__":
         type=str,
         help="""File path for an object file being diffed. When used
         the map file isn't searched for the function given. Useful for dynamically
-        linked libraries."""
+        linked libraries.""",
     )
     parser.add_argument(
         "-e",
@@ -447,7 +442,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         map_format=settings.get("map_format", "gnu"),
         mw_build_dir=settings.get("mw_build_dir", "build/"),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
-        disassemble_all=settings.get("disassemble_all", False)
+        disassemble_all=settings.get("disassemble_all", False),
     )
 
 
@@ -834,12 +829,7 @@ class JsonFormatter(Formatter):
                 return {"text": s, "format": f.name.lower()}
             elif isinstance(f, RotationFormat):
                 attrs = asdict(f)
-                attrs.update(
-                    {
-                        "text": s,
-                        "format": "rotation",
-                    }
-                )
+                attrs.update({"text": s, "format": "rotation"})
                 return attrs
             else:
                 static_assert_unreachable(f)
@@ -973,9 +963,7 @@ def run_make_capture_output(
     target: str, project: ProjectSettings
 ) -> "subprocess.CompletedProcess[bytes]":
     return subprocess.run(
-        project.build_command + [target],
-        stderr=subprocess.PIPE,
-        stdout=subprocess.PIPE,
+        project.build_command + [target], stderr=subprocess.PIPE, stdout=subprocess.PIPE
     )
 
 
@@ -1016,7 +1004,11 @@ def run_objdump(cmd: ObjdumpCommand, config: Config, project: ProjectSettings) -
     flags, target, restrict = cmd
     try:
         out = subprocess.run(
-            [project.objdump_executable] + config.arch.arch_flags + project.objdump_flags + flags + [target],
+            [project.objdump_executable]
+            + config.arch.arch_flags
+            + project.objdump_flags
+            + flags
+            + [target],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -1058,7 +1050,10 @@ def preprocess_objdump_out(
         out = out.rstrip("\n")
 
     if obj_data:
-        out = serialize_rodata_references(parse_elf_rodata_references(obj_data, config)) + out
+        out = (
+            serialize_rodata_references(parse_elf_rodata_references(obj_data, config))
+            + out
+        )
 
     return out
 
@@ -1112,7 +1107,9 @@ def search_map_file(
                 r"  \S+ \S+ (\S+) (\S+)  . "
                 + fn_name
                 #                                         object name
-                + r"(?: \(entry of " + section_pattern + r"\))? \t(\S+)"
+                + r"(?: \(entry of "
+                + section_pattern
+                + r"\))? \t(\S+)"
             ),
             contents,
         )
@@ -1147,7 +1144,9 @@ def search_map_file(
     return None, None
 
 
-def parse_elf_rodata_references(data: bytes, config: Config) -> List[Tuple[int, int, str]]:
+def parse_elf_rodata_references(
+    data: bytes, config: Config
+) -> List[Tuple[int, int, str]]:
     e_ident = data[:16]
     if e_ident[:4] != b"\x7FELF":
         return []
@@ -1212,7 +1211,11 @@ def parse_elf_rodata_references(data: bytes, config: Config) -> List[Tuple[int, 
     symtab = sections[symtab_sections[0]]
 
     section_name = config.diff_section.encode("utf-8")
-    text_sections = [i for i in range(e_shnum) if sec_names[i] == section_name and sections[i].sh_size != 0]
+    text_sections = [
+        i
+        for i in range(e_shnum)
+        if sec_names[i] == section_name and sections[i].sh_size != 0
+    ]
     if len(text_sections) != 1:
         return []
     text_section = text_sections[0]
@@ -1277,19 +1280,14 @@ def dump_elf(
     else:
         end_addr = start_addr + config.max_function_size_bytes
 
-    flags1 = [
-        f"--start-address={start_addr}",
-        f"--stop-address={end_addr}",
-    ]
+    flags1 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
 
     if project.disassemble_all:
         disassemble_flag = "-D"
     else:
         disassemble_flag = "-d"
 
-    flags2 = [
-        f"--disassemble={diff_elf_symbol}",
-    ]
+    flags2 = [f"--disassemble={diff_elf_symbol}"]
 
     objdump_flags = [disassemble_flag, "-rz", "-j", config.diff_section]
     return (
@@ -1370,6 +1368,7 @@ def dump_binary(
         (objdump_flags + flags1, project.baseimg, None),
         (objdump_flags + flags2, project.myimg, None),
     )
+
 
 # Example: "ldr r4, [pc, #56]    ; (4c <AddCoins+0x4c>)"
 ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*;\s*)(\([a-fA-F0-9]+.*\))"
@@ -1588,6 +1587,7 @@ class ArchSettings:
     big_endian: Optional[bool] = True
     delay_slot_instructions: Set[str] = field(default_factory=set)
 
+
 MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "beql",
     "bnel",
@@ -1601,19 +1601,7 @@ MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "bc1fl",
 }
 MIPS_BRANCH_INSTRUCTIONS = MIPS_BRANCH_LIKELY_INSTRUCTIONS.union(
-    {
-        "b",
-        "beq",
-        "bne",
-        "beqz",
-        "bnez",
-        "bgez",
-        "bgtz",
-        "blez",
-        "bltz",
-        "bc1t",
-        "bc1f",
-    }
+    {"b", "beq", "bne", "beqz", "bnez", "bgez", "bgtz", "blez", "bltz", "bc1t", "bc1f"}
 )
 
 ARM32_PREFIXES = {"b", "bl"}
@@ -1746,13 +1734,17 @@ AARCH64_SETTINGS = ArchSettings(
     # GPRs and FP registers: X0-X30, W0-W30, [BHSDVQ]0..31
     # (FP registers may be followed by data width and number of elements, e.g. V0.4S)
     # The zero registers and SP should not be in this list.
-    re_reg=re.compile(r"\$?\b([bhsdvq]([12]?[0-9]|3[01])(\.\d\d?[bhsdvq])?|[xw][12]?[0-9]|[xw]30)\b"),
+    re_reg=re.compile(
+        r"\$?\b([bhsdvq]([12]?[0-9]|3[01])(\.\d\d?[bhsdvq])?|[xw][12]?[0-9]|[xw]30)\b"
+    ),
     re_sprel=re.compile(r"sp, #-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_reloc=re.compile(r"R_AARCH64_"),
     branch_instructions=AARCH64_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=AARCH64_BRANCH_INSTRUCTIONS.union({"bl", "adrp"}),
+    instructions_with_address_immediates=AARCH64_BRANCH_INSTRUCTIONS.union(
+        {"bl", "adrp"}
+    ),
     proc=AsmProcessorAArch64,
 )
 
@@ -2067,9 +2059,7 @@ def diff_sequences(
 
 
 def diff_lines(
-    lines1: List[Line],
-    lines2: List[Line],
-    algorithm: str,
+    lines1: List[Line], lines2: List[Line], algorithm: str
 ) -> List[Tuple[Optional[Line], Optional[Line]]]:
     ret = []
     for (tag, i1, i2, j1, j2) in diff_sequences(
@@ -2226,9 +2216,14 @@ class Diff:
 
 def trim_nops(lines: List[Line], arch: ArchSettings) -> List[Line]:
     lines = lines[:]
-    while lines and lines[-1].mnemonic == "nop" and (len(lines) == 1 or lines[-2].mnemonic not in arch.delay_slot_instructions):
+    while (
+        lines
+        and lines[-1].mnemonic == "nop"
+        and (len(lines) == 1 or lines[-2].mnemonic not in arch.delay_slot_instructions)
+    ):
         lines.pop()
     return lines
+
 
 def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     if config.show_source:
@@ -2247,10 +2242,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     bts2: Set[int] = set()
 
     if config.show_branches:
-        for (lines, btset, sc) in [
-            (lines1, bts1, sc5),
-            (lines2, bts2, sc6),
-        ]:
+        for (lines, btset, sc) in [(lines1, bts1, sc5), (lines2, bts2, sc6)]:
             for line in lines:
                 bt = line.branch_target
                 if bt is not None:
@@ -2609,10 +2601,7 @@ def align_diffs(
         ]
     else:
         meta = TableMetadata(
-            headers=(
-                Text("TARGET"),
-                Text(f"{padding}CURRENT ({new_diff.score})"),
-            ),
+            headers=(Text("TARGET"), Text(f"{padding}CURRENT ({new_diff.score})")),
             current_score=new_diff.score,
             max_score=new_diff.max_score,
             previous_score=None,
@@ -2730,10 +2719,7 @@ class Display:
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
         output = self.config.formatter.table(meta, diff_lines)
-        refresh_key = (
-            [line.key2 for line in diff_output.lines],
-            diff_output.score,
-        )
+        refresh_key = ([line.key2 for line in diff_output.lines], diff_output.score)
         return (output, refresh_key)
 
     def run_less(
