@@ -1107,16 +1107,16 @@ def search_map_file(
         if len(cands) == 1:
             return cands[0]
     elif project.map_format == "mw":
-        section_pattern = re.escape(config.diff_section)
         find = re.findall(
             re.compile(
                 #            ram   elf rom
                 r"  \S+ \S+ (\S+) (\S+)  . "
-                + fn_name
-                #                                         object name
+                + re.escape(fn_name)
                 + r"(?: \(entry of "
-                + section_pattern
-                + r"\))? \t(\S+)"
+                + re.escape(config.diff_section)
+                + r"\))? \t"
+                # object name
+                + "(\S+)"
             ),
             contents,
         )
