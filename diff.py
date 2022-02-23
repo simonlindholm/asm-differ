@@ -398,7 +398,7 @@ class Config:
 
     # Build/objdump options
     diff_obj: bool
-    objfile: str
+    objfile: Optional[str]
     make: bool
     source_old_binutils: bool
     diff_section: str
