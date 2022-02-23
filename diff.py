@@ -1710,10 +1710,10 @@ MIPS_SETTINGS = ArchSettings(
     re_comment=re.compile(r"<.*>"),
     # Includes:
     #   - General purpose registers v0..1, a0..7, t0..9, s0..8, zero, at, fp, k0..1/kt0..1
-    #   - Float registers f0..31, or fv0..1, fa0..7, ft0..15, fs0..8
+    #   - Float registers f0..31, or fv0..1, fa0..7, ft0..15, fs0..8 plus odd complements
     # (actually used number depends on ABI)
     # sp, gp should not be in this list
-    re_reg=re.compile(r"\$?\b([astv][0-9]|at|f[astv]?[0-9]+|kt?[01]|fp|ra|zero)\b"),
+    re_reg=re.compile(r"\$?\b([astv][0-9]|at|f[astv]?[0-9]+f?|kt?[01]|fp|ra|zero)\b"),
     re_sprel=re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(sp)|%(lo|hi)\([^)]*\)"),
