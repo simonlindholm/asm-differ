@@ -49,7 +49,8 @@ if __name__ == "__main__":
     )
 
     start_argument = parser.add_argument(
-        "start", help="Function name or address to start diffing from."
+        "start",
+        help="Function name or address to start diffing from.",
     )
 
     if argcomplete:
@@ -96,7 +97,11 @@ if __name__ == "__main__":
 
         setattr(start_argument, "completer", complete_symbol)
 
-    parser.add_argument("end", nargs="?", help="Address to end diff at.")
+    parser.add_argument(
+        "end",
+        nargs="?",
+        help="Address to end diff at.",
+    )
     parser.add_argument(
         "-o",
         dest="diff_obj",
@@ -538,7 +543,7 @@ def get_arch(arch_str: str) -> "ArchSettings":
     raise ValueError(f"Unknown architecture: {arch_str}")
 
 
-BUFFER_CMD: List[str] = ["tail", "-c", str(10 ** 9)]
+BUFFER_CMD: List[str] = ["tail", "-c", str(10**9)]
 
 # -S truncates long lines instead of wrapping them
 # -R interprets color escape sequences
@@ -963,7 +968,9 @@ def run_make_capture_output(
     target: str, project: ProjectSettings
 ) -> "subprocess.CompletedProcess[bytes]":
     return subprocess.run(
-        project.build_command + [target], stderr=subprocess.PIPE, stdout=subprocess.PIPE
+        project.build_command + [target],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
     )
 
 
@@ -1280,14 +1287,19 @@ def dump_elf(
     else:
         end_addr = start_addr + config.max_function_size_bytes
 
-    flags1 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
+    flags1 = [
+        f"--start-address={start_addr}",
+        f"--stop-address={end_addr}",
+    ]
 
     if project.disassemble_all:
         disassemble_flag = "-D"
     else:
         disassemble_flag = "-d"
 
-    flags2 = [f"--disassemble={diff_elf_symbol}"]
+    flags2 = [
+        f"--disassemble={diff_elf_symbol}",
+    ]
 
     objdump_flags = [disassemble_flag, "-rz", "-j", config.diff_section]
     return (
@@ -1601,7 +1613,19 @@ MIPS_BRANCH_LIKELY_INSTRUCTIONS = {
     "bc1fl",
 }
 MIPS_BRANCH_INSTRUCTIONS = MIPS_BRANCH_LIKELY_INSTRUCTIONS.union(
-    {"b", "beq", "bne", "beqz", "bnez", "bgez", "bgtz", "blez", "bltz", "bc1t", "bc1f"}
+    {
+        "b",
+        "beq",
+        "bne",
+        "beqz",
+        "bnez",
+        "bgez",
+        "bgtz",
+        "blez",
+        "bltz",
+        "bc1t",
+        "bc1f",
+    }
 )
 
 ARM32_PREFIXES = {"b", "bl"}
@@ -2031,7 +2055,7 @@ def diff_sequences(
 ) -> List[Tuple[str, int, int, int, int]]:
     if (
         algorithm != "levenshtein"
-        or len(seq1) * len(seq2) > 4 * 10 ** 8
+        or len(seq1) * len(seq2) > 4 * 10**8
         or len(seq1) + len(seq2) >= 0x110000
     ):
         return diff_sequences_difflib(seq1, seq2)
@@ -2059,7 +2083,9 @@ def diff_sequences(
 
 
 def diff_lines(
-    lines1: List[Line], lines2: List[Line], algorithm: str
+    lines1: List[Line],
+    lines2: List[Line],
+    algorithm: str,
 ) -> List[Tuple[Optional[Line], Optional[Line]]]:
     ret = []
     for (tag, i1, i2, j1, j2) in diff_sequences(
@@ -2242,7 +2268,10 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     bts2: Set[int] = set()
 
     if config.show_branches:
-        for (lines, btset, sc) in [(lines1, bts1, sc5), (lines2, bts2, sc6)]:
+        for (lines, btset, sc) in [
+            (lines1, bts1, sc5),
+            (lines2, bts2, sc6),
+        ]:
             for line in lines:
                 bt = line.branch_target
                 if bt is not None:
@@ -2601,7 +2630,10 @@ def align_diffs(
         ]
     else:
         meta = TableMetadata(
-            headers=(Text("TARGET"), Text(f"{padding}CURRENT ({new_diff.score})")),
+            headers=(
+                Text("TARGET"),
+                Text(f"{padding}CURRENT ({new_diff.score})"),
+            ),
             current_score=new_diff.score,
             max_score=new_diff.max_score,
             previous_score=None,
@@ -2719,7 +2751,10 @@ class Display:
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
         output = self.config.formatter.table(meta, diff_lines)
-        refresh_key = ([line.key2 for line in diff_output.lines], diff_output.score)
+        refresh_key = (
+            [line.key2 for line in diff_output.lines],
+            diff_output.score,
+        )
         return (output, refresh_key)
 
     def run_less(
