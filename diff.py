@@ -1967,9 +1967,6 @@ def process(dump: str, config: Config) -> List[Line]:
         scorable_line = normalized_original
         if not config.score_stack_differences:
             scorable_line = re.sub(arch.re_sprel, "addr(sp)", scorable_line)
-        if mnemonic in arch.branch_instructions:
-            # Replace the final argument with "<target>"
-            scorable_line = re.sub(r"[^, \t]+$", "<target>", scorable_line)
 
         if skip_next:
             skip_next = False
@@ -2039,6 +2036,8 @@ def split_off_address(line: str) -> Tuple[str, str]:
     parts = line.split(",")
     if len(parts) < 2:
         parts = line.split(None, 1)
+        if len(parts) < 2:
+            parts.append("")
     off = len(line) - len(parts[-1])
     return line[:off], line[off:]
 
@@ -2351,10 +2350,15 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                         line2_line = line_num_2to1[line2.line_num]
                         line2_target = (line2_line[0] + (target - line2.line_num), 0)
 
-                    # Set the key for three-way diffing to a normalized version.
+                    # Adjust the branch target for scoring and three-way diffing.
                     norm2, norm_branch2 = split_off_address(line2.normalized_original)
-                    if norm_branch2 != "<ign>":
-                        line2.normalized_original = norm2 + str(line2_target)
+                    if norm_branch2 != "<ignore>":
+                        retargetted = hex(line2_target[0]).replace("0x", "")
+                        if line2_target[1] != 0:
+                            retargetted += f"+{line2_target[1]}"
+                        line2.normalized_original = norm2 + retargetted
+                        sc_base, _ = split_off_address(line2.scorable_line)
+                        line2.scorable_line = sc_base + retargetted
                     same_target = line2_target == (line1.branch_target, 0)
                 else:
                     # Do a naive comparison for non-branches (e.g. function calls).
