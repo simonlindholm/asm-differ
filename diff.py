@@ -2044,7 +2044,7 @@ def split_off_address(line: str) -> Tuple[str, str]:
         parts = line.split(None, 1)
         if len(parts) < 2:
             parts.append("")
-    off = len(line) - len(parts[-1])
+    off = len(line) - len(parts[-1].strip())
     return line[:off], line[off:]
 
 
