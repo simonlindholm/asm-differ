@@ -2287,7 +2287,6 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     lines2 = trim_nops(lines2, arch)
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
-    score = score_diff_lines(diffed_lines, config)
     max_score = len(lines1) * config.penalty_deletion
 
     line_num_base = -1
@@ -2524,6 +2523,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             )
         )
 
+    score = score_diff_lines(diffed_lines, config)
     output = output[config.skip_lines :]
     return Diff(lines=output, score=score, max_score=max_score)
 
