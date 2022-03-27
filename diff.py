@@ -288,7 +288,6 @@ if __name__ == "__main__":
         metavar="LINES",
         dest="max_lines",
         type=int,
-        default=1024,
         help="The maximum length of the diff, in lines.",
     )
     parser.add_argument(
@@ -405,6 +404,7 @@ class Config:
     inlines: bool
     max_function_size_lines: int
     max_function_size_bytes: int
+    max_function_lines_overriden: bool
 
     # Display options
     formatter: "Formatter"
@@ -450,6 +450,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         disassemble_all=settings.get("disassemble_all", False),
     )
 
+DEFAULT_MAX_LINES = 1024
 
 def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
     arch = get_arch(project.arch_str)
@@ -480,6 +481,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
     if show_line_numbers is None:
         show_line_numbers = project.show_line_numbers_default
 
+    max_lines = args.max_lines or DEFAULT_MAX_LINES
+
     return Config(
         arch=arch,
         # Build/objdump options
@@ -489,8 +492,9 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         source_old_binutils=args.source_old_binutils,
         diff_section=args.diff_section,
         inlines=args.inlines,
-        max_function_size_lines=args.max_lines,
-        max_function_size_bytes=args.max_lines * 4,
+        max_function_size_lines=max_lines,
+        max_function_size_bytes=max_lines * 4,
+        max_function_lines_overriden = args.max_lines is not None,
         # Display options
         formatter=formatter,
         threeway=args.threeway,
@@ -2184,22 +2188,26 @@ def score_diff_lines(
     def diff_delete(line: str) -> None:
         deletions.append(line)
 
-    # Find the end of the last long streak of matching mnemonics, if it looks
-    # like the objdump output was truncated. This is used to skip scoring
-    # misaligned lines at the end of the diff.
-    last_mismatch = -1
-    max_index = None
-    lines_were_truncated = False
-    for index, (line1, line2) in enumerate(lines):
-        if (line1 and line1.original == "...") or (line2 and line2.original == "..."):
-            lines_were_truncated = True
-        if line1 and line2 and line1.mnemonic == line2.mnemonic:
-            if index - last_mismatch >= 50:
-                max_index = index
-        else:
-            last_mismatch = index
-    if not lines_were_truncated:
+
+    if config.max_function_lines_overriden:
+        max_index = min(config.max_function_size_lines, len(lines))
+    else:
+        # Find the end of the last long streak of matching mnemonics, if it looks
+        # like the objdump output was truncated. This is used to skip scoring
+        # misaligned lines at the end of the diff.
+        last_mismatch = -1
         max_index = None
+        lines_were_truncated = False
+        for index, (line1, line2) in enumerate(lines):
+            if (line1 and line1.original == "...") or (line2 and line2.original == "..."):
+                lines_were_truncated = True
+            if line1 and line2 and line1.mnemonic == line2.mnemonic:
+                if index - last_mismatch >= 50:
+                    max_index = index
+            else:
+                last_mismatch = index
+        if not lines_were_truncated:
+            max_index = None
 
     for index, (line1, line2) in enumerate(lines):
         if max_index is not None and index > max_index:
