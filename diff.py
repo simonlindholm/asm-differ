@@ -1946,6 +1946,8 @@ def process(dump: str, config: Config) -> List[Line]:
             # powerpc-eabi-objdump doesn't use tabs
             row_parts = [part.lstrip() for part in row.split(" ", 1)]
         mnemonic = row_parts[0].strip()
+        args = row_parts[1] if len(row_parts) >= 2 else ""
+        row = mnemonic + "\t" + args.replace("\t", "  ")
 
         addr = ""
         if mnemonic in arch.instructions_with_address_immediates:
