@@ -709,6 +709,7 @@ class AnsiFormatter(Formatter):
     STYLE_UNDERLINE = "\x1b[4m"
     STYLE_NO_UNDERLINE = "\x1b[24m"
     STYLE_INVERT = "\x1b[7m"
+    STYLE_RESET = "\x1b[0m"
 
     BASIC_ANSI_CODES = {
         BasicFormat.NONE: "",
@@ -769,6 +770,7 @@ class AnsiFormatter(Formatter):
             "".join(
                 (self.STYLE_INVERT if is_data_ref else "")
                 + self.apply(x.ljust(self.column_width))
+                + (self.STYLE_RESET if is_data_ref else "")
                 for x in row
             )
             for (row, is_data_ref) in rows
