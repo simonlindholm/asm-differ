@@ -1474,8 +1474,13 @@ class AsmProcessorPPC(AsmProcessor):
                 if int(repl.split("+")[1], 16) > 0x70000000:
                     repl = repl.split("+")[0]
         elif "R_PPC_EMB_SDA21" in row:
-            # small data area
-            pass
+            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+            # we may encounter this in either pre-transformed or post-transformed
+            # versions depending on if the .o file comes from compiler output or
+            # from disassembly. Normalize, to make sure both forms are treated as
+            # equivalent.
+            after = after.replace("(r2)", "(0)")
+            after = after.replace("(r13)", "(0)")
         return before + repl + after
 
 
@@ -2051,8 +2056,10 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
 
 
 def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
-    # (this should probably be arch-specific)
-    return "(." in row
+    if arch.name == "ppc":
+        return any(str in row for str in ["...data", "@"])
+    else:
+        return "(." in row
 
 
 def split_off_address(line: str) -> Tuple[str, str]:
@@ -2189,6 +2196,8 @@ def score_diff_lines(
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
         for nf, of in zip(newfields, oldfields):
+            if imm_matches_everything(nf, config.arch):
+                continue
             if nf != of:
                 score += config.penalty_regalloc
         # Penalize any extra fields
@@ -2417,6 +2426,11 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                         out1, out2 = format_fields(arch.re_reg, out1, out2, sc1, sc2)
                         line_color1 = line_color2 = sym_color = BasicFormat.REGISTER
                         line_prefix = "r"
+
+                if imm_matches_everything(branchless2, arch):
+                    # ignore differences due to %lo(.rodata + ...) vs symbol
+                    out1 = out1.reformat(BasicFormat.NONE)
+                    out2 = out2.reformat(BasicFormat.NONE)
 
                 if same_target:
                     address_imm_fmt = BasicFormat.NONE
