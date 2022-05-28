@@ -1865,6 +1865,7 @@ class Line:
     original: str
     normalized_original: str
     scorable_line: str
+    relocation_occured: bool
     line_num: Optional[int] = None
     branch_target: Optional[int] = None
     data_pool_addr: Optional[int] = None
@@ -1986,10 +1987,13 @@ def process(dump: str, config: Config) -> List[Line]:
         # immediates.
         original = row
 
+        relocation_occured = False
+
         while i < len(lines):
             reloc_row = lines[i]
             if re.search(arch.re_reloc, reloc_row):
                 original = processor.process_reloc(reloc_row, original)
+                relocation_occured = True
             else:
                 break
             i += 1
@@ -2029,6 +2033,7 @@ def process(dump: str, config: Config) -> List[Line]:
                 original=original,
                 normalized_original=normalized_original,
                 scorable_line=scorable_line,
+                relocation_occured=relocation_occured,
                 line_num=line_num,
                 branch_target=branch_target,
                 data_pool_addr=data_pool_addr,
@@ -2173,8 +2178,10 @@ def score_diff_lines(
         new_inner = new[new_idx + 4 : -1]
         return old_inner.startswith(".") or new_inner.startswith(".")
 
-    def diff_sameline(old: str, new: str) -> None:
+    def diff_sameline(old_line_obj: Line, new_line_obj: Line) -> None:
         nonlocal score
+        old = old_line_obj.scorable_line
+        new = new_line_obj.scorable_line
         if old == new:
             return
 
@@ -2198,9 +2205,16 @@ def score_diff_lines(
         if ignore_last_field:
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
+        else:
+            ### If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a seperate field
+            newfields = newfields[:-1] + newfields[-1].split("(")
+            oldfields = oldfields[:-1] + oldfields[-1].split("(")
         for nf, of in zip(newfields, oldfields):
+            # If the new field is a match to any symbol case
             if imm_matches_everything(nf, config.arch):
-                continue
+                # And the old field had a relocation, then ignore this mismatch
+                if old_line_obj.relocation_occured:
+                    continue
             if nf != of:
                 score += config.penalty_regalloc
         # Penalize any extra fields
@@ -2235,7 +2249,7 @@ def score_diff_lines(
         if max_index is not None and index > max_index:
             break
         if line1 and line2 and line1.mnemonic == line2.mnemonic:
-            diff_sameline(line1.scorable_line, line2.scorable_line)
+            diff_sameline(line1, line2)
         else:
             if line1:
                 diff_delete(line1.scorable_line)
@@ -2441,8 +2455,11 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             line2_parts = [line2.mnemonic] + line2.original.split("\t")[1].split(",")
             ### check each part of the line for innequality, but ignore parts with match everything symbol
             for i in range(len(line1_parts)):
+                # If line2 (right side) is a match to any symbol case
                 if imm_matches_everything(line2_parts[i], config.arch):
-                    continue
+                    # And line1 (left side) had a relocation, then ignore this mismatch
+                    if line1.relocation_occured:
+                        continue
                 if line1_parts[i] != line2_parts[i]:
                     line_prefix = "|"
                     line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
