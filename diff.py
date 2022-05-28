@@ -2430,11 +2430,6 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                         line_color1 = line_color2 = sym_color = BasicFormat.REGISTER
                         line_prefix = "r"
 
-                if imm_matches_everything(branchless2, arch):
-                    # ignore differences due to %lo(.rodata + ...) vs symbol
-                    out1 = out1.reformat(BasicFormat.NONE)
-                    out2 = out2.reformat(BasicFormat.NONE)
-
                 if same_target:
                     address_imm_fmt = BasicFormat.NONE
                 else:
@@ -2442,10 +2437,18 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 out1 += Text(address1, address_imm_fmt)
                 out2 += Text(address2, address_imm_fmt)
         elif line1 and line2:
-            line_prefix = "|"
-            line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
-            out1 = out1.reformat(line_color1)
-            out2 = out2.reformat(line_color2)
+            line1_parts = [line1.mnemonic] + line1.original.split("\t")[1].split(",")
+            line2_parts = [line2.mnemonic] + line2.original.split("\t")[1].split(",")
+            ### check each part of the line for innequality, but ignore parts with match everything symbol
+            for i in range(len(line1_parts)):
+                if imm_matches_everything(line2_parts[i], config.arch):
+                    continue
+                if line1_parts[i] != line2_parts[i]:
+                    line_prefix = "|"
+                    line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
+                    out1 = out1.reformat(line_color1)
+                    out2 = out2.reformat(line_color2)
+                    break
         elif line1:
             line_prefix = "<"
             line_color1 = sym_color = BasicFormat.DIFF_REMOVE
