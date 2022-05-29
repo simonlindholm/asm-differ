@@ -1481,8 +1481,8 @@ class AsmProcessorPPC(AsmProcessor):
             # equivalent.
             after = after.replace("(r2)", "(0)")
             after = after.replace("(r13)", "(0)")
-            before = before.replace("r2", "0")
-            before = before.replace("r13", "0")
+            before = before.replace(",r2,", ",0,")
+            before = before.replace(",r13,", ",0,")
 
         return before + repl + after
 
@@ -1777,7 +1777,7 @@ PPC_SETTINGS = ArchSettings(
     name="ppc",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)"),
@@ -1865,7 +1865,7 @@ class Line:
     original: str
     normalized_original: str
     scorable_line: str
-    relocation_occured: bool
+    has_symbol: bool
     line_num: Optional[int] = None
     branch_target: Optional[int] = None
     data_pool_addr: Optional[int] = None
@@ -1970,6 +1970,17 @@ def process(dump: str, config: Config) -> List[Line]:
             row_parts = [part.lstrip() for part in row.split(" ", 1)]
         mnemonic = row_parts[0].strip()
         args = row_parts[1] if len(row_parts) >= 2 else ""
+
+        if arch.name == "ppc":
+            if mnemonic == "li":
+                mnemonic = "addi"
+                args_parts = args.split(",")
+                args = args_parts[0] + ",0," + args_parts[1]
+            if mnemonic == "lis":
+                mnemonic = "addis"
+                args_parts = args.split(",")
+                args = args_parts[0] + ",0," + args_parts[1]
+
         row = mnemonic + "\t" + args.replace("\t", "  ")
 
         addr = ""
@@ -1987,13 +1998,13 @@ def process(dump: str, config: Config) -> List[Line]:
         # immediates.
         original = row
 
-        relocation_occured = False
+        has_symbol = False
 
         while i < len(lines):
             reloc_row = lines[i]
             if re.search(arch.re_reloc, reloc_row):
                 original = processor.process_reloc(reloc_row, original)
-                relocation_occured = True
+                has_symbol = True
             else:
                 break
             i += 1
@@ -2033,7 +2044,7 @@ def process(dump: str, config: Config) -> List[Line]:
                 original=original,
                 normalized_original=normalized_original,
                 scorable_line=scorable_line,
-                relocation_occured=relocation_occured,
+                has_symbol=has_symbol,
                 line_num=line_num,
                 branch_target=branch_target,
                 data_pool_addr=data_pool_addr,
@@ -2206,14 +2217,14 @@ def score_diff_lines(
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
         else:
-            ### If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a seperate field
+            ### If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a separate field
             newfields = newfields[:-1] + newfields[-1].split("(")
             oldfields = oldfields[:-1] + oldfields[-1].split("(")
         for nf, of in zip(newfields, oldfields):
             # If the new field is a match to any symbol case
             if imm_matches_everything(nf, config.arch):
                 # And the old field had a relocation, then ignore this mismatch
-                if old_line_obj.relocation_occured:
+                if old_line_obj.has_symbol:
                     continue
             if nf != of:
                 score += config.penalty_regalloc
@@ -2458,7 +2469,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 # If line2 (right side) is a match to any symbol case
                 if imm_matches_everything(line2_parts[i], config.arch):
                     # And line1 (left side) had a relocation, then ignore this mismatch
-                    if line1.relocation_occured:
+                    if line1.has_symbol:
                         continue
                 if line1_parts[i] != line2_parts[i]:
                     line_prefix = "|"
