@@ -2076,7 +2076,12 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
 
 def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
     if arch.name == "ppc":
-        return any(str in row for str in ["...data", "@"])
+        if "...data" in row:
+            return True
+
+        row = "".join(row.rsplit("@ha", 1))
+        row = "".join(row.rsplit("@l", 1))
+        return re.search(re.compile(r"\A@\d+\Z"), row) != None
     else:
         return "(." in row
 
