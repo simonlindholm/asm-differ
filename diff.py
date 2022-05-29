@@ -1474,15 +1474,8 @@ class AsmProcessorPPC(AsmProcessor):
                 if int(repl.split("+")[1], 16) > 0x70000000:
                     repl = repl.split("+")[0]
         elif "R_PPC_EMB_SDA21" in row:
-            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
-            # we may encounter this in either pre-transformed or post-transformed
-            # versions depending on if the .o file comes from compiler output or
-            # from disassembly. Normalize, to make sure both forms are treated as
-            # equivalent.
-            after = after.replace("(r2)", "(0)")
-            after = after.replace("(r13)", "(0)")
-            before = before.replace(",r2,", ",0,")
-            before = before.replace(",r13,", ",0,")
+            # sda21 relocations; r2/r13 --> 0 swaps are performed in an earlier processing step
+            repl = f"{repl}@sda21"
 
         return before + repl + after
 
@@ -1981,7 +1974,18 @@ def process(dump: str, config: Config) -> List[Line]:
                 args_parts = args.split(",")
                 args = args_parts[0] + ",0," + args_parts[1]
 
-        row = mnemonic + "\t" + args.replace("\t", "  ")
+            row = mnemonic + "\t" + args.replace("\t", "  ")
+
+            if i < len(lines) and "R_PPC_EMB_SDA21" in lines[i]:
+                # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+                # we may encounter this in either pre-transformed or post-transformed
+                # versions depending on if the .o file comes from compiler output or
+                # from disassembly. Normalize, to make sure both forms are treated as
+                # equivalent.
+                row = row.replace("(r2)", "(0)")
+                row = row.replace("(r13)", "(0)")
+                row = row.replace(",r2,", ",0,")
+                row = row.replace(",r13,", ",0,")
 
         addr = ""
         if mnemonic in arch.instructions_with_address_immediates:
@@ -2467,21 +2471,10 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 out1 += Text(address1, address_imm_fmt)
                 out2 += Text(address2, address_imm_fmt)
         elif line1 and line2:
-            line1_parts = [line1.mnemonic] + line1.original.split("\t")[1].split(",")
-            line2_parts = [line2.mnemonic] + line2.original.split("\t")[1].split(",")
-            ### check each part of the line for innequality, but ignore parts with match everything symbol
-            for i in range(len(line1_parts)):
-                # If line2 (right side) is a match to any symbol case
-                if imm_matches_everything(line2_parts[i], config.arch):
-                    # And line1 (left side) had a relocation, then ignore this mismatch
-                    if line1.has_symbol:
-                        continue
-                if line1_parts[i] != line2_parts[i]:
-                    line_prefix = "|"
-                    line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
-                    out1 = out1.reformat(line_color1)
-                    out2 = out2.reformat(line_color2)
-                    break
+            line_prefix = "|"
+            line_color1 = line_color2 = sym_color = BasicFormat.DIFF_CHANGE
+            out1 = out1.reformat(line_color1)
+            out2 = out2.reformat(line_color2)
         elif line1:
             line_prefix = "<"
             line_color1 = sym_color = BasicFormat.DIFF_REMOVE
