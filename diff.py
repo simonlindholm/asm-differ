@@ -2089,7 +2089,10 @@ def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
 
         return re.search(re.compile(r"\A@\d+\Z"), row) != None
     else:
-        return "(." in row
+        return (
+            re.search(re.compile(r"\A%(hi|lo)\(\.[a-z]+(\+0x([a-f]|\d)+)?\)"), row)
+            != None
+        )
 
 
 def split_off_address(line: str) -> Tuple[str, str]:
