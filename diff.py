@@ -2078,19 +2078,19 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
     return re.sub(arch.re_sprel, "addr(sp)", row)
 
 
-def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
+def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
     if arch.name == "ppc":
-        if "...data" in row:
+        if "...data" in field:
             return True
 
-        row = "".join(row.rsplit("@ha", 1))
-        row = "".join(row.rsplit("@l", 1))
-        row = "".join(row.rsplit("@sda21", 1))
+        field = "".join(field.rsplit("@ha", 1))
+        field = "".join(field.rsplit("@l", 1))
+        field = "".join(field.rsplit("@sda21", 1))
 
-        return re.search(re.compile(r"\A@\d+\Z"), row) != None
+        return re.search(re.compile(r"\A@\d+\Z"), field) != None
     else:
         return (
-            re.search(re.compile(r"\A%(hi|lo)\(\.[a-z]+(\+0x([a-f]|\d)+)?\)"), row)
+            re.search(re.compile(r"\A%(hi|lo)\(\.[a-z]+(\+0x([a-f]|\d)+)?\)"), field)
             != None
         )
 
