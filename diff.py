@@ -1393,6 +1393,9 @@ class AsmProcessor:
     def __init__(self, config: Config) -> None:
         self.config = config
 
+    def pre_process(self, mnemonic: str, args: str, next_row: Optional[str]) -> str:
+        return mnemonic + "\t" + args.replace("\t", "  ")
+
     def process_reloc(self, row: str, prev: str) -> str:
         return prev
 
@@ -1447,6 +1450,35 @@ class AsmProcessorMIPS(AsmProcessor):
 
 
 class AsmProcessorPPC(AsmProcessor):
+    def pre_process(self, mnemonic: str, args: str, next_row: Optional[str]) -> str:
+
+        if next_row and "R_PPC_EMB_SDA21" in next_row:
+            # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
+            # we may encounter this in either pre-transformed or post-transformed
+            # versions depending on if the .o file comes from compiler output or
+            # from disassembly. Normalize, to make sure both forms are treated as
+            # equivalent.
+
+            args = (
+                args.replace("(r2)", "(0)")
+                .replace("(r13)", "(0)")
+                .replace(",r2,", ",0,")
+                .replace(",r13,", ",0,")
+            )
+
+            # We want to convert li and lis with an sda21 reloc,
+            # because the r0 to r2/r13 transformation results in
+            # turning an li/lis into an addi/addis with r2/r13 arg
+            # our preprocessing normalizes all versions to addi with a 0 arg
+            if mnemonic == "li" or mnemonic == "lis":
+                mnemonic = mnemonic.replace(
+                    "li", "addi"
+                )  # this also turns lis into addis
+                args_parts = args.split(",")
+                args = args_parts[0] + ",0," + args_parts[1]
+
+        return mnemonic + "\t" + args.replace("\t", "  ")
+
     def process_reloc(self, row: str, prev: str) -> str:
         arch = self.config.arch
         assert any(
@@ -1770,7 +1802,7 @@ PPC_SETTINGS = ArchSettings(
     name="ppc",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"(\$?\b([rf][0-9]+)\b|\(.+\))"),
+    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)"),
@@ -1908,6 +1940,7 @@ def process(dump: str, config: Config) -> List[Line]:
                     original="...",
                     normalized_original="...",
                     scorable_line="...",
+                    has_symbol=False,
                 )
             )
             break
@@ -1953,6 +1986,7 @@ def process(dump: str, config: Config) -> List[Line]:
                     original=ref_str,
                     normalized_original=ref_str,
                     scorable_line="<data-ref>",
+                    has_symbol=False,
                 )
             )
 
@@ -1961,31 +1995,16 @@ def process(dump: str, config: Config) -> List[Line]:
         else:
             # powerpc-eabi-objdump doesn't use tabs
             row_parts = [part.lstrip() for part in row.split(" ", 1)]
+
         mnemonic = row_parts[0].strip()
         args = row_parts[1] if len(row_parts) >= 2 else ""
 
-        if arch.name == "ppc":
-            if mnemonic == "li":
-                mnemonic = "addi"
-                args_parts = args.split(",")
-                args = args_parts[0] + ",0," + args_parts[1]
-            if mnemonic == "lis":
-                mnemonic = "addis"
-                args_parts = args.split(",")
-                args = args_parts[0] + ",0," + args_parts[1]
+        if i < len(lines):
+            next_row = lines[i]
+        else:
+            next_row = None
 
-            row = mnemonic + "\t" + args.replace("\t", "  ")
-
-            if i < len(lines) and "R_PPC_EMB_SDA21" in lines[i]:
-                # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
-                # we may encounter this in either pre-transformed or post-transformed
-                # versions depending on if the .o file comes from compiler output or
-                # from disassembly. Normalize, to make sure both forms are treated as
-                # equivalent.
-                row = row.replace("(r2)", "(0)")
-                row = row.replace("(r13)", "(0)")
-                row = row.replace(",r2,", ",0,")
-                row = row.replace(",r13,", ",0,")
+        row = processor.pre_process(mnemonic, args, next_row)
 
         addr = ""
         if mnemonic in arch.instructions_with_address_immediates:
@@ -2087,12 +2106,9 @@ def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
         field = "".join(field.rsplit("@l", 1))
         field = "".join(field.rsplit("@sda21", 1))
 
-        return re.search(re.compile(r"\A@\d+\Z"), field) != None
+        return re.fullmatch(re.compile(r"^@\d+$"), field) is not None
     else:
-        return (
-            re.search(re.compile(r"\A%(hi|lo)\(\.[a-z]+(\+0x([a-f]|\d)+)?\)"), field)
-            != None
-        )
+        return "(." in field  # matches with strings similar to %lo(.text + 0x[offset])
 
 
 def split_off_address(line: str) -> Tuple[str, str]:
@@ -2203,10 +2219,10 @@ def score_diff_lines(
         new_inner = new[new_idx + 4 : -1]
         return old_inner.startswith(".") or new_inner.startswith(".")
 
-    def diff_sameline(old_line_obj: Line, new_line_obj: Line) -> None:
+    def diff_sameline(old_line: Line, new_line: Line) -> None:
         nonlocal score
-        old = old_line_obj.scorable_line
-        new = new_line_obj.scorable_line
+        old = old_line.scorable_line
+        new = new_line.scorable_line
         if old == new:
             return
 
@@ -2231,14 +2247,14 @@ def score_diff_lines(
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
         else:
-            ### If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a separate field
+            # If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a separate field
             newfields = newfields[:-1] + newfields[-1].split("(")
             oldfields = oldfields[:-1] + oldfields[-1].split("(")
         for nf, of in zip(newfields, oldfields):
             # If the new field is a match to any symbol case
             if imm_matches_everything(nf, config.arch):
                 # And the old field had a relocation, then ignore this mismatch
-                if old_line_obj.has_symbol:
+                if old_line.has_symbol:
                     continue
             if nf != of:
                 score += config.penalty_regalloc
