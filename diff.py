@@ -1474,10 +1474,8 @@ class AsmProcessorPPC(AsmProcessor):
             # because the r0 to r2/r13 transformation results in
             # turning an li/lis into an addi/addis with r2/r13 arg
             # our preprocessing normalizes all versions to addi with a 0 arg
-            if mnemonic == "li" or mnemonic == "lis":
-                mnemonic = mnemonic.replace(
-                    "li", "addi"
-                )  # this also turns lis into addis
+            if mnemonic in {"li", "lis"}:
+                mnemonic = mnemonic.replace("li", "addi")
                 args_parts = args.split(",")
                 args = args_parts[0] + ",0," + args_parts[1]
 
@@ -1510,7 +1508,7 @@ class AsmProcessorPPC(AsmProcessor):
                 if int(repl.split("+")[1], 16) > 0x70000000:
                     repl = repl.split("+")[0]
         elif "R_PPC_EMB_SDA21" in row:
-            # sda21 relocations; r2/r13 --> 0 swaps are performed in an earlier processing step
+            # sda21 relocations; r2/r13 --> 0 swaps are performed in pre_process
             repl = f"{repl}@sda21"
 
         return before + repl + after
@@ -2003,12 +2001,8 @@ def process(dump: str, config: Config) -> List[Line]:
         mnemonic = row_parts[0].strip()
         args = row_parts[1] if len(row_parts) >= 2 else ""
 
-        if i < len(lines):
-            next_row = lines[i]
-        else:
-            next_row = None
-
-        mnemonic, args = processor.pre_process(mnemonic, args, next_row)
+        next_line = lines[i] if i < len(lines) else None
+        mnemonic, args = processor.pre_process(mnemonic, args, next_line)
         row = mnemonic + "\t" + args.replace("\t", "  ")
 
         addr = ""
@@ -2107,9 +2101,9 @@ def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
         if "...data" in field:
             return True
 
-        field = "".join(field.rsplit("@ha", 1))
-        field = "".join(field.rsplit("@l", 1))
-        field = "".join(field.rsplit("@sda21", 1))
+        parts = field.rsplit("@", 1)
+        if len(parts) == 2 and parts[1] in {"l", "h", "ha", "sda21"}:
+            field = parts[0]
 
         return re.fullmatch(re.compile(r"^@\d+$"), field) is not None
     else:
