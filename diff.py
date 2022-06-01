@@ -1393,8 +1393,10 @@ class AsmProcessor:
     def __init__(self, config: Config) -> None:
         self.config = config
 
-    def pre_process(self, mnemonic: str, args: str, next_row: Optional[str]) -> str:
-        return mnemonic + "\t" + args.replace("\t", "  ")
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str]
+    ) -> Tuple[str, str]:
+        return (mnemonic, args)
 
     def process_reloc(self, row: str, prev: str) -> str:
         return prev
@@ -1450,7 +1452,9 @@ class AsmProcessorMIPS(AsmProcessor):
 
 
 class AsmProcessorPPC(AsmProcessor):
-    def pre_process(self, mnemonic: str, args: str, next_row: Optional[str]) -> str:
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str]
+    ) -> Tuple[str, str]:
 
         if next_row and "R_PPC_EMB_SDA21" in next_row:
             # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
@@ -1477,7 +1481,7 @@ class AsmProcessorPPC(AsmProcessor):
                 args_parts = args.split(",")
                 args = args_parts[0] + ",0," + args_parts[1]
 
-        return mnemonic + "\t" + args.replace("\t", "  ")
+        return (mnemonic, args)
 
     def process_reloc(self, row: str, prev: str) -> str:
         arch = self.config.arch
@@ -2004,7 +2008,8 @@ def process(dump: str, config: Config) -> List[Line]:
         else:
             next_row = None
 
-        row = processor.pre_process(mnemonic, args, next_row)
+        mnemonic, args = processor.pre_process(mnemonic, args, next_row)
+        row = mnemonic + "\t" + args.replace("\t", "  ")
 
         addr = ""
         if mnemonic in arch.instructions_with_address_immediates:
