@@ -2110,7 +2110,7 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
         return re.fullmatch((r"^@\d+$"), field) is not None
 
     if arch.name == "mips":
-        return field[0] == "."
+        return "." in field
 
     return False
 
@@ -2230,8 +2230,8 @@ def score_diff_lines(
         if old == new:
             return
 
-        if lo_hi_match(old, new):
-            return
+        # if lo_hi_match(old, new):
+        #     return
 
         ignore_last_field = False
         if config.score_stack_differences:
@@ -2251,10 +2251,16 @@ def score_diff_lines(
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
         else:
-            # If the last field has a parenthesis suffix, i.e. "0x38(r7)" or "%lo(.data)" or "%hi(.rodata + 0x10)"
+            # If the last field has a parenthesis suffix, i.e. "0x38(r7)"
             # we split that part out to make it a separate field
-            newfields = newfields[:-1] + newfields[-1].split("(")
-            oldfields = oldfields[:-1] + oldfields[-1].split("(")
+            # however, we don't split if it has a proceeding %hi/%lo  i.e."%lo(.data)" or "%hi(.rodata + 0x10)"
+            if len(oldfields) > 1:
+                split_last_field = re.split(r"(?<!%hi)(?<!%lo)\(", oldfields[-1])
+                oldfields = oldfields[:-1] + split_last_field
+            if len(newfields) > 1:
+                split_last_field = re.split(r"(?<!%hi)(?<!%lo)\(", newfields[-1])
+                newfields = newfields[:-1] + split_last_field
+
         for nf, of in zip(newfields, oldfields):
             if nf != of:
                 # If the new field is a match to any symbol case
