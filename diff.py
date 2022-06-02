@@ -1463,12 +1463,10 @@ class AsmProcessorPPC(AsmProcessor):
             # from disassembly. Normalize, to make sure both forms are treated as
             # equivalent.
 
-            args = (
-                args.replace("(r2)", "(0)")
-                .replace("(r13)", "(0)")
-                .replace(",r2,", ",0,")
-                .replace(",r13,", ",0,")
-            )
+            args = args.replace("(r2)", "(0)")
+            args = args.replace("(r13)", "(0)")
+            args = args.replace(",r2,", ",0,")
+            args = args.replace(",r13,", ",0,")
 
             # We want to convert li and lis with an sda21 reloc,
             # because the r0 to r2/r13 transformation results in
@@ -1807,7 +1805,7 @@ PPC_SETTINGS = ArchSettings(
     re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
-    re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo)"),
+    re_imm=re.compile(r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^@]*@(ha|h|lo|sda21)"),
     re_reloc=re.compile(r"R_PPC_"),
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
@@ -1999,7 +1997,7 @@ def process(dump: str, config: Config) -> List[Line]:
             row_parts = [part.lstrip() for part in row.split(" ", 1)]
 
         mnemonic = row_parts[0].strip()
-        args = row_parts[1] if len(row_parts) >= 2 else ""
+        args = row_parts[1].strip() if len(row_parts) >= 2 else ""
 
         next_line = lines[i] if i < len(lines) else None
         mnemonic, args = processor.pre_process(mnemonic, args, next_line)
@@ -2057,7 +2055,7 @@ def process(dump: str, config: Config) -> List[Line]:
 
         branch_target = None
         if mnemonic in arch.branch_instructions:
-            branch_target = int(row_parts[1].strip().split(",")[-1], 16)
+            branch_target = int(args.split(",")[-1], 16)
 
         output.append(
             Line(
@@ -2079,7 +2077,7 @@ def process(dump: str, config: Config) -> List[Line]:
         num_instr += 1
         source_lines = []
 
-        if config.stop_jrra and mnemonic == "jr" and row_parts[1].strip() == "ra":
+        if config.stop_jrra and mnemonic == "jr" and args.strip() == "ra":
             stop_after_delay_slot = True
         elif stop_after_delay_slot:
             break
@@ -2097,6 +2095,10 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
 
 
 def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
+    return "(." in field
+
+
+def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
     if arch.name == "ppc":
         if "...data" in field:
             return True
@@ -2105,9 +2107,12 @@ def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
         if len(parts) == 2 and parts[1] in {"l", "h", "ha", "sda21"}:
             field = parts[0]
 
-        return re.fullmatch(re.compile(r"^@\d+$"), field) is not None
-    else:
-        return "(." in field  # matches with strings similar to %lo(.text + 0x[offset])
+        return re.fullmatch((r"^@\d+$"), field) is not None
+
+    if arch.name == "mips":
+        return field[0] == "."
+
+    return False
 
 
 def split_off_address(line: str) -> Tuple[str, str]:
@@ -2246,17 +2251,18 @@ def score_diff_lines(
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
         else:
-            # If the last field has a register suffix, i.e. "0x38(r7)"  we split that part out to make it a separate field
+            # If the last field has a parenthesis suffix, i.e. "0x38(r7)" or "%lo(.data)" or "%hi(.rodata + 0x10)"
+            # we split that part out to make it a separate field
             newfields = newfields[:-1] + newfields[-1].split("(")
             oldfields = oldfields[:-1] + oldfields[-1].split("(")
         for nf, of in zip(newfields, oldfields):
-            # If the new field is a match to any symbol case
-            if imm_matches_everything(nf, config.arch):
-                # And the old field had a relocation, then ignore this mismatch
-                if old_line.has_symbol:
-                    continue
             if nf != of:
+                # If the new field is a match to any symbol case
+                # and the old field had a relocation, then ignore this mismatch
+                if field_matches_any_symbol(nf, config.arch) and old_line.has_symbol:
+                    continue
                 score += config.penalty_regalloc
+
         # Penalize any extra fields
         score += abs(len(newfields) - len(oldfields)) * config.penalty_regalloc
 
