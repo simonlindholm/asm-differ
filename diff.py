@@ -1396,7 +1396,7 @@ class AsmProcessor:
     def pre_process(
         self, mnemonic: str, args: str, next_row: Optional[str]
     ) -> Tuple[str, str]:
-        return (mnemonic, args)
+        return mnemonic, args
 
     def process_reloc(self, row: str, prev: str) -> str:
         return prev
@@ -1477,7 +1477,7 @@ class AsmProcessorPPC(AsmProcessor):
                 args_parts = args.split(",")
                 args = args_parts[0] + ",0," + args_parts[1]
 
-        return (mnemonic, args)
+        return mnemonic, args
 
     def process_reloc(self, row: str, prev: str) -> str:
         arch = self.config.arch
@@ -2094,8 +2094,8 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
     return re.sub(arch.re_sprel, "addr(sp)", row)
 
 
-def imm_matches_everything(field: str, arch: ArchSettings) -> bool:
-    return "(." in field
+def imm_matches_everything(row: str, arch: ArchSettings) -> bool:
+    return "." in row
 
 
 def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
@@ -2200,38 +2200,12 @@ def score_diff_lines(
     deletions = []
     insertions = []
 
-    def lo_hi_match(old: str, new: str) -> bool:
-        # TODO: Make this arch-independent, like `imm_matches_everything()`
-        old_lo = old.find("%lo")
-        old_hi = old.find("%hi")
-        new_lo = new.find("%lo")
-        new_hi = new.find("%hi")
-
-        if old_lo != -1 and new_lo != -1:
-            old_idx = old_lo
-            new_idx = new_lo
-        elif old_hi != -1 and new_hi != -1:
-            old_idx = old_hi
-            new_idx = new_hi
-        else:
-            return False
-
-        if old[:old_idx] != new[:new_idx]:
-            return False
-
-        old_inner = old[old_idx + 4 : -1]
-        new_inner = new[new_idx + 4 : -1]
-        return old_inner.startswith(".") or new_inner.startswith(".")
-
     def diff_sameline(old_line: Line, new_line: Line) -> None:
         nonlocal score
         old = old_line.scorable_line
         new = new_line.scorable_line
         if old == new:
             return
-
-        # if lo_hi_match(old, new):
-        #     return
 
         ignore_last_field = False
         if config.score_stack_differences:
@@ -2251,15 +2225,12 @@ def score_diff_lines(
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
         else:
-            # If the last field has a parenthesis suffix, i.e. "0x38(r7)"
+            # If the last field has a parenthesis suffix, e.g. "0x38(r7)"
             # we split that part out to make it a separate field
-            # however, we don't split if it has a proceeding %hi/%lo  i.e."%lo(.data)" or "%hi(.rodata + 0x10)"
-            if len(oldfields) > 1:
-                split_last_field = re.split(r"(?<!%hi)(?<!%lo)\(", oldfields[-1])
-                oldfields = oldfields[:-1] + split_last_field
-            if len(newfields) > 1:
-                split_last_field = re.split(r"(?<!%hi)(?<!%lo)\(", newfields[-1])
-                newfields = newfields[:-1] + split_last_field
+            # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
+            re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
+            oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
+            newfields = newfields[:-1] + re_paren.split(newfields[-1])
 
         for nf, of in zip(newfields, oldfields):
             if nf != of:
