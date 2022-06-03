@@ -1806,7 +1806,7 @@ PPC_SETTINGS = ArchSettings(
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(
-        r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|@?[A-Za-z0-9_$]*@(ha|h|lo|sda21|l)"
+        r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^ \t,]+@(l|ha|h|sda21)"
     ),
     re_reloc=re.compile(r"R_PPC_"),
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
