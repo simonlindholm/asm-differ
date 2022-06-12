@@ -166,6 +166,12 @@ if __name__ == "__main__":
         help="Hide source line numbers in output.",
     )
     parser.add_argument(
+        "--penalty-list",
+        dest="show_penalty_list",
+        action="store_true",
+        help="Prints a list of penalties that contribute to the score",
+    )
+    parser.add_argument(
         "--inlines",
         dest="inlines",
         action="store_true",
@@ -370,6 +376,15 @@ except ModuleNotFoundError as e:
 
 
 @dataclass
+class Penalties:
+    num_stack_penalties: int
+    num_regalloc_penalties: int
+    num_reordering_penalties: int
+    num_insertion_penalties: int
+    num_deletion_penalties: int
+
+
+@dataclass
 class ProjectSettings:
     arch_str: str
     objdump_executable: str
@@ -414,6 +429,7 @@ class Config:
     compress: Optional[Compress]
     show_branches: bool
     show_line_numbers: bool
+    show_penalty_list: bool
     show_source: bool
     stop_jrra: bool
     ignore_large_imms: bool
@@ -501,6 +517,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         compress=compress,
         show_branches=args.show_branches,
         show_line_numbers=show_line_numbers,
+        show_penalty_list=args.show_penalty_list,
         show_source=args.show_source or args.source_old_binutils,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
@@ -1896,6 +1913,8 @@ class Line:
     line_num: Optional[int] = None
     branch_target: Optional[int] = None
     data_pool_addr: Optional[int] = None
+    num_stack_penalties: int = 0
+    num_regalloc_penalties: int = 0
     source_filename: Optional[str] = None
     source_line_num: Optional[int] = None
     source_lines: List[str] = field(default_factory=list)
@@ -2113,6 +2132,16 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
     return False
 
 
+def get_total_score(penalties: Penalties, config: Config) -> int:
+    return (
+        penalties.num_stack_penalties * config.penalty_stackdiff
+        + penalties.num_regalloc_penalties * config.penalty_regalloc
+        + penalties.num_reordering_penalties * config.penalty_reordering
+        + penalties.num_insertion_penalties * config.penalty_insertion
+        + penalties.num_deletion_penalties * config.penalty_deletion
+    )
+
+
 def split_off_address(line: str) -> Tuple[str, str]:
     """Split e.g. 'beqz $r0,1f0' into 'beqz $r0,' and '1f0'."""
     parts = line.split(",")
@@ -2191,15 +2220,19 @@ def diff_lines(
 
 def score_diff_lines(
     lines: List[Tuple[Optional[Line], Optional[Line]]], config: Config
-) -> int:
+) -> Penalties:
     # This logic is copied from `scorer.py` from the decomp permuter project
     # https://github.com/simonlindholm/decomp-permuter/blob/main/src/scorer.py
-    score = 0
+    num_stack_penalties = 0
+    num_regalloc_penalties = 0
+    num_reordering_penalties = 0
+    num_insertion_penalties = 0
+    num_deletion_penalties = 0
     deletions = []
     insertions = []
 
     def diff_sameline(old_line: Line, new_line: Line) -> None:
-        nonlocal score
+
         old = old_line.scorable_line
         new = new_line.scorable_line
         if old == new:
@@ -2212,7 +2245,7 @@ def score_diff_lines(
             if oldsp and newsp:
                 oldrel = int(oldsp.group(1) or "0", 0)
                 newrel = int(newsp.group(1) or "0", 0)
-                score += abs(oldrel - newrel) * config.penalty_stackdiff
+                new_line.num_stack_penalties += abs(oldrel - newrel)
                 ignore_last_field = True
 
         # Probably regalloc difference, or signed vs unsigned
@@ -2237,10 +2270,10 @@ def score_diff_lines(
                 # and the old field had a relocation, then ignore this mismatch
                 if field_matches_any_symbol(nf, config.arch) and old_line.has_symbol:
                     continue
-                score += config.penalty_regalloc
+                new_line.num_regalloc_penalties += 1
 
         # Penalize any extra fields
-        score += abs(len(newfields) - len(oldfields)) * config.penalty_regalloc
+        new_line.num_regalloc_penalties += abs(len(newfields) - len(oldfields))
 
     def diff_insert(line: str) -> None:
         # Reordering or totally different codegen.
@@ -2272,6 +2305,8 @@ def score_diff_lines(
             break
         if line1 and line2 and line1.mnemonic == line2.mnemonic:
             diff_sameline(line1, line2)
+            num_stack_penalties += line2.num_stack_penalties
+            num_regalloc_penalties += line2.num_regalloc_penalties
         else:
             if line1:
                 diff_delete(line1.scorable_line)
@@ -2284,13 +2319,17 @@ def score_diff_lines(
         ins = insertions_co[item]
         dels = deletions_co[item]
         common = min(ins, dels)
-        score += (
-            (ins - common) * config.penalty_insertion
-            + (dels - common) * config.penalty_deletion
-            + config.penalty_reordering * common
-        )
+        num_insertion_penalties += ins - common
+        num_deletion_penalties += dels - common
+        num_reordering_penalties += common
 
-    return score
+    return Penalties(
+        num_stack_penalties=num_stack_penalties,
+        num_regalloc_penalties=num_regalloc_penalties,
+        num_reordering_penalties=num_reordering_penalties,
+        num_insertion_penalties=num_insertion_penalties,
+        num_deletion_penalties=num_deletion_penalties,
+    )
 
 
 @dataclass(frozen=True)
@@ -2307,6 +2346,7 @@ class OutputLine:
 @dataclass(frozen=True)
 class Diff:
     lines: List[OutputLine]
+    penalties: Penalties
     score: int
     max_score: int
 
@@ -2353,6 +2393,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     lines2 = trim_nops(lines2, arch)
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
+    penalties = score_diff_lines(diffed_lines, config)
     max_score = len(lines1) * config.penalty_deletion
 
     line_num_base = -1
@@ -2438,28 +2479,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 if normalize_imms(branchless1, arch) == normalize_imms(
                     branchless2, arch
                 ):
-
-                    all_fields_match = True
-                    new_parts = line2.scorable_line.split(None, 1)
-                    old_parts = line1.scorable_line.split(None, 1)
-                    newfields = new_parts[1].split(",")
-                    oldfields = old_parts[1].split(",")
-                    re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
-                    oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
-                    newfields = newfields[:-1] + re_paren.split(newfields[-1])
-
-                    for nf, of in zip(newfields, oldfields):
-                        if nf != of:
-                            # If the new field is a match to any symbol case
-                            # and the old field had a relocation, then ignore this mismatch
-                            if (
-                                field_matches_any_symbol(nf, config.arch)
-                                and line1.has_symbol
-                            ):
-                                continue
-                            all_fields_match = False
-
-                    if all_fields_match:
+                    if line2.num_regalloc_penalties == 0:
                         # ignore differences due to %lo(.rodata + ...) vs symbol
                         out1 = out1.reformat(BasicFormat.NONE)
                         out2 = out2.reformat(BasicFormat.NONE)
@@ -2610,9 +2630,14 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             )
         )
 
-    score = score_diff_lines(diffed_lines, config)
     output = output[config.skip_lines :]
-    return Diff(lines=output, score=score, max_score=max_score)
+
+    return Diff(
+        lines=output,
+        score=get_total_score(penalties, config),
+        max_score=max_score,
+        penalties=penalties,
+    )
 
 
 def chunk_diff_lines(
@@ -2848,10 +2873,30 @@ class Display:
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
         output = self.config.formatter.table(meta, diff_lines)
+
         refresh_key = (
             [line.key2 for line in diff_output.lines],
             diff_output.score,
         )
+
+        if self.config.show_penalty_list:
+            output += "\n\n--------------- Penalty List ---------------\n"
+            output += "Stack Differences: ".ljust(30)
+            output += str(diff_output.penalties.num_stack_penalties)
+            output += f" ({self.config.penalty_stackdiff})\n"
+            output += "Register Differences: ".ljust(30)
+            output += str(diff_output.penalties.num_regalloc_penalties)
+            output += f" ({self.config.penalty_regalloc})\n"
+            output += "Reorderings Differences: ".ljust(30)
+            output += str(diff_output.penalties.num_reordering_penalties)
+            output += f" ({self.config.penalty_reordering})\n"
+            output += "Insertions Differences: ".ljust(30)
+            output += str(diff_output.penalties.num_insertion_penalties)
+            output += f" ({self.config.penalty_insertion})\n"
+            output += "Deletions Differences: ".ljust(30)
+            output += str(diff_output.penalties.num_deletion_penalties)
+            output += f" ({self.config.penalty_deletion})\n"
+
         return (output, refresh_key)
 
     def run_less(
