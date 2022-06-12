@@ -2096,10 +2096,6 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
     return re.sub(arch.re_sprel, "addr(sp)", row)
 
 
-def imm_matches_everything(row_args: str, arch: ArchSettings) -> bool:
-    return "." in row_args
-
-
 def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
     if arch.name == "ppc":
         if "..." in field:
@@ -2222,7 +2218,8 @@ def score_diff_lines(
         # Probably regalloc difference, or signed vs unsigned
 
         # Compare each field in order
-        newfields, oldfields = new.split(","), old.split(",")
+        new_parts, old_parts = new.split(None, 1), old.split(None, 1)
+        newfields, oldfields = new_parts[1].split(","), old_parts[1].split(",")
         if ignore_last_field:
             newfields = newfields[:-1]
             oldfields = oldfields[:-1]
@@ -2441,8 +2438,28 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 if normalize_imms(branchless1, arch) == normalize_imms(
                     branchless2, arch
                 ):
-                    parts2 = branchless2.split("\t")
-                    if len(parts2) > 1 and imm_matches_everything(parts2[1], arch):
+
+                    all_fields_match = True
+                    new_parts = line2.scorable_line.split(None, 1)
+                    old_parts = line1.scorable_line.split(None, 1)
+                    newfields = new_parts[1].split(",")
+                    oldfields = old_parts[1].split(",")
+                    re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
+                    oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
+                    newfields = newfields[:-1] + re_paren.split(newfields[-1])
+
+                    for nf, of in zip(newfields, oldfields):
+                        if nf != of:
+                            # If the new field is a match to any symbol case
+                            # and the old field had a relocation, then ignore this mismatch
+                            if (
+                                field_matches_any_symbol(nf, config.arch)
+                                and line1.has_symbol
+                            ):
+                                continue
+                            all_fields_match = False
+
+                    if all_fields_match:
                         # ignore differences due to %lo(.rodata + ...) vs symbol
                         out1 = out1.reformat(BasicFormat.NONE)
                         out2 = out2.reformat(BasicFormat.NONE)
