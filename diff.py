@@ -166,12 +166,6 @@ if __name__ == "__main__":
         help="Hide source line numbers in output.",
     )
     parser.add_argument(
-        "--penalty-list",
-        dest="show_penalty_list",
-        action="store_true",
-        help="Prints a list of penalties that contribute to the score",
-    )
-    parser.add_argument(
         "--inlines",
         dest="inlines",
         action="store_true",
@@ -376,15 +370,6 @@ except ModuleNotFoundError as e:
 
 
 @dataclass
-class Penalties:
-    num_stack_penalties: int
-    num_regalloc_penalties: int
-    num_reordering_penalties: int
-    num_insertion_penalties: int
-    num_deletion_penalties: int
-
-
-@dataclass
 class ProjectSettings:
     arch_str: str
     objdump_executable: str
@@ -429,7 +414,6 @@ class Config:
     compress: Optional[Compress]
     show_branches: bool
     show_line_numbers: bool
-    show_penalty_list: bool
     show_source: bool
     stop_jrra: bool
     ignore_large_imms: bool
@@ -517,7 +501,6 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         compress=compress,
         show_branches=args.show_branches,
         show_line_numbers=show_line_numbers,
-        show_penalty_list=args.show_penalty_list,
         show_source=args.show_source or args.source_old_binutils,
         stop_jrra=args.stop_jrra,
         ignore_large_imms=args.ignore_large_imms,
@@ -1913,8 +1896,6 @@ class Line:
     line_num: Optional[int] = None
     branch_target: Optional[int] = None
     data_pool_addr: Optional[int] = None
-    num_stack_penalties: int = 0
-    num_regalloc_penalties: int = 0
     source_filename: Optional[str] = None
     source_line_num: Optional[int] = None
     source_lines: List[str] = field(default_factory=list)
@@ -2132,16 +2113,6 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
     return False
 
 
-def get_total_score(penalties: Penalties, config: Config) -> int:
-    return (
-        penalties.num_stack_penalties * config.penalty_stackdiff
-        + penalties.num_regalloc_penalties * config.penalty_regalloc
-        + penalties.num_reordering_penalties * config.penalty_reordering
-        + penalties.num_insertion_penalties * config.penalty_insertion
-        + penalties.num_deletion_penalties * config.penalty_deletion
-    )
-
-
 def split_off_address(line: str) -> Tuple[str, str]:
     """Split e.g. 'beqz $r0,1f0' into 'beqz $r0,' and '1f0'."""
     parts = line.split(",")
@@ -2218,9 +2189,59 @@ def diff_lines(
     return ret
 
 
+def diff_sameline(old_line: Line, new_line: Line, config: Config) -> Tuple[int, int]:
+
+    old = old_line.scorable_line
+    new = new_line.scorable_line
+    if old == new:
+        return (0, 0)
+
+    num_stack_penalties = 0
+    num_regalloc_penalties = 0
+
+    ignore_last_field = False
+    if config.score_stack_differences:
+        oldsp = re.search(config.arch.re_sprel, old)
+        newsp = re.search(config.arch.re_sprel, new)
+        if oldsp and newsp:
+            oldrel = int(oldsp.group(1) or "0", 0)
+            newrel = int(newsp.group(1) or "0", 0)
+            num_stack_penalties += abs(oldrel - newrel)
+            ignore_last_field = True
+
+    # Probably regalloc difference, or signed vs unsigned
+
+    # Compare each field in order
+    new_parts, old_parts = new.split(None, 1), old.split(None, 1)
+    newfields, oldfields = new_parts[1].split(","), old_parts[1].split(",")
+    if ignore_last_field:
+        newfields = newfields[:-1]
+        oldfields = oldfields[:-1]
+    else:
+        # If the last field has a parenthesis suffix, e.g. "0x38(r7)"
+        # we split that part out to make it a separate field
+        # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
+        re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
+        oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
+        newfields = newfields[:-1] + re_paren.split(newfields[-1])
+
+    for nf, of in zip(newfields, oldfields):
+        if nf != of:
+            # If the new field is a match to any symbol case
+            # and the old field had a relocation, then ignore this mismatch
+            if field_matches_any_symbol(nf, config.arch) and old_line.has_symbol:
+                continue
+            num_regalloc_penalties += 1
+
+    # Penalize any extra fields
+    num_regalloc_penalties += abs(len(newfields) - len(oldfields))
+
+    return (num_stack_penalties, num_regalloc_penalties)
+
+
 def score_diff_lines(
     lines: List[Tuple[Optional[Line], Optional[Line]]], config: Config
-) -> Penalties:
+) -> int:
     # This logic is copied from `scorer.py` from the decomp permuter project
     # https://github.com/simonlindholm/decomp-permuter/blob/main/src/scorer.py
     num_stack_penalties = 0
@@ -2230,50 +2251,6 @@ def score_diff_lines(
     num_deletion_penalties = 0
     deletions = []
     insertions = []
-
-    def diff_sameline(old_line: Line, new_line: Line) -> None:
-
-        old = old_line.scorable_line
-        new = new_line.scorable_line
-        if old == new:
-            return
-
-        ignore_last_field = False
-        if config.score_stack_differences:
-            oldsp = re.search(config.arch.re_sprel, old)
-            newsp = re.search(config.arch.re_sprel, new)
-            if oldsp and newsp:
-                oldrel = int(oldsp.group(1) or "0", 0)
-                newrel = int(newsp.group(1) or "0", 0)
-                new_line.num_stack_penalties += abs(oldrel - newrel)
-                ignore_last_field = True
-
-        # Probably regalloc difference, or signed vs unsigned
-
-        # Compare each field in order
-        new_parts, old_parts = new.split(None, 1), old.split(None, 1)
-        newfields, oldfields = new_parts[1].split(","), old_parts[1].split(",")
-        if ignore_last_field:
-            newfields = newfields[:-1]
-            oldfields = oldfields[:-1]
-        else:
-            # If the last field has a parenthesis suffix, e.g. "0x38(r7)"
-            # we split that part out to make it a separate field
-            # however, we don't split if it has a proceeding %hi/%lo  e.g."%lo(.data)" or "%hi(.rodata + 0x10)"
-            re_paren = re.compile(r"(?<!%hi)(?<!%lo)\(")
-            oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
-            newfields = newfields[:-1] + re_paren.split(newfields[-1])
-
-        for nf, of in zip(newfields, oldfields):
-            if nf != of:
-                # If the new field is a match to any symbol case
-                # and the old field had a relocation, then ignore this mismatch
-                if field_matches_any_symbol(nf, config.arch) and old_line.has_symbol:
-                    continue
-                new_line.num_regalloc_penalties += 1
-
-        # Penalize any extra fields
-        new_line.num_regalloc_penalties += abs(len(newfields) - len(oldfields))
 
     def diff_insert(line: str) -> None:
         # Reordering or totally different codegen.
@@ -2304,9 +2281,9 @@ def score_diff_lines(
         if max_index is not None and index > max_index:
             break
         if line1 and line2 and line1.mnemonic == line2.mnemonic:
-            diff_sameline(line1, line2)
-            num_stack_penalties += line2.num_stack_penalties
-            num_regalloc_penalties += line2.num_regalloc_penalties
+            sp, rp = diff_sameline(line1, line2, config)
+            num_stack_penalties += sp
+            num_regalloc_penalties += rp
         else:
             if line1:
                 diff_delete(line1.scorable_line)
@@ -2323,12 +2300,12 @@ def score_diff_lines(
         num_deletion_penalties += dels - common
         num_reordering_penalties += common
 
-    return Penalties(
-        num_stack_penalties=num_stack_penalties,
-        num_regalloc_penalties=num_regalloc_penalties,
-        num_reordering_penalties=num_reordering_penalties,
-        num_insertion_penalties=num_insertion_penalties,
-        num_deletion_penalties=num_deletion_penalties,
+    return (
+        num_stack_penalties * config.penalty_stackdiff
+        + num_regalloc_penalties * config.penalty_regalloc
+        + num_reordering_penalties * config.penalty_reordering
+        + num_insertion_penalties * config.penalty_insertion
+        + num_deletion_penalties * config.penalty_deletion
     )
 
 
@@ -2346,7 +2323,6 @@ class OutputLine:
 @dataclass(frozen=True)
 class Diff:
     lines: List[OutputLine]
-    penalties: Penalties
     score: int
     max_score: int
 
@@ -2393,7 +2369,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     lines2 = trim_nops(lines2, arch)
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
-    penalties = score_diff_lines(diffed_lines, config)
+    score = score_diff_lines(diffed_lines, config)
     max_score = len(lines1) * config.penalty_deletion
 
     line_num_base = -1
@@ -2479,7 +2455,10 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 if normalize_imms(branchless1, arch) == normalize_imms(
                     branchless2, arch
                 ):
-                    if line2.num_regalloc_penalties == 0:
+                    stack_penalties, regalloc_penalties = diff_sameline(
+                        line1, line2, config
+                    )
+                    if regalloc_penalties == 0:
                         # ignore differences due to %lo(.rodata + ...) vs symbol
                         out1 = out1.reformat(BasicFormat.NONE)
                         out2 = out2.reformat(BasicFormat.NONE)
@@ -2632,12 +2611,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
 
     output = output[config.skip_lines :]
 
-    return Diff(
-        lines=output,
-        score=get_total_score(penalties, config),
-        max_score=max_score,
-        penalties=penalties,
-    )
+    return Diff(lines=output, score=score, max_score=max_score)
 
 
 def chunk_diff_lines(
@@ -2878,24 +2852,6 @@ class Display:
             [line.key2 for line in diff_output.lines],
             diff_output.score,
         )
-
-        if self.config.show_penalty_list:
-            output += "\n\n--------------- Penalty List ---------------\n"
-            output += "Stack Differences: ".ljust(30)
-            output += str(diff_output.penalties.num_stack_penalties)
-            output += f" ({self.config.penalty_stackdiff})\n"
-            output += "Register Differences: ".ljust(30)
-            output += str(diff_output.penalties.num_regalloc_penalties)
-            output += f" ({self.config.penalty_regalloc})\n"
-            output += "Reorderings Differences: ".ljust(30)
-            output += str(diff_output.penalties.num_reordering_penalties)
-            output += f" ({self.config.penalty_reordering})\n"
-            output += "Insertions Differences: ".ljust(30)
-            output += str(diff_output.penalties.num_insertion_penalties)
-            output += f" ({self.config.penalty_insertion})\n"
-            output += "Deletions Differences: ".ljust(30)
-            output += str(diff_output.penalties.num_deletion_penalties)
-            output += f" ({self.config.penalty_deletion})\n"
 
         return (output, refresh_key)
 
