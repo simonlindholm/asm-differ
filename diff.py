@@ -1398,8 +1398,8 @@ class AsmProcessor:
     ) -> Tuple[str, str]:
         return mnemonic, args
 
-    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
-        return prev, ""
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
+        return prev, None
 
     def normalize(self, mnemonic: str, row: str) -> str:
         """This should be called exactly once for each line."""
@@ -1417,13 +1417,13 @@ class AsmProcessor:
 
 
 class AsmProcessorMIPS(AsmProcessor):
-    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
         if "R_MIPS_NONE" in row or "R_MIPS_JALR" in row:
             # GNU as emits no-op relocations immediately after real ones when
             # assembling with -mabi=64. Return without trying to parse 'imm' as an
             # integer.
-            return prev, ""
+            return prev, None
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
         if "R_MIPS_LO16" in row:
@@ -1479,7 +1479,7 @@ class AsmProcessorPPC(AsmProcessor):
 
         return mnemonic, args
 
-    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
         assert any(
             r in row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
@@ -1513,13 +1513,13 @@ class AsmProcessorPPC(AsmProcessor):
 
 
 class AsmProcessorARM32(AsmProcessor):
-    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
         if "R_ARM_ABS32" in row and not prev.startswith(".word"):
             # Don't crash on R_ARM_ABS32 relocations incorrectly applied to code.
             # (We may want to do something more fancy here that actually shows the
             # related symbol, but this serves as a stop-gap.)
-            return prev, ""
+            return prev, None
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
         return before + repl + after, repl
@@ -2092,13 +2092,12 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
     return re.sub(arch.re_sprel, "addr(sp)", row)
 
 
-symbol_map: Dict[str, Any] = {}
+def check_for_symbol_mismatch(
+    old_line: Line, new_line: Line, symbol_map: Dict[str, Any]
+) -> bool:
 
-
-def check_for_symbol_mismatch(old_line: Line, new_line: Line) -> bool:
-
-    if not new_line.symbol or not old_line.symbol:
-        return False  # For mypy
+    assert old_line.symbol is not None
+    assert new_line.symbol is not None
 
     if new_line.symbol.startswith("%hi"):
         return False
@@ -2206,7 +2205,7 @@ def diff_lines(
 
 
 def diff_sameline(
-    old_line: Line, new_line: Line, config: Config
+    old_line: Line, new_line: Line, config: Config, symbol_map: Dict[str, Any]
 ) -> Tuple[int, int, bool]:
 
     old = old_line.scorable_line
@@ -2216,7 +2215,7 @@ def diff_sameline(
 
     num_stack_penalties = 0
     num_regalloc_penalties = 0
-    symbol_mismatch_occured = False
+    has_symbol_mismatch = False
 
     ignore_last_field = False
     if config.score_stack_differences:
@@ -2248,20 +2247,26 @@ def diff_sameline(
         if nf != of:
             # If the new field is a match to any symbol case
             # and the old field had a relocation, then ignore this mismatch
-            if field_matches_any_symbol(nf, config.arch) and old_line.symbol:
-                if check_for_symbol_mismatch(old_line, new_line):
-                    symbol_mismatch_occured = True
+            if (
+                new_line.symbol
+                and old_line.symbol
+                and field_matches_any_symbol(nf, config.arch)
+            ):
+                if check_for_symbol_mismatch(old_line, new_line, symbol_map):
+                    has_symbol_mismatch = True
                 continue
             num_regalloc_penalties += 1
 
     # Penalize any extra fields
     num_regalloc_penalties += abs(len(newfields) - len(oldfields))
 
-    return (num_stack_penalties, num_regalloc_penalties, symbol_mismatch_occured)
+    return (num_stack_penalties, num_regalloc_penalties, has_symbol_mismatch)
 
 
 def score_diff_lines(
-    lines: List[Tuple[Optional[Line], Optional[Line]]], config: Config
+    lines: List[Tuple[Optional[Line], Optional[Line]]],
+    config: Config,
+    symbol_map: Dict[str, Any],
 ) -> int:
     # This logic is copied from `scorer.py` from the decomp permuter project
     # https://github.com/simonlindholm/decomp-permuter/blob/main/src/scorer.py
@@ -2302,7 +2307,7 @@ def score_diff_lines(
         if max_index is not None and index > max_index:
             break
         if line1 and line2 and line1.mnemonic == line2.mnemonic:
-            sp, rp, _ = diff_sameline(line1, line2, config)
+            sp, rp, _ = diff_sameline(line1, line2, config, symbol_map)
             num_stack_penalties += sp
             num_regalloc_penalties += rp
         else:
@@ -2365,6 +2370,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     arch = config.arch
     fmt = config.formatter
     output: List[OutputLine] = []
+    symbol_map: Dict[str, Any] = {}
 
     sc1 = symbol_formatter("base-reg", 0)
     sc2 = symbol_formatter("my-reg", 0)
@@ -2390,7 +2396,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     lines2 = trim_nops(lines2, arch)
 
     diffed_lines = diff_lines(lines1, lines2, config.algorithm)
-    score = score_diff_lines(diffed_lines, config)
+    score = score_diff_lines(diffed_lines, config, symbol_map)
     max_score = len(lines1) * config.penalty_deletion
 
     line_num_base = -1
@@ -2479,9 +2485,14 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                     (
                         stack_penalties,
                         regalloc_penalties,
-                        symbol_mismatch,
-                    ) = diff_sameline(line1, line2, config)
-                    if regalloc_penalties == 0 and not symbol_mismatch:
+                        has_symbol_mismatch,
+                    ) = diff_sameline(line1, line2, config, symbol_map)
+
+                    if (
+                        regalloc_penalties == 0
+                        and stack_penalties == 0
+                        and not has_symbol_mismatch
+                    ):
                         # ignore differences due to %lo(.rodata + ...) vs symbol
                         out1 = out1.reformat(BasicFormat.NONE)
                         out2 = out2.reformat(BasicFormat.NONE)
