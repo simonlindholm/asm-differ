@@ -1398,8 +1398,8 @@ class AsmProcessor:
     ) -> Tuple[str, str]:
         return mnemonic, args
 
-    def process_reloc(self, row: str, prev: str) -> str:
-        return prev
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
+        return prev, ""
 
     def normalize(self, mnemonic: str, row: str) -> str:
         """This should be called exactly once for each line."""
@@ -1417,13 +1417,13 @@ class AsmProcessor:
 
 
 class AsmProcessorMIPS(AsmProcessor):
-    def process_reloc(self, row: str, prev: str) -> str:
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
         arch = self.config.arch
         if "R_MIPS_NONE" in row or "R_MIPS_JALR" in row:
             # GNU as emits no-op relocations immediately after real ones when
             # assembling with -mabi=64. Return without trying to parse 'imm' as an
             # integer.
-            return prev
+            return prev, ""
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
         if "R_MIPS_LO16" in row:
@@ -1448,7 +1448,7 @@ class AsmProcessorMIPS(AsmProcessor):
             repl = f"%call16({repl})"
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
-        return before + repl + after
+        return before + repl + after, repl
 
 
 class AsmProcessorPPC(AsmProcessor):
@@ -1479,7 +1479,7 @@ class AsmProcessorPPC(AsmProcessor):
 
         return mnemonic, args
 
-    def process_reloc(self, row: str, prev: str) -> str:
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
         arch = self.config.arch
         assert any(
             r in row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
@@ -1509,20 +1509,20 @@ class AsmProcessorPPC(AsmProcessor):
             # sda21 relocations; r2/r13 --> 0 swaps are performed in pre_process
             repl = f"{repl}@sda21"
 
-        return before + repl + after
+        return before + repl + after, repl
 
 
 class AsmProcessorARM32(AsmProcessor):
-    def process_reloc(self, row: str, prev: str) -> str:
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, str]:
         arch = self.config.arch
         if "R_ARM_ABS32" in row and not prev.startswith(".word"):
             # Don't crash on R_ARM_ABS32 relocations incorrectly applied to code.
             # (We may want to do something more fancy here that actually shows the
             # related symbol, but this serves as a stop-gap.)
-            return prev
+            return prev, ""
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
-        return before + repl + after
+        return before + repl + after, repl
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
         if self.config.ignore_addr_diffs:
@@ -1892,7 +1892,7 @@ class Line:
     original: str
     normalized_original: str
     scorable_line: str
-    has_symbol: bool
+    symbol: Optional[str] = None
     line_num: Optional[int] = None
     branch_target: Optional[int] = None
     data_pool_addr: Optional[int] = None
@@ -1942,7 +1942,6 @@ def process(dump: str, config: Config) -> List[Line]:
                     original="...",
                     normalized_original="...",
                     scorable_line="...",
-                    has_symbol=False,
                 )
             )
             break
@@ -1988,7 +1987,6 @@ def process(dump: str, config: Config) -> List[Line]:
                     original=ref_str,
                     normalized_original=ref_str,
                     scorable_line="<data-ref>",
-                    has_symbol=False,
                 )
             )
 
@@ -2020,13 +2018,11 @@ def process(dump: str, config: Config) -> List[Line]:
         # immediates.
         original = row
 
-        has_symbol = False
-
+        symbol = None
         while i < len(lines):
             reloc_row = lines[i]
             if re.search(arch.re_reloc, reloc_row):
-                original = processor.process_reloc(reloc_row, original)
-                has_symbol = True
+                original, symbol = processor.process_reloc(reloc_row, original)
             else:
                 break
             i += 1
@@ -2066,7 +2062,7 @@ def process(dump: str, config: Config) -> List[Line]:
                 original=original,
                 normalized_original=normalized_original,
                 scorable_line=scorable_line,
-                has_symbol=has_symbol,
+                symbol=symbol,
                 line_num=line_num,
                 branch_target=branch_target,
                 data_pool_addr=data_pool_addr,
@@ -2094,6 +2090,26 @@ def normalize_imms(row: str, arch: ArchSettings) -> str:
 
 def normalize_stack(row: str, arch: ArchSettings) -> str:
     return re.sub(arch.re_sprel, "addr(sp)", row)
+
+
+symbol_map: Dict[str, Any] = {}
+
+
+def check_for_symbol_mismatch(old_line: Line, new_line: Line) -> bool:
+
+    if not new_line.symbol or not old_line.symbol:
+        return False  # For mypy
+
+    if new_line.symbol.startswith("%hi"):
+        return False
+
+    if old_line.symbol not in symbol_map:
+        symbol_map[old_line.symbol] = new_line.symbol
+        return False
+    elif symbol_map[old_line.symbol] == new_line.symbol:
+        return False
+
+    return True
 
 
 def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
@@ -2189,15 +2205,18 @@ def diff_lines(
     return ret
 
 
-def diff_sameline(old_line: Line, new_line: Line, config: Config) -> Tuple[int, int]:
+def diff_sameline(
+    old_line: Line, new_line: Line, config: Config
+) -> Tuple[int, int, bool]:
 
     old = old_line.scorable_line
     new = new_line.scorable_line
     if old == new:
-        return (0, 0)
+        return (0, 0, False)
 
     num_stack_penalties = 0
     num_regalloc_penalties = 0
+    symbol_mismatch_occured = False
 
     ignore_last_field = False
     if config.score_stack_differences:
@@ -2229,14 +2248,16 @@ def diff_sameline(old_line: Line, new_line: Line, config: Config) -> Tuple[int, 
         if nf != of:
             # If the new field is a match to any symbol case
             # and the old field had a relocation, then ignore this mismatch
-            if field_matches_any_symbol(nf, config.arch) and old_line.has_symbol:
+            if field_matches_any_symbol(nf, config.arch) and old_line.symbol:
+                if check_for_symbol_mismatch(old_line, new_line):
+                    symbol_mismatch_occured = True
                 continue
             num_regalloc_penalties += 1
 
     # Penalize any extra fields
     num_regalloc_penalties += abs(len(newfields) - len(oldfields))
 
-    return (num_stack_penalties, num_regalloc_penalties)
+    return (num_stack_penalties, num_regalloc_penalties, symbol_mismatch_occured)
 
 
 def score_diff_lines(
@@ -2281,7 +2302,7 @@ def score_diff_lines(
         if max_index is not None and index > max_index:
             break
         if line1 and line2 and line1.mnemonic == line2.mnemonic:
-            sp, rp = diff_sameline(line1, line2, config)
+            sp, rp, _ = diff_sameline(line1, line2, config)
             num_stack_penalties += sp
             num_regalloc_penalties += rp
         else:
@@ -2455,10 +2476,12 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                 if normalize_imms(branchless1, arch) == normalize_imms(
                     branchless2, arch
                 ):
-                    stack_penalties, regalloc_penalties = diff_sameline(
-                        line1, line2, config
-                    )
-                    if regalloc_penalties == 0:
+                    (
+                        stack_penalties,
+                        regalloc_penalties,
+                        symbol_mismatch,
+                    ) = diff_sameline(line1, line2, config)
+                    if regalloc_penalties == 0 and not symbol_mismatch:
                         # ignore differences due to %lo(.rodata + ...) vs symbol
                         out1 = out1.reformat(BasicFormat.NONE)
                         out2 = out2.reformat(BasicFormat.NONE)
