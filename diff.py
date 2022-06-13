@@ -2022,7 +2022,9 @@ def process(dump: str, config: Config) -> List[Line]:
         while i < len(lines):
             reloc_row = lines[i]
             if re.search(arch.re_reloc, reloc_row):
-                original, symbol = processor.process_reloc(reloc_row, original)
+                original, reloc_symbol = processor.process_reloc(reloc_row, original)
+                if reloc_symbol is not None:
+                    symbol = reloc_symbol
             else:
                 break
             i += 1
