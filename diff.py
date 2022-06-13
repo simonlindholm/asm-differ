@@ -2093,7 +2093,7 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
 
 
 def check_for_symbol_mismatch(
-    old_line: Line, new_line: Line, symbol_map: Dict[str, Any]
+    old_line: Line, new_line: Line, symbol_map: Dict[str, str]
 ) -> bool:
 
     assert old_line.symbol is not None
@@ -2205,7 +2205,7 @@ def diff_lines(
 
 
 def diff_sameline(
-    old_line: Line, new_line: Line, config: Config, symbol_map: Dict[str, Any]
+    old_line: Line, new_line: Line, config: Config, symbol_map: Dict[str, str]
 ) -> Tuple[int, int, bool]:
 
     old = old_line.scorable_line
@@ -2266,7 +2266,7 @@ def diff_sameline(
 def score_diff_lines(
     lines: List[Tuple[Optional[Line], Optional[Line]]],
     config: Config,
-    symbol_map: Dict[str, Any],
+    symbol_map: Dict[str, str],
 ) -> int:
     # This logic is copied from `scorer.py` from the decomp permuter project
     # https://github.com/simonlindholm/decomp-permuter/blob/main/src/scorer.py
@@ -2370,7 +2370,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     arch = config.arch
     fmt = config.formatter
     output: List[OutputLine] = []
-    symbol_map: Dict[str, Any] = {}
+    symbol_map: Dict[str, str] = {}
 
     sc1 = symbol_formatter("base-reg", 0)
     sc2 = symbol_formatter("my-reg", 0)
