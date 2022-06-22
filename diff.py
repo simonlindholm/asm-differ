@@ -2127,6 +2127,10 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
     if arch.name == "mips":
         return "." in field
 
+    # Example: ".text+0x34"
+    if arch.name == "arm32":
+        return "." in field
+
     return False
 
 
