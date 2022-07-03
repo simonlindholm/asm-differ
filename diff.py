@@ -448,8 +448,8 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_flags=settings.get("objdump_flags", []),
         map_format=settings.get("map_format", "gnu"),
         ms_map_address_offset=settings.get("ms_map_address_offset", 0),
+        ms_ignore_missing_objfile=settings.get("ms_ignore_missing_objfile", True),
         build_dir=settings.get("build_dir", "build/"),
-        ms_ignore_missing_objfile=settings.get("ms_ignore_missing_objfile", False),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
     )
