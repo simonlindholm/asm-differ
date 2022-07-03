@@ -1643,11 +1643,21 @@ class AsmProcessorI686(AsmProcessor):
         arch = self.config.arch
         repl = row.split()[-1]
         args_string = ""
+        reverse = False
         mnemonic, args = prev.split(maxsplit=1)
 
         comma = args.find(",")
+        open_bracket = args.find("(")
+
+        # Register relative addressed target e.g.
+        # R_386_GOTOFF        x
+        # movl      $0x1,0x0(%eax)
         if comma != -1:
-            args_string = args[comma:]
+            if open_bracket != -1 and open_bracket > comma:
+                reverse = True
+                args_string = args[: comma + 1]
+            else:
+                args_string = args[comma:]
 
         if "R_386_NONE" in row:
             pass
@@ -1678,7 +1688,10 @@ class AsmProcessorI686(AsmProcessor):
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
-        return f"{mnemonic}\t{repl}{args_string}", repl
+        if reverse:
+            return f"{mnemonic}\t{args_string}{repl}", repl
+        else:
+            return f"{mnemonic}\t{repl}{args_string}", repl
 
 
 @dataclass
@@ -1977,7 +1990,10 @@ I686_SETTINGS = ArchSettings(
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
     re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)"),
     re_reloc=re.compile(r"R_386_"),
-    arch_flags=["-m", "i386"],
+    # The x86 architecture has a variable instruction length. The raw bytes of
+    # an instruction as displayed by objdump can line wrap if it's long enough.
+    # This destroys the objdump output processor logic, so we avoid this.
+    arch_flags=["-m", "i386", "--no-show-raw-insn"],
     branch_instructions=I686_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=I686_BRANCH_INSTRUCTIONS.union({"mov"}),
     proc=AsmProcessorI686,
@@ -2141,8 +2157,12 @@ def process(dump: str, config: Config) -> List[Line]:
         line_num_str = row.split(":")[0]
         row = row.rstrip()
         tabs = row.split("\t")
-        row = "\t".join(tabs[2:])
         line_num = eval_line_num(line_num_str.strip())
+
+        if arch.name == "i686":
+            row = "\t".join(tabs[1:])
+        else:
+            row = "\t".join(tabs[2:])
 
         if line_num in data_refs:
             refs = data_refs[line_num]
