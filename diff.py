@@ -1482,12 +1482,15 @@ class AsmProcessorPPC(AsmProcessor):
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
         assert any(
-            r in row for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21"]
+            r in row
+            for r in ["R_PPC_REL24", "R_PPC_ADDR16", "R_PPC_EMB_SDA21", "R_PPC_REL14"]
         ), f"unknown relocation type '{row}' for line '{prev}'"
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1]
         if "R_PPC_REL24" in row:
             # function calls
+            pass
+        if "R_PPC_REL14" in row:
             pass
         elif "R_PPC_ADDR16_HI" in row:
             # absolute hi of addr
