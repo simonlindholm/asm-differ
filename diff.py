@@ -378,6 +378,7 @@ class ProjectSettings:
     map_format: str
     build_dir: str
     ms_map_address_offset: int
+    ms_ignore_missing_objfile: int
     baseimg: Optional[str]
     myimg: Optional[str]
     mapfile: Optional[str]
@@ -448,6 +449,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         map_format=settings.get("map_format", "gnu"),
         ms_map_address_offset=settings.get("ms_map_address_offset", 0),
         build_dir=settings.get("build_dir", "build/"),
+        ms_ignore_missing_objfile=settings.get("ms_ignore_missing_objfile", False),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
     )
@@ -1185,6 +1187,7 @@ def search_map_file(
             names_find = re.search(r"(\S+) ... (\S+)", find[0])
             rva_plus_base = int(names_find.group(1), 16)
             objname = names_find.group(2)
+            objfile = objname
 
             # The Visual C++ map format does not contain the full object path,
             # so we must complete it manually.
@@ -1200,12 +1203,16 @@ def search_map_file(
                     f"Found multiple objects of the same name {objname} in {project.build_dir}, "
                     f"cannot determine which to diff against: \n{all_objects}"
                 )
+
             if len(objfiles) == 1:
                 objfile = objfiles[0]
-                return (
-                    objfile,
-                    rva_plus_base - load_address + project.ms_map_address_offset,
-                )
+            elif not project.ms_ignore_missing_objfile:
+                return None, None
+
+            return (
+                objfile,
+                rva_plus_base - load_address + project.ms_map_address_offset,
+            )
     else:
         fail(f"Linker map format {project.map_format} unrecognised.")
     return None, None
