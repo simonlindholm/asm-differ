@@ -377,6 +377,7 @@ class ProjectSettings:
     build_command: List[str]
     map_format: str
     mw_build_dir: str
+    ms_map_address_offset: int
     baseimg: Optional[str]
     myimg: Optional[str]
     mapfile: Optional[str]
@@ -445,6 +446,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_executable=get_objdump_executable(settings.get("objdump_executable")),
         objdump_flags=settings.get("objdump_flags", []),
         map_format=settings.get("map_format", "gnu"),
+        ms_map_address_offset=settings.get("ms_map_address_offset", 0),
         mw_build_dir=settings.get("mw_build_dir", "build/"),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
@@ -1148,6 +1150,36 @@ def search_map_file(
                 # At this time it is recommended to always use -o when running the diff
                 # script as this mode does not make use of the ram-rom conversion.
                 return objfile, rom
+    elif project.map_format == "ms":
+        lines = contents.split("\n")
+
+        try:
+            load_address = None
+            cands = []
+            for line in lines:
+                tokens = line.split()
+                if "load address" in line:
+                    load_address = int(tokens[4], 16)
+                if len(tokens) >= 5 and tokens[1] == fn_name:
+                    rva_plus_base = int(tokens[2], 16)
+                    cur_objfile = tokens[len(tokens) - 1]
+                    if cur_objfile is not None and load_address is not None:
+                        cands.append(
+                            (
+                                cur_objfile,
+                                rva_plus_base
+                                - load_address
+                                + project.ms_map_address_offset,
+                            )
+                        )
+        except Exception as e:
+            traceback.print_exc()
+            fail(f"Internal error while parsing map file")
+
+        if len(cands) > 1:
+            fail(f"Found multiple occurrences of function {fn_name} in map file.")
+        if len(cands) == 1:
+            return cands[0]
     else:
         fail(f"Linker map format {project.map_format} unrecognised.")
     return None, None
@@ -1606,6 +1638,49 @@ class AsmProcessorAArch64(AsmProcessor):
         return row
 
 
+class AsmProcessorI686(AsmProcessor):
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
+        arch = self.config.arch
+        repl = row.split()[-1]
+        args_string = ""
+        mnemonic, args = prev.split(maxsplit=1)
+
+        comma = args.find(",")
+        if comma != -1:
+            args_string = args[comma:]
+
+        if "R_386_NONE" in row:
+            pass
+        elif "R_386_32" in row:
+            pass
+        elif "R_386_PC32" in row:
+            pass
+        elif "R_386_16" in row:
+            pass
+        elif "R_386_PC16" in row:
+            pass
+        elif "R_386_8" in row:
+            pass
+        elif "R_386_PC8" in row:
+            pass
+        elif "R_386_GOT32" in row:
+            repl = f"%got({repl})"
+        elif "R_386_PLT32" in row:
+            repl = f"%plt({repl})"
+        elif "R_386_RELATIVE" in row:
+            repl = f"%rel({repl})"
+        elif "R_386_GOTOFF" in row:
+            repl = f"%got({repl})"
+        elif "R_386_GOTPC" in row:
+            repl = f"%got({repl})"
+        elif "R_386_32PLT" in row:
+            repl = f"%plt({repl})"
+        else:
+            assert False, f"unknown relocation type '{row}' for line '{prev}'"
+
+        return f"{mnemonic}\t{repl}{args_string}", repl
+
+
 @dataclass
 class ArchSettings:
     name: str
@@ -1730,6 +1805,75 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bgt-",
 }
 
+I686_JUMP_INSTRUCTIONS = {
+    "jmp",
+    "ljmp",
+    "ja",
+    "jae",
+    "jb",
+    "jbe",
+    "jc",
+    "jcxz",
+    "jecxz",
+    "jrcxz",
+    "je",
+    "jg",
+    "jge",
+    "jl",
+    "jle",
+    "jna",
+    "jnae",
+    "jnb",
+    "jnbe",
+    "jnc",
+    "jne",
+    "jng",
+    "jnge",
+    "jnl",
+    "jnle",
+    "jno",
+    "jnp",
+    "jns",
+    "jnz",
+    "jo",
+    "jp",
+    "jpe",
+    "jpo",
+    "js",
+    "jz",
+    "ja",
+    "jae",
+    "jb",
+    "jbe",
+    "jc",
+    "je",
+    "jz",
+    "jg",
+    "jge",
+    "jl",
+    "jle",
+    "jna",
+    "jnae",
+    "jnb",
+    "jnbe",
+    "jnc",
+    "jne",
+    "jng",
+    "jnge",
+    "jnl",
+    "jnle",
+    "jno",
+    "jnp",
+    "jns",
+    "jnz",
+    "jo",
+    "jp",
+    "jpe",
+    "jpo",
+    "js",
+    "jz",
+}
+
 MIPS_SETTINGS = ArchSettings(
     name="mips",
     re_int=re.compile(r"[0-9]+"),
@@ -1814,6 +1958,30 @@ PPC_SETTINGS = ArchSettings(
     proc=AsmProcessorPPC,
 )
 
+I686_SETTINGS = ArchSettings(
+    name="i686",
+    re_int=re.compile(r"[0-9]+"),
+    re_comment=re.compile(r"<.*>"),
+    # Includes:
+    #   - (e)a-d(x,l,h)
+    #   - (e)s,d,b(i,p)(l)
+    #   - cr0-7
+    #   - MMX, SSE vector registers
+    #   - cursed registers: eal ebl ebh edl edh...
+    re_reg=re.compile(
+        r"\%?\b(e?(([sd]i|[sb]p)l?|[abcd][xhl])|[cdesfg]s|cr[0-7]|x?mm[0-7])\b"
+    ),
+    re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
+    re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
+    # (?<=\$)
+    re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)"),
+    re_reloc=re.compile(r"R_386_"),
+    arch_flags=["-m", "i386"],
+    branch_instructions=I686_JUMP_INSTRUCTIONS,
+    instructions_with_address_immediates=I686_JUMP_INSTRUCTIONS.union({"mov"}),
+    proc=AsmProcessorI686,
+)
+
 ARCH_SETTINGS = [
     MIPS_SETTINGS,
     MIPSEL_SETTINGS,
@@ -1821,6 +1989,7 @@ ARCH_SETTINGS = [
     ARMEL_SETTINGS,
     AARCH64_SETTINGS,
     PPC_SETTINGS,
+    I686_SETTINGS,
 ]
 
 
@@ -2055,7 +2224,13 @@ def process(dump: str, config: Config) -> List[Line]:
 
         branch_target = None
         if mnemonic in arch.branch_instructions:
-            branch_target = int(args.split(",")[-1], 16)
+            x86_longjmp = re.search(r"\*(.*)\(", args)
+            if x86_longjmp:
+                capture = x86_longjmp.group(1)
+                if capture != "":
+                    branch_target = int(capture, 16)
+            else:
+                branch_target = int(args.split(",")[-1], 16)
 
         output.append(
             Line(
@@ -2079,6 +2254,8 @@ def process(dump: str, config: Config) -> List[Line]:
 
         if config.stop_jrra and mnemonic == "jr" and args == "ra":
             stop_after_delay_slot = True
+        elif config.stop_jrra and mnemonic == "ret":
+            break
         elif stop_after_delay_slot:
             break
 
