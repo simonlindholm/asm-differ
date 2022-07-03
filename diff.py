@@ -376,7 +376,7 @@ class ProjectSettings:
     objdump_flags: List[str]
     build_command: List[str]
     map_format: str
-    mw_build_dir: str
+    build_dir: str
     ms_map_address_offset: int
     baseimg: Optional[str]
     myimg: Optional[str]
@@ -447,7 +447,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_flags=settings.get("objdump_flags", []),
         map_format=settings.get("map_format", "gnu"),
         ms_map_address_offset=settings.get("ms_map_address_offset", 0),
-        mw_build_dir=settings.get("mw_build_dir", "build/"),
+        build_dir=settings.get("build_dir", "build/"),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
     )
@@ -1133,14 +1133,14 @@ def search_map_file(
             # so we must complete it manually.
             objfiles = [
                 os.path.join(dirpath, f)
-                for dirpath, _, filenames in os.walk(project.mw_build_dir)
+                for dirpath, _, filenames in os.walk(project.build_dir)
                 for f in filenames
                 if f == objname
             ]
             if len(objfiles) > 1:
                 all_objects = "\n".join(objfiles)
                 fail(
-                    f"Found multiple objects of the same name {objname} in {project.mw_build_dir}, "
+                    f"Found multiple objects of the same name {objname} in {project.build_dir}, "
                     f"cannot determine which to diff against: \n{all_objects}"
                 )
             if len(objfiles) == 1:
@@ -1151,35 +1151,63 @@ def search_map_file(
                 # script as this mode does not make use of the ram-rom conversion.
                 return objfile, rom
     elif project.map_format == "ms":
-        lines = contents.split("\n")
+        load_address_find = re.search(
+            re.compile(r"Preferred load address is ([0-9a-f]+)"),
+            contents,
+        )
+        if not load_address_find:
+            fail(f"Couldn't find module load address in map file.")
+        load_address = int(load_address_find.group(1), 16)
 
-        try:
-            load_address = None
-            cands = []
-            for line in lines:
-                tokens = line.split()
-                if "load address" in line:
-                    load_address = int(tokens[4], 16)
-                if len(tokens) >= 5 and tokens[1] == fn_name:
-                    rva_plus_base = int(tokens[2], 16)
-                    cur_objfile = tokens[len(tokens) - 1]
-                    if cur_objfile is not None and load_address is not None:
-                        cands.append(
-                            (
-                                cur_objfile,
-                                rva_plus_base
-                                - load_address
-                                + project.ms_map_address_offset,
-                            )
-                        )
-        except Exception as e:
-            traceback.print_exc()
-            fail(f"Internal error while parsing map file")
-
-        if len(cands) > 1:
+        diff_segment_find = re.search(
+            re.compile(
+                r"([0-9a-f]+):[0-9a-f]+ [0-9a-f]+H " + re.escape(config.diff_section)
+            ),
+            contents,
+        )
+        if not diff_segment_find:
+            fail(f"Couldn't find segment for section in map file.")
+        diff_segment = diff_segment_find.group(1)
+        
+        find = re.findall(
+            re.compile(
+                r" (?:"
+                + re.escape(diff_segment)
+                + r")\S+\s+(?:"
+                + re.escape(fn_name)
+                + r")\s+\S+ ... \S+"
+            ),
+            contents,
+        )
+        if len(find) > 1:
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
-        if len(cands) == 1:
-            return cands[0]
+        if len(find) == 1:
+            # I am running regex twice here because capturing these w/ re.findall
+            # was just not working and i cannot figure out why
+            names_find = re.search(r"(\S+) ... (\S+)", find[0])
+            rva_plus_base = int(names_find.group(1), 16)
+            objname = names_find.group(2)
+
+            # The Visual C++ map format does not contain the full object path,
+            # so we must complete it manually.
+            objfiles = [
+                os.path.join(dirpath, f)
+                for dirpath, _, filenames in os.walk(project.build_dir)
+                for f in filenames
+                if f == objname
+            ]
+            if len(objfiles) > 1:
+                all_objects = "\n".join(objfiles)
+                fail(
+                    f"Found multiple objects of the same name {objname} in {project.build_dir}, "
+                    f"cannot determine which to diff against: \n{all_objects}"
+                )
+            if len(objfiles) == 1:
+                objfile = objfiles[0]
+                return (
+                    objfile,
+                    rva_plus_base - load_address + project.ms_map_address_offset,
+                )
     else:
         fail(f"Linker map format {project.map_format} unrecognised.")
     return None, None
