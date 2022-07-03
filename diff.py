@@ -1182,8 +1182,6 @@ def search_map_file(
         if len(find) > 1:
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
         if len(find) == 1:
-            # I am running regex twice here because capturing these w/ re.findall
-            # was just not working and i cannot figure out why
             names_find = re.search(r"(\S+) ... (\S+)", find[0])
             rva_plus_base = int(names_find.group(1), 16)
             objname = names_find.group(2)
