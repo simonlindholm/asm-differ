@@ -1805,7 +1805,8 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bgt-",
 }
 
-I686_JUMP_INSTRUCTIONS = {
+I686_BRANCH_INSTRUCTIONS = {
+    "call",
     "jmp",
     "ljmp",
     "ja",
@@ -1976,8 +1977,8 @@ I686_SETTINGS = ArchSettings(
     re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)"),
     re_reloc=re.compile(r"R_386_"),
     arch_flags=["-m", "i386"],
-    branch_instructions=I686_JUMP_INSTRUCTIONS,
-    instructions_with_address_immediates=I686_JUMP_INSTRUCTIONS.union({"mov"}),
+    branch_instructions=I686_BRANCH_INSTRUCTIONS,
+    instructions_with_address_immediates=I686_BRANCH_INSTRUCTIONS.union({"mov"}),
     proc=AsmProcessorI686,
 )
 
