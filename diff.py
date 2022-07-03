@@ -1973,7 +1973,6 @@ I686_SETTINGS = ArchSettings(
     ),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
-    # (?<=\$)
     re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)"),
     re_reloc=re.compile(r"R_386_"),
     arch_flags=["-m", "i386"],
