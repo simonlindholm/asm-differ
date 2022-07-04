@@ -1805,7 +1805,8 @@ PPC_SETTINGS = ArchSettings(
     name="ppc",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"(<.*>|//.*$)"),
-    re_reg=re.compile(r"\$?\b([rf][0-9]+)\b"),
+    # r1 not included
+    re_reg=re.compile(r"\$?\b([rf](?:[02-9]|[1-9][0-9]+)|f1)\b"),
     re_sprel=re.compile(r"(?<=,)(-?[0-9]+|-?0x[0-9a-f]+)\(r1\)"),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(
