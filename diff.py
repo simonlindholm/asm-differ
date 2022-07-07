@@ -204,8 +204,8 @@ if __name__ == "__main__":
         "--stop-jr-ra",
         dest="stop_jrra",
         action="store_true",
-        help="""Stop disassembling at the first 'jr ra'. Some functions have
-        multiple return points, so use with care!""",
+        help="""Stop disassembling at the first 'jr ra' (mips) or 'blr' (ppc).
+        Some functions have multiple return points, so use with care!""",
     )
     parser.add_argument(
         "-i",
