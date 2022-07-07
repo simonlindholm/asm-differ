@@ -1813,6 +1813,7 @@ PPC_SETTINGS = ArchSettings(
         r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^ \t,]+@(l|ha|h|sda21)"
     ),
     re_reloc=re.compile(r"R_PPC_"),
+    arch_flags=["-m", "powerpc", "-M", "gekko"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
     proc=AsmProcessorPPC,
