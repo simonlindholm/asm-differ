@@ -2081,10 +2081,15 @@ def process(dump: str, config: Config) -> List[Line]:
         num_instr += 1
         source_lines = []
 
-        if config.stop_jrra and mnemonic == "jr" and args == "ra":
-            stop_after_delay_slot = True
-        elif stop_after_delay_slot:
-            break
+        if config.stop_jrra:
+            if config.arch.name == "mips":
+                if mnemonic == "jr" and args == "ra":
+                    stop_after_delay_slot = True
+                elif stop_after_delay_slot:
+                    break
+            if config.arch.name == "ppc":
+                if mnemonic == "blr":
+                    break
 
     processor.post_process(output)
     return output
