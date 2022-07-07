@@ -1112,7 +1112,7 @@ def search_map_file(
         find = re.findall(
             re.compile(
                 #            ram   elf rom
-                r"  \S+ \S+ (\S+) (\S+)  . "
+                r"  \S+ \S+ (\S+) (\S+) +\S+ "
                 + re.escape(fn_name)
                 + r"(?: \(entry of "
                 + re.escape(config.diff_section)
