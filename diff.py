@@ -1070,6 +1070,23 @@ def preprocess_objdump_out(
 
     return out
 
+def search_build_objects(objname: str, project: ProjectSettings) -> Optional[str]:
+    objfiles = [
+        os.path.join(dirpath, f)
+        for dirpath, _, filenames in os.walk(project.build_dir)
+        for f in filenames
+        if f == objname
+    ]
+    if len(objfiles) > 1:
+        all_objects = "\n".join(objfiles)
+        fail(
+            f"Found multiple objects of the same name {objname} in {project.build_dir}, "
+            f"cannot determine which to diff against: \n{all_objects}"
+        )
+    if len(objfiles) == 1:
+        return objfiles[0]
+
+    return None
 
 def search_map_file(
     fn_name: str, project: ProjectSettings, config: Config
@@ -1131,26 +1148,13 @@ def search_map_file(
         if len(find) == 1:
             rom = int(find[0][1], 16)
             objname = find[0][2]
-            # The metrowerks linker map format does not contain the full object path,
-            # so we must complete it manually.
-            objfiles = [
-                os.path.join(dirpath, f)
-                for dirpath, _, filenames in os.walk(project.build_dir)
-                for f in filenames
-                if f == objname
-            ]
-            if len(objfiles) > 1:
-                all_objects = "\n".join(objfiles)
-                fail(
-                    f"Found multiple objects of the same name {objname} in {project.build_dir}, "
-                    f"cannot determine which to diff against: \n{all_objects}"
-                )
-            if len(objfiles) == 1:
-                objfile = objfiles[0]
-                # TODO Currently the ram-rom conversion only works for diffing ELF
-                # executables, but it would likely be more convenient to diff DOLs.
-                # At this time it is recommended to always use -o when running the diff
-                # script as this mode does not make use of the ram-rom conversion.
+            objfile = search_build_objects(objname, project)
+
+            # TODO Currently the ram-rom conversion only works for diffing ELF
+            # executables, but it would likely be more convenient to diff DOLs.
+            # At this time it is recommended to always use -o when running the diff
+            # script as this mode does not make use of the ram-rom conversion.
+            if objfile is not None:
                 return objfile, rom
     elif project.map_format == "ms":
         load_address_find = re.search(
@@ -1185,34 +1189,14 @@ def search_map_file(
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
         if len(find) == 1:
             names_find = re.search(r"(\S+) ... (\S+)", find[0])
-            rva_plus_base = int(names_find.group(1), 16)
+            fileofs = int(names_find.group(1), 16) - load_address + project.ms_map_address_offset
             objname = names_find.group(2)
-            objfile = objname
+            objfile = search_build_objects(objname, project)
 
-            # The Visual C++ map format does not contain the full object path,
-            # so we must complete it manually.
-            objfiles = [
-                os.path.join(dirpath, f)
-                for dirpath, _, filenames in os.walk(project.build_dir)
-                for f in filenames
-                if f == objname
-            ]
-            if len(objfiles) > 1:
-                all_objects = "\n".join(objfiles)
-                fail(
-                    f"Found multiple objects of the same name {objname} in {project.build_dir}, "
-                    f"cannot determine which to diff against: \n{all_objects}"
-                )
-
-            if len(objfiles) == 1:
-                objfile = objfiles[0]
-            elif not project.ms_ignore_missing_objfile:
-                return None, None
-
-            return (
-                objfile,
-                rva_plus_base - load_address + project.ms_map_address_offset,
-            )
+            if objfile is not None:
+                return (objfile, fileofs)
+            elif project.ms_ignore_missing_objfile:
+                return (objname, fileofs)
     else:
         fail(f"Linker map format {project.map_format} unrecognised.")
     return None, None
@@ -1676,24 +1660,13 @@ class AsmProcessorAArch64(AsmProcessor):
 
 class AsmProcessorI686(AsmProcessor):
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
-        arch = self.config.arch
         repl = row.split()[-1]
-        args_string = ""
-        reverse = False
         mnemonic, args = prev.split(maxsplit=1)
 
-        comma = args.find(",")
-        open_bracket = args.find("(")
-
-        # Register relative addressed target e.g.
-        # R_386_GOTOFF        x
-        # movl      $0x1,0x0(%eax)
-        if comma != -1:
-            if open_bracket != -1 and open_bracket > comma:
-                reverse = True
-                args_string = args[: comma + 1]
-            else:
-                args_string = args[comma:]
+        addr_imm = re.search(r"(?<!\$)0x[0-9a-f]+", args)
+        if not addr_imm:
+            assert False, f"failed to find address immediate for line '{prev}'"
+        start, end = addr_imm.span()
 
         if "R_386_NONE" in row:
             pass
@@ -1724,10 +1697,7 @@ class AsmProcessorI686(AsmProcessor):
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
-        if reverse:
-            return f"{mnemonic}\t{args_string}{repl}", repl
-        else:
-            return f"{mnemonic}\t{repl}{args_string}", repl
+        return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
 
 
 @dataclass
