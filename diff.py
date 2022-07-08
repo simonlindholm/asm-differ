@@ -1953,9 +1953,9 @@ def process(dump: str, config: Config) -> List[Line]:
 
         if not re.match(r"^\s+[0-9a-f]+:\s+", row):
             # This regex is conservative, and assumes the file path does not contain "weird"
-            # characters like colons, tabs, or angle brackets.
+            # characters like tabs or angle brackets.
             if re.match(
-                r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
+                r"^[^ \t<>][^\t<>]*:[0-9]+( \(discriminator [0-9]+\))?$", row
             ):
                 source_filename, _, tail = row.rpartition(":")
                 source_line_num = int(tail.partition(" ")[0])
