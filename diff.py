@@ -201,11 +201,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-s",
-        "--stop-jr-ra",
-        dest="stop_jrra",
+        "--stop-at-ret",
+        dest="stop_at_ret",
         action="store_true",
-        help="""Stop disassembling at the first 'jr ra'. Some functions have
-        multiple return points, so use with care!""",
+        help="""Stop disassembling at the first return instruction.
+        Some functions have multiple return points, so use with care!""",
     )
     parser.add_argument(
         "-i",
@@ -417,7 +417,7 @@ class Config:
     show_branches: bool
     show_line_numbers: bool
     show_source: bool
-    stop_jrra: bool
+    stop_at_ret: bool
     ignore_large_imms: bool
     ignore_addr_diffs: bool
     algorithm: str
@@ -506,7 +506,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         show_branches=args.show_branches,
         show_line_numbers=show_line_numbers,
         show_source=args.show_source or args.source_old_binutils,
-        stop_jrra=args.stop_jrra,
+        stop_at_ret=args.stop_at_ret,
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
@@ -1115,8 +1115,8 @@ def search_map_file(
     elif project.map_format == "mw":
         find = re.findall(
             re.compile(
-                #            ram   elf rom
-                r"  \S+ \S+ (\S+) (\S+)  . "
+                #            ram   elf rom  alignment
+                r"  \S+ \S+ (\S+) (\S+) +\S+ "
                 + re.escape(fn_name)
                 + r"(?: \(entry of "
                 + re.escape(config.diff_section)
@@ -2004,6 +2004,7 @@ PPC_SETTINGS = ArchSettings(
         r"(\b|-)([0-9]+|0x[0-9a-fA-F]+)\b(?!\(r1)|[^ \t,]+@(l|ha|h|sda21)"
     ),
     re_reloc=re.compile(r"R_PPC_"),
+    arch_flags=["-m", "powerpc", "-M", "broadway"],
     branch_instructions=PPC_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=PPC_BRANCH_INSTRUCTIONS.union({"bl"}),
     proc=AsmProcessorPPC,
@@ -2171,9 +2172,9 @@ def process(dump: str, config: Config) -> List[Line]:
 
         if not re.match(r"^\s+[0-9a-f]+:\s+", row):
             # This regex is conservative, and assumes the file path does not contain "weird"
-            # characters like colons, tabs, or angle brackets.
+            # characters like tabs or angle brackets.
             if re.match(
-                r"^[^ \t<>:][^\t<>:]*:[0-9]+( \(discriminator [0-9]+\))?$", row
+                r"^[^ \t<>][^\t<>]*:[0-9]+( \(discriminator [0-9]+\))?$", row
             ):
                 source_filename, _, tail = row.rpartition(":")
                 source_line_num = int(tail.partition(" ")[0])
@@ -2310,12 +2311,18 @@ def process(dump: str, config: Config) -> List[Line]:
         num_instr += 1
         source_lines = []
 
-        if config.stop_jrra and mnemonic == "jr" and args == "ra":
-            stop_after_delay_slot = True
-        elif config.stop_jrra and mnemonic == "ret":
-            break
-        elif stop_after_delay_slot:
-            break
+        if config.stop_at_ret:
+            if config.arch.name == "mips":
+                if mnemonic == "jr" and args == "ra":
+                    stop_after_delay_slot = True
+                elif stop_after_delay_slot:
+                    break
+            if config.arch.name == "ppc":
+                if mnemonic == "blr":
+                    break
+            if config.arch.name == "i686":
+                if mnemonic == "ret":
+                    break
 
     processor.post_process(output)
     return output
