@@ -1070,6 +1070,7 @@ def preprocess_objdump_out(
 
     return out
 
+
 def search_build_objects(objname: str, project: ProjectSettings) -> Optional[str]:
     objfiles = [
         os.path.join(dirpath, f)
@@ -1087,6 +1088,7 @@ def search_build_objects(objname: str, project: ProjectSettings) -> Optional[str
         return objfiles[0]
 
     return None
+
 
 def search_map_file(
     fn_name: str, project: ProjectSettings, config: Config
@@ -1174,7 +1176,7 @@ def search_map_file(
         if not diff_segment_find:
             fail(f"Couldn't find segment for section in map file.")
         diff_segment = diff_segment_find.group(1)
-        
+
         find = re.findall(
             re.compile(
                 r" (?:"
@@ -1189,7 +1191,11 @@ def search_map_file(
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
         if len(find) == 1:
             names_find = re.search(r"(\S+) ... (\S+)", find[0])
-            fileofs = int(names_find.group(1), 16) - load_address + project.ms_map_address_offset
+            fileofs = (
+                int(names_find.group(1), 16)
+                - load_address
+                + project.ms_map_address_offset
+            )
             objname = names_find.group(2)
             objfile = search_build_objects(objname, project)
 
@@ -2143,9 +2149,7 @@ def process(dump: str, config: Config) -> List[Line]:
         if not re.match(r"^\s+[0-9a-f]+:\s+", row):
             # This regex is conservative, and assumes the file path does not contain "weird"
             # characters like tabs or angle brackets.
-            if re.match(
-                r"^[^ \t<>][^\t<>]*:[0-9]+( \(discriminator [0-9]+\))?$", row
-            ):
+            if re.match(r"^[^ \t<>][^\t<>]*:[0-9]+( \(discriminator [0-9]+\))?$", row):
                 source_filename, _, tail = row.rpartition(":")
                 source_line_num = int(tail.partition(" ")[0])
             source_lines.append(row)
