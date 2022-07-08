@@ -1154,7 +1154,7 @@ def search_map_file(
                 return objfile, rom
     elif project.map_format == "ms":
         load_address_find = re.search(
-            re.compile(r"Preferred load address is ([0-9a-f]+)"),
+            r"Preferred load address is ([0-9a-f]+)",
             contents,
         )
         if not load_address_find:
