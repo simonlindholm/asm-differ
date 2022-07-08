@@ -449,7 +449,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         map_format=settings.get("map_format", "gnu"),
         ms_map_address_offset=settings.get("ms_map_address_offset", 0),
         ms_ignore_missing_objfile=settings.get("ms_ignore_missing_objfile", True),
-        build_dir=settings.get("build_dir", "build/"),
+        build_dir=settings.get("build_dir", settings.get("mw_build_dir", "build/")),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
     )
