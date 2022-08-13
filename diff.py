@@ -386,6 +386,7 @@ class ProjectSettings:
     source_extensions: List[str]
     show_line_numbers_default: bool
     disassemble_all: bool
+    reg_categories: Dict[str, int]
 
 
 @dataclass
@@ -421,6 +422,7 @@ class Config:
     ignore_large_imms: bool
     ignore_addr_diffs: bool
     algorithm: str
+    reg_categories: Dict[str, int]
 
     # Score options
     score_stack_differences = True
@@ -452,6 +454,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         build_dir=settings.get("build_dir", settings.get("mw_build_dir", "build/")),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
+        reg_categories=settings.get("reg_categories", {}),
     )
 
 
@@ -510,6 +513,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         ignore_large_imms=args.ignore_large_imms,
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
+        reg_categories=project.reg_categories,
     )
 
 
@@ -567,6 +571,7 @@ class BasicFormat(enum.Enum):
     IMMEDIATE = enum.auto()
     STACK = enum.auto()
     REGISTER = enum.auto()
+    REGISTER_CATEGORY = enum.auto()
     DELAY_SLOT = enum.auto()
     DIFF_CHANGE = enum.auto()
     DIFF_ADD = enum.auto()
@@ -720,6 +725,7 @@ class AnsiFormatter(Formatter):
         BasicFormat.IMMEDIATE: Fore.LIGHTBLUE_EX,
         BasicFormat.STACK: Fore.YELLOW,
         BasicFormat.REGISTER: Fore.YELLOW,
+        BasicFormat.REGISTER_CATEGORY: Fore.LIGHTYELLOW_EX,
         BasicFormat.DELAY_SLOT: Fore.LIGHTBLACK_EX,
         BasicFormat.DIFF_CHANGE: Fore.LIGHTBLUE_EX,
         BasicFormat.DIFF_ADD: Fore.GREEN,
@@ -2732,8 +2738,19 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                     else:
                         # reg differences and maybe imm as well
                         out1, out2 = format_fields(arch.re_reg, out1, out2, sc1, sc2)
-                        line_color1 = line_color2 = sym_color = BasicFormat.REGISTER
-                        line_prefix = "r"
+                        cats = config.reg_categories
+                        if cats and any(
+                            cats.get(of.group()) != cats.get(nf.group())
+                            for (of, nf) in zip(
+                                out1.finditer(arch.re_reg), out2.finditer(arch.re_reg)
+                            )
+                        ):
+                            sym_color = BasicFormat.REGISTER_CATEGORY
+                            line_prefix = "R"
+                        else:
+                            sym_color = BasicFormat.REGISTER
+                            line_prefix = "r"
+                        line_color1 = line_color2 = sym_color
 
                 if same_target:
                     address_imm_fmt = BasicFormat.NONE
