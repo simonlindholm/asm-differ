@@ -1133,16 +1133,14 @@ def search_map_file(
             return cands[0]
     elif project.map_format == "mw":
         find = re.findall(
-            re.compile(
-                #            ram   elf rom  alignment
-                r"  \S+ \S+ (\S+) (\S+) +\S+ "
-                + re.escape(fn_name)
-                + r"(?: \(entry of "
-                + re.escape(config.diff_section)
-                + r"\))? \t"
-                # object name
-                + "(\S+)"
-            ),
+            #            ram   elf rom  alignment
+            r"  \S+ \S+ (\S+) (\S+) +\S+ "
+            + re.escape(fn_name)
+            + r"(?: \(entry of "
+            + re.escape(config.diff_section)
+            + r"\))? \t"
+            # object name
+            + "(\S+)",
             contents,
         )
         if len(find) > 1:
@@ -1168,9 +1166,7 @@ def search_map_file(
         load_address = int(load_address_find.group(1), 16)
 
         diff_segment_find = re.search(
-            re.compile(
-                r"([0-9a-f]+):[0-9a-f]+ [0-9a-f]+H " + re.escape(config.diff_section)
-            ),
+            r"([0-9a-f]+):[0-9a-f]+ [0-9a-f]+H " + re.escape(config.diff_section),
             contents,
         )
         if not diff_segment_find:
@@ -1178,19 +1174,18 @@ def search_map_file(
         diff_segment = diff_segment_find.group(1)
 
         find = re.findall(
-            re.compile(
-                r" (?:"
-                + re.escape(diff_segment)
-                + r")\S+\s+(?:"
-                + re.escape(fn_name)
-                + r")\s+\S+ ... \S+"
-            ),
+            r" (?:"
+            + re.escape(diff_segment)
+            + r")\S+\s+(?:"
+            + re.escape(fn_name)
+            + r")\s+\S+ ... \S+",
             contents,
         )
         if len(find) > 1:
             fail(f"Found multiple occurrences of function {fn_name} in map file.")
         if len(find) == 1:
             names_find = re.search(r"(\S+) ... (\S+)", find[0])
+            assert names_find is not None
             fileofs = (
                 int(names_find.group(1), 16)
                 - load_address
