@@ -2705,9 +2705,6 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                             retargetted += f"+{line2_target[1]}"
                         line2.normalized_original = norm2 + retargetted
                         sc_base, _ = split_off_address(line2.scorable_line)
-                        # if mnemonic == "j":
-                        #     line2.scorable_line = sc_base + ".text+0x" + retargetted
-                        # else:
                         line2.scorable_line = sc_base + retargetted
                     same_target = line2_target == (line1.branch_target, 0)
                 else:
