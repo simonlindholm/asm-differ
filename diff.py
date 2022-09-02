@@ -2232,6 +2232,17 @@ def process(dump: str, config: Config) -> List[Line]:
                 break
             i += 1
 
+        is_text_relative_j = False
+        if (
+            arch.name == "mips"
+            and mnemonic == "j"
+            and symbol is not None
+            and symbol.startswith(".text")
+        ):
+            symbol = None
+            original = row
+            is_text_relative_j = True
+
         normalized_original = processor.normalize(mnemonic, original)
 
         scorable_line = normalized_original
@@ -2257,7 +2268,7 @@ def process(dump: str, config: Config) -> List[Line]:
             row = normalize_imms(row, arch)
 
         branch_target = None
-        if mnemonic in arch.branch_instructions:
+        if mnemonic in arch.branch_instructions or is_text_relative_j:
             x86_longjmp = re.search(r"\*(.*)\(", args)
             if x86_longjmp:
                 capture = x86_longjmp.group(1)
@@ -2694,6 +2705,9 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
                             retargetted += f"+{line2_target[1]}"
                         line2.normalized_original = norm2 + retargetted
                         sc_base, _ = split_off_address(line2.scorable_line)
+                        # if mnemonic == "j":
+                        #     line2.scorable_line = sc_base + ".text+0x" + retargetted
+                        # else:
                         line2.scorable_line = sc_base + retargetted
                     same_target = line2_target == (line1.branch_target, 0)
                 else:
