@@ -1471,8 +1471,15 @@ class AsmProcessor:
     def post_process(self, lines: List["Line"]) -> None:
         return
 
+    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
+        return False
+
 
 class AsmProcessorMIPS(AsmProcessor):
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+        self.seen_jr_ra = False
+
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
         if "R_MIPS_NONE" in row or "R_MIPS_JALR" in row:
@@ -1505,6 +1512,13 @@ class AsmProcessorMIPS(AsmProcessor):
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
         return before + repl + after, repl
+
+    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
+        if self.seen_jr_ra:
+            return True
+        if mnemonic == "jr" and args == "ra":
+            self.seen_jr_ra = True
+        return False
 
 
 class AsmProcessorPPC(AsmProcessor):
@@ -1569,6 +1583,9 @@ class AsmProcessorPPC(AsmProcessor):
             repl = f"{repl}@sda21"
 
         return before + repl + after, repl
+
+    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
+        return mnemonic == "blr"
 
 
 class AsmProcessorARM32(AsmProcessor):
@@ -1705,6 +1722,9 @@ class AsmProcessorI686(AsmProcessor):
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
         return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
+
+    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
+        return mnemonic == "ret"
 
 
 @dataclass
@@ -2172,6 +2192,7 @@ def process(dump: str, config: Config) -> List[Line]:
         tabs = row.split("\t")
         line_num = eval_line_num(line_num_str.strip())
 
+        # TODO: use --no-show-raw-insn for all arches
         if arch.name == "i686":
             row = "\t".join(tabs[1:])
         else:
@@ -2297,18 +2318,8 @@ def process(dump: str, config: Config) -> List[Line]:
         num_instr += 1
         source_lines = []
 
-        if config.stop_at_ret:
-            if config.arch.name == "mips":
-                if mnemonic == "jr" and args == "ra":
-                    stop_after_delay_slot = True
-                elif stop_after_delay_slot:
-                    break
-            if config.arch.name == "ppc":
-                if mnemonic == "blr":
-                    break
-            if config.arch.name == "i686":
-                if mnemonic == "ret":
-                    break
+        if config.stop_at_ret and processor.is_end_of_function(mnemonic, args):
+            break
 
     processor.post_process(output)
     return output
@@ -2352,7 +2363,7 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
 
         return re.fullmatch((r"^@\d+$"), field) is not None
 
-    if arch.name == "mips":
+    if arch.name in ("mips", "mipsel"):
         return "." in field
 
     # Example: ".text+0x34"
