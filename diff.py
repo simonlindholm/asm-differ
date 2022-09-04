@@ -1945,6 +1945,8 @@ MIPS_SETTINGS = ArchSettings(
 
 MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
 
+MIPS_ARCH_NAMES = {"mips", "mipsel"}
+
 ARM32_SETTINGS = ArchSettings(
     name="arm32",
     re_int=re.compile(r"[0-9]+"),
@@ -2255,7 +2257,7 @@ def process(dump: str, config: Config) -> List[Line]:
 
         is_text_relative_j = False
         if (
-            arch.name == "mips"
+            arch.name in MIPS_ARCH_NAMES
             and mnemonic == "j"
             and symbol is not None
             and symbol.startswith(".text")
@@ -2363,7 +2365,7 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
 
         return re.fullmatch((r"^@\d+$"), field) is not None
 
-    if arch.name in ("mips", "mipsel"):
+    if arch.name in MIPS_ARCH_NAMES:
         return "." in field
 
     # Example: ".text+0x34"
