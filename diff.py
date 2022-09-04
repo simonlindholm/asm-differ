@@ -2352,7 +2352,7 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
 
         return re.fullmatch((r"^@\d+$"), field) is not None
 
-    if arch.name == "mips":
+    if arch.name in ("mips", "mipsel"):
         return "." in field
 
     # Example: ".text+0x34"
