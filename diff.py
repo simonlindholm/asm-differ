@@ -1743,7 +1743,6 @@ class ArchSettings:
     re_reloc: Pattern[str]
     branch_instructions: Set[str]
     instructions_with_address_immediates: Set[str]
-    jump_instructions: Set[str] = field(default_factory=set)
     forbidden: Set[str] = field(default_factory=lambda: set(string.ascii_letters + "_"))
     arch_flags: List[str] = field(default_factory=list)
     branch_likely_instructions: Set[str] = field(default_factory=set)
@@ -1778,18 +1777,6 @@ MIPS_BRANCH_INSTRUCTIONS = MIPS_BRANCH_LIKELY_INSTRUCTIONS.union(
         "bc1t",
         "bc1f",
     }
-)
-
-MIPS_JUMP_ADDR_INSTRUCTIONS = {
-    "jal",
-    "j",
-}
-MIPS_JUMP_REG_INSTRUCTIONS = {
-    "jalr",
-    "jr",
-}
-MIPS_JUMP_INSTRUCTIONS = set.union(
-    MIPS_JUMP_ADDR_INSTRUCTIONS, MIPS_JUMP_REG_INSTRUCTIONS
 )
 
 ARM32_PREFIXES = {"b", "bl"}
@@ -1955,11 +1942,8 @@ MIPS_SETTINGS = ArchSettings(
     arch_flags=["-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
-    jump_instructions=MIPS_JUMP_INSTRUCTIONS,
-    instructions_with_address_immediates=set.union(
-        MIPS_BRANCH_INSTRUCTIONS, MIPS_JUMP_ADDR_INSTRUCTIONS
-    ),
-    delay_slot_instructions=set.union(MIPS_BRANCH_INSTRUCTIONS, MIPS_JUMP_INSTRUCTIONS),
+    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal"}),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr"}),
     proc=AsmProcessorMIPS,
 )
 
