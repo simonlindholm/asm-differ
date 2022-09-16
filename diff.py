@@ -1591,6 +1591,10 @@ class AsmProcessorPPC(AsmProcessor):
 class AsmProcessorARM32(AsmProcessor):
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
+        if "R_ARM_V4BX" in row:
+            # R_ARM_V4BX converts "bx <reg>" to "mov pc,<reg>" for some targets.
+            # Ignore for now.
+            return prev, None
         if "R_ARM_ABS32" in row and not prev.startswith(".word"):
             # Don't crash on R_ARM_ABS32 relocations incorrectly applied to code.
             # (We may want to do something more fancy here that actually shows the
