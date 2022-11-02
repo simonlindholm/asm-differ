@@ -1219,6 +1219,8 @@ def parse_elf_rodata_references(
     SHT_SYMTAB = 2
     SHT_REL = 9
     SHT_RELA = 4
+    R_MIPS_32 = 2
+    R_MIPS_GPREL32 = 12
 
     is_32bit = e_ident[4] == 1
     is_little_endian = e_ident[5] == 1
@@ -1317,7 +1319,7 @@ def parse_elf_rodata_references(
                     )
                 if st_shndx == text_section:
                     if s.sh_type == SHT_REL:
-                        if e_machine == 8 and r_type == 2:  # R_MIPS_32
+                        if e_machine == 8 and r_type in (R_MIPS_32, R_MIPS_GPREL32):
                             (r_addend,) = read("I", sec_base + r_offset)
                         else:
                             continue
