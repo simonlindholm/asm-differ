@@ -1074,6 +1074,10 @@ def preprocess_objdump_out(
 
     return out
 
+load_address_lang = [
+    "load address",
+    "address de chargement",
+]
 
 def search_build_objects(objname: str, project: ProjectSettings) -> Optional[str]:
     objfiles = [
@@ -1108,7 +1112,7 @@ def search_map_file(
 
     if project.map_format == "gnu":
         lines = contents.split("\n")
-
+        
         try:
             cur_objfile = None
             ram_to_rom = None
@@ -1117,11 +1121,18 @@ def search_map_file(
             for line in lines:
                 if line.startswith(" " + config.diff_section):
                     cur_objfile = line.split()[3]
-                if "load address" in line:
-                    tokens = last_line.split() + line.split()
-                    ram = int(tokens[1], 0)
-                    rom = int(tokens[5], 0)
-                    ram_to_rom = rom - ram
+                
+                for i in load_address_lang:
+                    if i in line:
+                        tokens = last_line.split() + line.split()
+
+                        for j in i.split():
+                            del tokens[tokens.index(j)]
+
+                        ram = int(tokens[1], 0)
+                        rom = int(tokens[3], 0)
+                        ram_to_rom = rom - ram
+                
                 if line.endswith(" " + fn_name) or f" {fn_name} = 0x" in line:
                     ram = int(line.split()[0], 0)
                     if (for_binary and ram_to_rom is not None) or (
