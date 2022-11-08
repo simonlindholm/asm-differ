@@ -2406,15 +2406,10 @@ def diff_sequences_difflib(
 def diff_sequences(
     seq1: List[str], seq2: List[str], algorithm: str
 ) -> List[Tuple[str, int, int, int, int]]:
-    if (
-        algorithm != "levenshtein"
-        or len(seq1) * len(seq2) > 4 * 10**8
-        or len(seq1) + len(seq2) >= 0x110000
-    ):
+    if algorithm != "levenshtein":
         return diff_sequences_difflib(seq1, seq2)
 
     # The Levenshtein library assumes that we compare strings, not lists. Convert.
-    # (Per the check above we know we have fewer than 0x110000 unique elements, so chr() works.)
     remapping: Dict[str, str] = {}
 
     def remap(seq: List[str]) -> str:
@@ -2427,8 +2422,16 @@ def diff_sequences(
             seq[i] = val
         return "".join(seq)
 
-    rem1 = remap(seq1)
-    rem2 = remap(seq2)
+    try:
+        rem1 = remap(seq1)
+        rem2 = remap(seq2)
+    except ValueError as e:
+        if len(seq1) + len(seq2) < 0x110000:
+            raise
+        # If there are too many unique elements, chr() doesn't work.
+        # Assume this is the case and fall back to difflib.
+        return diff_sequences_difflib(seq1, seq2)
+
     import Levenshtein
 
     ret: List[Tuple[str, int, int, int, int]] = Levenshtein.opcodes(rem1, rem2)
