@@ -257,33 +257,35 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-0",
-        "--zeroway",
-        dest="zeroway",
-        action="store_true",
+        "--diff_type=single_base",
+        dest="diff_type",
+        action="store_const",
+        const="single_base",
         help="""View the base asm only (not a diff).""",
     )
     parser.add_argument(
         "-1",
-        "--oneway",
-        dest="oneway",
-        action="store_true",
+        "--diff_type=single",
+        dest="diff_type",
+        action="store_const",
+        const="single",
         help="""View the current asm only (not a diff).""",
     )
     parser.add_argument(
         "-3",
-        "--threeway=prev",
-        dest="threeway",
+        "--diff_type=3prev",
+        dest="diff_type",
         action="store_const",
-        const="prev",
+        const="3prev",
         help="""Show a three-way diff between target asm, current asm, and asm
         prior to -w rebuild. Requires -w.""",
     )
     parser.add_argument(
         "-b",
-        "--threeway=base",
-        dest="threeway",
+        "--diff_type=3base",
+        dest="diff_type",
         action="store_const",
-        const="base",
+        const="3base",
         help="""Show a three-way diff between target asm, current asm, and asm
         when diff.py was started. Requires -w.""",
     )
@@ -416,6 +418,14 @@ class Compress:
     same_instr: bool
 
 
+class DiffType(enum.Enum):
+    SINGLE = "single"
+    SINGLE_BASE = "single_base"
+    NORMAL = "normal"
+    THREEWAY_PREV = "3prev"
+    THREEWAY_BASE = "3base"
+
+
 @dataclass
 class Config:
     arch: "ArchSettings"
@@ -432,9 +442,7 @@ class Config:
 
     # Display options
     formatter: "Formatter"
-    threeway: Optional[str]
-    zeroway: bool
-    oneway: bool
+    diff_type: DiffType
     base_shift: int
     skip_lines: int
     compress: Optional[Compress]
@@ -524,9 +532,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         max_function_size_bytes=args.max_lines * 4,
         # Display options
         formatter=formatter,
-        threeway=args.threeway,
-        zeroway=args.zeroway,
-        oneway=args.oneway,
+        diff_type=DiffType(args.diff_type or DiffType.NORMAL),
         base_shift=eval_int(
             args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
         ),
@@ -1435,7 +1441,7 @@ def dump_objfile(
     if not os.path.isfile(objfile):
         fail(f"Not able to find .o file for function: {objfile} is not a file.")
 
-    refobjfile = project.expected_directory + objfile
+    refobjfile = os.path.join(project.expected_directory, objfile)
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
@@ -3028,7 +3034,7 @@ def align_diffs(
     diff_lines: List[Tuple[OutputLine, ...]]
     padding = " " * 7 if config.show_line_numbers else " " * 2
 
-    if config.threeway:
+    if config.diff_type in [DiffType.THREEWAY_PREV, DiffType.THREEWAY_BASE]:
         meta = TableMetadata(
             headers=(
                 Text("TARGET"),
@@ -3073,9 +3079,11 @@ def align_diffs(
         diff_lines = [
             (base, new, old if old != new else empty) for base, new, old in diff_lines
         ]
-    elif config.zeroway or config.oneway:
+    elif config.diff_type in [DiffType.SINGLE or DiffType.SINGLE_BASE]:
         meta = TableMetadata(
-            headers=(Text("CURRENT"),),
+            headers=(
+                Text("BASE" if config.diff_type == DiffType.SINGLE_BASE else "CURRENT"),
+            ),
             current_score=0,
             max_score=0,
             previous_score=None,
@@ -3198,15 +3206,15 @@ class Display:
 
         my_lines = process(self.mydump, self.config)
 
-        if self.config.zeroway:
+        if self.config.diff_type == DiffType.SINGLE_BASE:
             diff_output = do_diff(self.base_lines, self.base_lines, self.config)
-        elif self.config.oneway:
+        elif self.config.diff_type == DiffType.SINGLE:
             diff_output = do_diff(my_lines, my_lines, self.config)
         else:
             diff_output = do_diff(self.base_lines, my_lines, self.config)
 
         last_diff_output = self.last_diff_output or diff_output
-        if self.config.threeway != "base" or not self.last_diff_output:
+        if self.config.diff_type != "base" or not self.last_diff_output:
             self.last_diff_output = diff_output
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
@@ -3334,16 +3342,10 @@ def main() -> None:
         except ModuleNotFoundError as e:
             fail(MISSING_PREREQUISITES.format(e.name))
 
-    if config.oneway and config.threeway:
-        fail("Cannot use both -1 and -3.")
-
-    if config.zeroway and config.threeway:
-        fail("Cannot use both -0 and -3.")
-
-    if config.zeroway and config.oneway:
-        fail("Cannot use both -0 and -1.")
-
-    if config.threeway and not args.watch:
+    if (
+        config.diff_type in [DiffType.THREEWAY_BASE, DiffType.THREEWAY_PREV]
+        and not args.watch
+    ):
         fail("Threeway diffing requires -w.")
 
     if args.diff_elf_symbol:
