@@ -256,6 +256,20 @@ if __name__ == "__main__":
         Recommended in combination with -m.""",
     )
     parser.add_argument(
+        "-0",
+        "--zeroway",
+        dest="zeroway",
+        action="store_true",
+        help="""View the base asm only (not a diff).""",
+    )
+    parser.add_argument(
+        "-1",
+        "--oneway",
+        dest="oneway",
+        action="store_true",
+        help="""View the current asm only (not a diff).""",
+    )
+    parser.add_argument(
         "-3",
         "--threeway=prev",
         dest="threeway",
@@ -393,6 +407,7 @@ class ProjectSettings:
     show_line_numbers_default: bool
     disassemble_all: bool
     reg_categories: Dict[str, int]
+    expected_directory: str
 
 
 @dataclass
@@ -418,6 +433,8 @@ class Config:
     # Display options
     formatter: "Formatter"
     threeway: Optional[str]
+    zeroway: bool
+    oneway: bool
     base_shift: int
     skip_lines: int
     compress: Optional[Compress]
@@ -455,6 +472,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         ),
         objdump_executable=get_objdump_executable(settings.get("objdump_executable")),
         objdump_flags=settings.get("objdump_flags", []),
+        expected_directory=settings.get("expected_directory", "expected/"),
         map_format=settings.get("map_format", "gnu"),
         ms_map_address_offset=settings.get("ms_map_address_offset", 0),
         build_dir=settings.get("build_dir", settings.get("mw_build_dir", "build/")),
@@ -507,6 +525,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         # Display options
         formatter=formatter,
         threeway=args.threeway,
+        zeroway=args.zeroway,
+        oneway=args.oneway,
         base_shift=eval_int(
             args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
         ),
@@ -781,7 +801,11 @@ class AnsiFormatter(Formatter):
 
     def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
         rows = [(meta.headers, False)] + [
-            (self.outputline_texts(line), line[1].is_data_ref) for line in lines
+            (
+                self.outputline_texts(line),
+                line[0 if len(meta.headers) == 1 else 1].is_data_ref,
+            )
+            for line in lines
         ]
         return "\n".join(
             "".join(
@@ -1411,7 +1435,7 @@ def dump_objfile(
     if not os.path.isfile(objfile):
         fail(f"Not able to find .o file for function: {objfile} is not a file.")
 
-    refobjfile = "expected/" + objfile
+    refobjfile = project.expected_directory + objfile
     if not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
@@ -3049,6 +3073,14 @@ def align_diffs(
         diff_lines = [
             (base, new, old if old != new else empty) for base, new, old in diff_lines
         ]
+    elif config.zeroway or config.oneway:
+        meta = TableMetadata(
+            headers=(Text("CURRENT"),),
+            current_score=0,
+            max_score=0,
+            previous_score=None,
+        )
+        diff_lines = [(line,) for line in new_diff.lines]
     else:
         meta = TableMetadata(
             headers=(
@@ -3165,7 +3197,14 @@ class Display:
             return (self.emsg, self.emsg)
 
         my_lines = process(self.mydump, self.config)
-        diff_output = do_diff(self.base_lines, my_lines, self.config)
+
+        if self.config.zeroway:
+            diff_output = do_diff(self.base_lines, self.base_lines, self.config)
+        elif self.config.oneway:
+            diff_output = do_diff(my_lines, my_lines, self.config)
+        else:
+            diff_output = do_diff(self.base_lines, my_lines, self.config)
+
         last_diff_output = self.last_diff_output or diff_output
         if self.config.threeway != "base" or not self.last_diff_output:
             self.last_diff_output = diff_output
@@ -3294,6 +3333,15 @@ def main() -> None:
             import cxxfilt
         except ModuleNotFoundError as e:
             fail(MISSING_PREREQUISITES.format(e.name))
+
+    if config.oneway and config.threeway:
+        fail("Cannot use both -1 and -3.")
+
+    if config.zeroway and config.threeway:
+        fail("Cannot use both -0 and -3.")
+
+    if config.zeroway and config.oneway:
+        fail("Cannot use both -0 and -1.")
 
     if config.threeway and not args.watch:
         fail("Threeway diffing requires -w.")
