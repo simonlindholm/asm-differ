@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
 import argparse
+import enum
 import sys
 from typing import (
     Any,
@@ -26,6 +27,14 @@ def fail(msg: str) -> NoReturn:
 
 def static_assert_unreachable(x: NoReturn) -> NoReturn:
     raise Exception("Unreachable! " + repr(x))
+
+
+class DiffMode(enum.Enum):
+    SINGLE = "single"
+    SINGLE_BASE = "single_base"
+    NORMAL = "normal"
+    THREEWAY_PREV = "3prev"
+    THREEWAY_BASE = "3base"
 
 
 # ==== COMMAND-LINE ====
@@ -257,35 +266,35 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-0",
-        "--diff_type=single_base",
-        dest="diff_type",
+        "--diff_mode=single_base",
+        dest="diff_mode",
         action="store_const",
-        const="single_base",
+        const=DiffMode.SINGLE_BASE,
         help="""View the base asm only (not a diff).""",
     )
     parser.add_argument(
         "-1",
-        "--diff_type=single",
-        dest="diff_type",
+        "--diff_mode=single",
+        dest="diff_mode",
         action="store_const",
-        const="single",
+        const=DiffMode.SINGLE,
         help="""View the current asm only (not a diff).""",
     )
     parser.add_argument(
         "-3",
-        "--diff_type=3prev",
-        dest="diff_type",
+        "--threeway=prev",
+        dest="diff_mode",
         action="store_const",
-        const="3prev",
+        const=DiffMode.THREEWAY_PREV,
         help="""Show a three-way diff between target asm, current asm, and asm
         prior to -w rebuild. Requires -w.""",
     )
     parser.add_argument(
         "-b",
-        "--diff_type=3base",
-        dest="diff_type",
+        "--threeway=base",
+        dest="diff_mode",
         action="store_const",
-        const="3base",
+        const=DiffMode.THREEWAY_BASE,
         help="""Show a three-way diff between target asm, current asm, and asm
         when diff.py was started. Requires -w.""",
     )
@@ -363,7 +372,6 @@ import ast
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, replace
 import difflib
-import enum
 import html
 import itertools
 import json
@@ -418,14 +426,6 @@ class Compress:
     same_instr: bool
 
 
-class DiffType(enum.Enum):
-    SINGLE = "single"
-    SINGLE_BASE = "single_base"
-    NORMAL = "normal"
-    THREEWAY_PREV = "3prev"
-    THREEWAY_BASE = "3base"
-
-
 @dataclass
 class Config:
     arch: "ArchSettings"
@@ -442,7 +442,7 @@ class Config:
 
     # Display options
     formatter: "Formatter"
-    diff_type: DiffType
+    diff_mode: DiffMode
     base_shift: int
     skip_lines: int
     compress: Optional[Compress]
@@ -532,7 +532,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         max_function_size_bytes=args.max_lines * 4,
         # Display options
         formatter=formatter,
-        diff_type=DiffType(args.diff_type or DiffType.NORMAL),
+        diff_mode=args.diff_mode,
         base_shift=eval_int(
             args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
         ),
@@ -3034,7 +3034,7 @@ def align_diffs(
     diff_lines: List[Tuple[OutputLine, ...]]
     padding = " " * 7 if config.show_line_numbers else " " * 2
 
-    if config.diff_type in [DiffType.THREEWAY_PREV, DiffType.THREEWAY_BASE]:
+    if config.diff_mode in (DiffMode.THREEWAY_PREV, DiffMode.THREEWAY_BASE):
         meta = TableMetadata(
             headers=(
                 Text("TARGET"),
@@ -3079,11 +3079,10 @@ def align_diffs(
         diff_lines = [
             (base, new, old if old != new else empty) for base, new, old in diff_lines
         ]
-    elif config.diff_type in [DiffType.SINGLE or DiffType.SINGLE_BASE]:
+    elif config.diff_mode in (DiffMode.SINGLE, DiffMode.SINGLE_BASE):
+        header = Text("BASE" if config.diff_mode == DiffMode.SINGLE_BASE else "CURRENT")
         meta = TableMetadata(
-            headers=(
-                Text("BASE" if config.diff_type == DiffType.SINGLE_BASE else "CURRENT"),
-            ),
+            headers=(header,),
             current_score=0,
             max_score=0,
             previous_score=None,
@@ -3206,15 +3205,15 @@ class Display:
 
         my_lines = process(self.mydump, self.config)
 
-        if self.config.diff_type == DiffType.SINGLE_BASE:
+        if self.config.diff_mode == DiffMode.SINGLE_BASE:
             diff_output = do_diff(self.base_lines, self.base_lines, self.config)
-        elif self.config.diff_type == DiffType.SINGLE:
+        elif self.config.diff_mode == DiffMode.SINGLE:
             diff_output = do_diff(my_lines, my_lines, self.config)
         else:
             diff_output = do_diff(self.base_lines, my_lines, self.config)
 
         last_diff_output = self.last_diff_output or diff_output
-        if self.config.diff_type != "base" or not self.last_diff_output:
+        if self.config.diff_mode != DiffMode.THREEWAY_BASE or not self.last_diff_output:
             self.last_diff_output = diff_output
 
         meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
@@ -3343,7 +3342,7 @@ def main() -> None:
             fail(MISSING_PREREQUISITES.format(e.name))
 
     if (
-        config.diff_type in [DiffType.THREEWAY_BASE, DiffType.THREEWAY_PREV]
+        config.diff_mode in (DiffMode.THREEWAY_BASE, DiffMode.THREEWAY_PREV)
         and not args.watch
     ):
         fail("Threeway diffing requires -w.")
