@@ -704,11 +704,19 @@ class Text:
 
 
 @dataclass
-class TableMetadata:
+class TableLine:
+    key: str
+    is_data_ref: bool
+    cells: Tuple[Tuple[Text, Optional["OutputLine"]], ...]
+
+
+@dataclass
+class TableData:
     headers: Tuple[Text, ...]
     current_score: int
     max_score: int
     previous_score: Optional[int]
+    lines: List[TableLine]
 
 
 class Formatter(abc.ABC):
@@ -718,7 +726,7 @@ class Formatter(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
+    def table(self, data: TableData) -> str:
         """Format a multi-column table with metadata"""
         ...
 
@@ -726,8 +734,8 @@ class Formatter(abc.ABC):
         return "".join(self.apply_format(chunk, f) for chunk, f in text.segments)
 
     @staticmethod
-    def outputline_texts(lines: Tuple["OutputLine", ...]) -> Tuple[Text, ...]:
-        return tuple([lines[0].base or Text()] + [line.fmt2 for line in lines[1:]])
+    def outputline_texts(line: TableLine) -> Tuple[Text, ...]:
+        return tuple([line.cells[0][1].base or Text()] + [cell[1].fmt2 for cell in line.cells[1:]])
 
 
 @dataclass
@@ -737,8 +745,8 @@ class PlainFormatter(Formatter):
     def apply_format(self, chunk: str, f: Format) -> str:
         return chunk
 
-    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
-        rows = [meta.headers] + [self.outputline_texts(ls) for ls in lines]
+    def table(self, data: TableData) -> str:
+        rows = [data.headers] + [self.outputline_texts(line) for line in data.lines]
         return "\n".join(
             "".join(self.apply(x.ljust(self.column_width)) for x in row) for row in rows
         )
@@ -805,13 +813,13 @@ class AnsiFormatter(Formatter):
             static_assert_unreachable(f)
         return f"{ansi_code}{chunk}{undo_ansi_code}"
 
-    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
-        rows = [(meta.headers, False)] + [
+    def table(self, data: TableData) -> str:
+        rows = [(data.headers, False)] + [
             (
                 self.outputline_texts(line),
-                line[0 if len(meta.headers) == 1 else 1].is_data_ref,
+                line.is_data_ref,
             )
-            for line in lines
+            for line in data.lines
         ]
         return "\n".join(
             "".join(
@@ -843,7 +851,7 @@ class HtmlFormatter(Formatter):
             static_assert_unreachable(f)
         return f"<span class='{class_name}' {data_attr}>{chunk}</span>"
 
-    def table(self, meta: TableMetadata, lines: List[Tuple["OutputLine", ...]]) -> str:
+    def table(self, data: TableData) -> str:
         def table_row(line: Tuple[Text, ...], is_data_ref: bool, cell_el: str) -> str:
             tr_attrs = " class='data-ref'" if is_data_ref else ""
             output_row = f"    <tr{tr_attrs}>"
@@ -855,12 +863,12 @@ class HtmlFormatter(Formatter):
 
         output = "<table class='diff'>\n"
         output += "  <thead>\n"
-        output += table_row(meta.headers, False, "th")
+        output += table_row(data.headers, False, "th")
         output += "  </thead>\n"
         output += "  <tbody>\n"
         output += "".join(
-            table_row(self.outputline_texts(line), line[1].is_data_ref, "td")
-            for line in lines
+            table_row(self.outputline_texts(line), line.is_data_ref, "td")
+            for line in data.lines
         )
         output += "  </tbody>\n"
         output += "</table>\n"
@@ -875,7 +883,7 @@ class JsonFormatter(Formatter):
         # This method is unused by this formatter
         return NotImplemented
 
-    def table(self, meta: TableMetadata, rows: List[Tuple["OutputLine", ...]]) -> str:
+    def table(self, data: TableData) -> str:
         def serialize_format(s: str, f: Format) -> Dict[str, Any]:
             if f == BasicFormat.NONE:
                 return {"text": s}
@@ -893,29 +901,29 @@ class JsonFormatter(Formatter):
                 return []
             return [serialize_format(s, f) for s, f in text.segments]
 
-        is_threeway = len(meta.headers) == 3
+        is_threeway = len(data.headers) == 3
 
         output: Dict[str, Any] = {}
         output["arch_str"] = self.arch_str
         output["header"] = {
             name: serialize(h)
-            for h, name in zip(meta.headers, ("base", "current", "previous"))
+            for h, name in zip(data.headers, ("base", "current", "previous"))
         }
-        output["current_score"] = meta.current_score
-        output["max_score"] = meta.max_score
-        if meta.previous_score is not None:
-            output["previous_score"] = meta.previous_score
+        output["current_score"] = data.current_score
+        output["max_score"] = data.max_score
+        if data.previous_score is not None:
+            output["previous_score"] = data.previous_score
         output_rows: List[Dict[str, Any]] = []
-        for row in rows:
+        for row in data.lines:
             output_row: Dict[str, Any] = {}
-            output_row["key"] = row[0].key2
-            output_row["is_data_ref"] = row[1].is_data_ref
+            output_row["key"] = row.cells[0][1].key2
+            output_row["is_data_ref"] = row.is_data_ref
             iters = [
-                ("base", row[0].base, row[0].line1),
-                ("current", row[1].fmt2, row[1].line2),
+                ("base", row.cells[0][1].base, row.cells[0][1].line1),
+                ("current", row.cells[1][1].fmt2, row.cells[1][1].line2),
             ]
             if is_threeway:
-                iters.append(("previous", row[2].fmt2, row[2].line2))
+                iters.append(("previous", row.cells[2][1].fmt2, row.cells[2][1].line2))
             if all(line is None for _, _, line in iters):
                 # Skip rows that were only for displaying source code
                 continue
@@ -3027,24 +3035,13 @@ def compress_matching(
     return ret
 
 
-def align_diffs(
-    old_diff: Diff, new_diff: Diff, config: Config
-) -> Tuple[TableMetadata, List[Tuple[OutputLine, ...]]]:
-    meta: TableMetadata
+def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
+    data: TableData
+    headers: Tuple[Text, ...]
     diff_lines: List[Tuple[OutputLine, ...]]
     padding = " " * 7 if config.show_line_numbers else " " * 2
 
     if config.diff_mode in (DiffMode.THREEWAY_PREV, DiffMode.THREEWAY_BASE):
-        meta = TableMetadata(
-            headers=(
-                Text("TARGET"),
-                Text(f"{padding}CURRENT ({new_diff.score})"),
-                Text(f"{padding}PREVIOUS ({old_diff.score})"),
-            ),
-            current_score=new_diff.score,
-            max_score=new_diff.max_score,
-            previous_score=old_diff.score,
-        )
         old_chunks = chunk_diff_lines(old_diff.lines)
         new_chunks = chunk_diff_lines(new_diff.lines)
         diff_lines = []
@@ -3079,29 +3076,41 @@ def align_diffs(
         diff_lines = [
             (base, new, old if old != new else empty) for base, new, old in diff_lines
         ]
+        headers=(
+            Text("TARGET"),
+            Text(f"{padding}CURRENT ({new_diff.score})"),
+            Text(f"{padding}PREVIOUS ({old_diff.score})"),
+        )
+        current_score=new_diff.score
+        max_score=new_diff.max_score
+        previous_score=old_diff.score
     elif config.diff_mode in (DiffMode.SINGLE, DiffMode.SINGLE_BASE):
         header = Text("BASE" if config.diff_mode == DiffMode.SINGLE_BASE else "CURRENT")
-        meta = TableMetadata(
-            headers=(header,),
-            current_score=0,
-            max_score=0,
-            previous_score=None,
-        )
         diff_lines = [(line,) for line in new_diff.lines]
+        headers=(header,)
+        # Scoring is disabled for view mode
+        current_score=0
+        max_score=0
+        previous_score=None
     else:
-        meta = TableMetadata(
-            headers=(
-                Text("TARGET"),
-                Text(f"{padding}CURRENT ({new_diff.score})"),
-            ),
-            current_score=new_diff.score,
-            max_score=new_diff.max_score,
-            previous_score=None,
-        )
         diff_lines = [(line, line) for line in new_diff.lines]
+        headers=(
+            Text("TARGET"),
+            Text(f"{padding}CURRENT ({new_diff.score})"),
+        )
+        current_score=new_diff.score
+        max_score=new_diff.max_score
+        previous_score=None
     if config.compress:
         diff_lines = compress_matching(diff_lines, config.compress.context)
-    return meta, diff_lines
+
+    return TableData(
+        headers=headers,
+        current_score=current_score,
+        max_score=max_score,
+        previous_score=previous_score,
+        lines=diff_lines,
+    )
 
 
 def debounced_fs_watch(
@@ -3216,8 +3225,8 @@ class Display:
         if self.config.diff_mode != DiffMode.THREEWAY_BASE or not self.last_diff_output:
             self.last_diff_output = diff_output
 
-        meta, diff_lines = align_diffs(last_diff_output, diff_output, self.config)
-        output = self.config.formatter.table(meta, diff_lines)
+        data = align_diffs(last_diff_output, diff_output, self.config)
+        output = self.config.formatter.table(data)
 
         refresh_key = (
             [line.key2 for line in diff_output.lines],
