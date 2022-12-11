@@ -707,7 +707,7 @@ class Text:
 class TableLine:
     key: str
     is_data_ref: bool
-    cells: Tuple[Tuple[Text, Optional["OutputLine"]], ...]
+    cells: Tuple[Tuple[Text, Optional["Line"]], ...]
 
 
 @dataclass
@@ -735,7 +735,7 @@ class Formatter(abc.ABC):
 
     @staticmethod
     def outputline_texts(line: TableLine) -> Tuple[Text, ...]:
-        return tuple([line.cells[0][1].base or Text()] + [cell[1].fmt2 for cell in line.cells[1:]])
+        return tuple(cell[0] for cell in line.cells)
 
 
 @dataclass
@@ -916,14 +916,14 @@ class JsonFormatter(Formatter):
         output_rows: List[Dict[str, Any]] = []
         for row in data.lines:
             output_row: Dict[str, Any] = {}
-            output_row["key"] = row.cells[0][1].key2
+            output_row["key"] = row.key
             output_row["is_data_ref"] = row.is_data_ref
-            iters = [
-                ("base", row.cells[0][1].base, row.cells[0][1].line1),
-                ("current", row.cells[1][1].fmt2, row.cells[1][1].line2),
+            iters: List[Tuple[str, Text, Optional[Line]]] = [
+                ("base", row.cells[0][0], row.cells[0][1]),
+                ("current", row.cells[1][0], row.cells[1][1]),
             ]
             if is_threeway:
-                iters.append(("previous", row.cells[2][1].fmt2, row.cells[2][1].line2))
+                iters.append(("previous", row.cells[2][0], row.cells[2][1]))
             if all(line is None for _, _, line in iters):
                 # Skip rows that were only for displaying source code
                 continue
@@ -3076,40 +3076,65 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
         diff_lines = [
             (base, new, old if old != new else empty) for base, new, old in diff_lines
         ]
-        headers=(
+        headers = (
             Text("TARGET"),
             Text(f"{padding}CURRENT ({new_diff.score})"),
             Text(f"{padding}PREVIOUS ({old_diff.score})"),
         )
-        current_score=new_diff.score
-        max_score=new_diff.max_score
-        previous_score=old_diff.score
+        current_score = new_diff.score
+        max_score = new_diff.max_score
+        previous_score = old_diff.score
     elif config.diff_mode in (DiffMode.SINGLE, DiffMode.SINGLE_BASE):
         header = Text("BASE" if config.diff_mode == DiffMode.SINGLE_BASE else "CURRENT")
         diff_lines = [(line,) for line in new_diff.lines]
-        headers=(header,)
+        headers = (header,)
         # Scoring is disabled for view mode
-        current_score=0
-        max_score=0
-        previous_score=None
+        current_score = 0
+        max_score = 0
+        previous_score = None
     else:
         diff_lines = [(line, line) for line in new_diff.lines]
-        headers=(
+        headers = (
             Text("TARGET"),
             Text(f"{padding}CURRENT ({new_diff.score})"),
         )
-        current_score=new_diff.score
-        max_score=new_diff.max_score
-        previous_score=None
+        current_score = new_diff.score
+        max_score = new_diff.max_score
+        previous_score = None
     if config.compress:
         diff_lines = compress_matching(diff_lines, config.compress.context)
+
+    def diff_lines_to_table_lines(
+        diff_lines: List[Tuple[OutputLine, ...]]
+    ) -> List[TableLine]:
+        table_lines: List[TableLine] = []
+        for line in diff_lines:
+
+            cells: List[Tuple[Text, Optional["Line"]]] = []
+            for i in range(0, len(line)):
+                if i == 0:
+                    assert line[i].base is not None
+                    base: Text = line[i].base  # type: ignore
+                    cells.append((base, line[i].line1))
+                else:
+                    cells.append((line[i].fmt2, line[i].line2))
+
+            assert line[0].key2 is not None
+            table_lines.append(
+                TableLine(
+                    key=line[0].key2,
+                    is_data_ref=line[0].is_data_ref,
+                    cells=tuple(cells),
+                )
+            )
+        return table_lines
 
     return TableData(
         headers=headers,
         current_score=current_score,
         max_score=max_score,
         previous_score=previous_score,
-        lines=diff_lines,
+        lines=diff_lines_to_table_lines(diff_lines),
     )
 
 
