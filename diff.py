@@ -532,7 +532,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         max_function_size_bytes=args.max_lines * 4,
         # Display options
         formatter=formatter,
-        diff_mode=args.diff_mode,
+        diff_mode=args.diff_mode or DiffMode.NORMAL,
         base_shift=eval_int(
             args.base_shift, "Failed to parse --base-shift (-S) argument as an integer."
         ),
@@ -705,7 +705,7 @@ class Text:
 
 @dataclass
 class TableLine:
-    key: str
+    key: Optional[str]
     is_data_ref: bool
     cells: Tuple[Tuple[Text, Optional["Line"]], ...]
 
@@ -901,8 +901,6 @@ class JsonFormatter(Formatter):
                 return []
             return [serialize_format(s, f) for s, f in text.segments]
 
-        is_threeway = len(data.headers) == 3
-
         output: Dict[str, Any] = {}
         output["arch_str"] = self.arch_str
         output["header"] = {
@@ -919,11 +917,9 @@ class JsonFormatter(Formatter):
             output_row["key"] = row.key
             output_row["is_data_ref"] = row.is_data_ref
             iters: List[Tuple[str, Text, Optional[Line]]] = [
-                ("base", row.cells[0][0], row.cells[0][1]),
-                ("current", row.cells[1][0], row.cells[1][1]),
+                (label, *cell)
+                for label, cell in zip(("base", "current", "previous"), row.cells)
             ]
-            if is_threeway:
-                iters.append(("previous", row.cells[2][0], row.cells[2][1]))
             if all(line is None for _, _, line in iters):
                 # Skip rows that were only for displaying source code
                 continue
@@ -3036,7 +3032,6 @@ def compress_matching(
 
 
 def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
-    data: TableData
     headers: Tuple[Text, ...]
     diff_lines: List[Tuple[OutputLine, ...]]
     padding = " " * 7 if config.show_line_numbers else " " * 2
@@ -3119,7 +3114,6 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
                 else:
                     cells.append((line[i].fmt2, line[i].line2))
 
-            assert line[0].key2 is not None
             table_lines.append(
                 TableLine(
                     key=line[0].key2,
