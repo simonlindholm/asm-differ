@@ -1446,7 +1446,7 @@ def dump_objfile(
         fail(f"Not able to find .o file for function: {objfile} is not a file.")
 
     refobjfile = os.path.join(project.expected_directory, objfile)
-    if not os.path.isfile(refobjfile):
+    if config.diff_mode != DiffMode.SINGLE and not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
     if project.disassemble_all:
@@ -3400,8 +3400,10 @@ def main() -> None:
     if args.base_asm is not None:
         with open(args.base_asm) as f:
             basedump = f.read()
-    else:
+    elif config.diff_mode != DiffMode.SINGLE:
         basedump = run_objdump(basecmd, config, project)
+    else:
+        basedump = ""
 
     mydump = run_objdump(mycmd, config, project)
 
