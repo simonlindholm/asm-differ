@@ -417,7 +417,7 @@ class ProjectSettings:
     show_line_numbers_default: bool
     disassemble_all: bool
     reg_categories: Dict[str, int]
-    expected_directory: str
+    expected_dir: str
 
 
 @dataclass
@@ -480,7 +480,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         ),
         objdump_executable=get_objdump_executable(settings.get("objdump_executable")),
         objdump_flags=settings.get("objdump_flags", []),
-        expected_directory=settings.get("expected_directory", "expected/"),
+        expected_dir=settings.get("expected_dir", "expected/"),
         map_format=settings.get("map_format", "gnu"),
         ms_map_address_offset=settings.get("ms_map_address_offset", 0),
         build_dir=settings.get("build_dir", settings.get("mw_build_dir", "build/")),
@@ -1445,7 +1445,7 @@ def dump_objfile(
     if not os.path.isfile(objfile):
         fail(f"Not able to find .o file for function: {objfile} is not a file.")
 
-    refobjfile = os.path.join(project.expected_directory, objfile)
+    refobjfile = os.path.join(project.expected_dir, objfile)
     if config.diff_mode != DiffMode.SINGLE and not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
@@ -3099,36 +3099,27 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
     if config.compress:
         diff_lines = compress_matching(diff_lines, config.compress.context)
 
-    def diff_lines_to_table_lines(
-        diff_lines: List[Tuple[OutputLine, ...]]
-    ) -> List[TableLine]:
-        table_lines: List[TableLine] = []
-        for line in diff_lines:
+    def diff_line_to_table_line(line: Tuple[OutputLine, ...]) -> TableLine:
+        cells: List[Tuple[Text, Optional["Line"]]] = []
+        for i in range(0, len(line)):
+            if i == 0:
+                base: Text = line[i].base or Text()
+                cells.append((base, line[i].line1))
+            else:
+                cells.append((line[i].fmt2, line[i].line2))
 
-            cells: List[Tuple[Text, Optional["Line"]]] = []
-            for i in range(0, len(line)):
-                if i == 0:
-                    assert line[i].base is not None
-                    base: Text = line[i].base  # type: ignore
-                    cells.append((base, line[i].line1))
-                else:
-                    cells.append((line[i].fmt2, line[i].line2))
-
-            table_lines.append(
-                TableLine(
-                    key=line[0].key2,
-                    is_data_ref=line[0].is_data_ref,
-                    cells=tuple(cells),
-                )
-            )
-        return table_lines
+        return TableLine(
+            key=line[0].key2,
+            is_data_ref=line[0].is_data_ref,
+            cells=tuple(cells),
+        )
 
     return TableData(
         headers=headers,
         current_score=current_score,
         max_score=max_score,
         previous_score=previous_score,
-        lines=diff_lines_to_table_lines(diff_lines),
+        lines=[diff_line_to_table_line(line) for line in diff_lines],
     )
 
 
