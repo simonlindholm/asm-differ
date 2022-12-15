@@ -3100,13 +3100,11 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
         diff_lines = compress_matching(diff_lines, config.compress.context)
 
     def diff_line_to_table_line(line: Tuple[OutputLine, ...]) -> TableLine:
-        cells: List[Tuple[Text, Optional["Line"]]] = []
-        for i in range(0, len(line)):
-            if i == 0:
-                base: Text = line[i].base or Text()
-                cells.append((base, line[i].line1))
-            else:
-                cells.append((line[i].fmt2, line[i].line2))
+        cells: List[Tuple[Text, Optional["Line"]]] = [
+            (line[0].base or Text(), line[0].line1)
+        ]
+        for i in range(1, len(line)):
+            cells.append((line[i].fmt2, line[i].line2))
 
         return TableLine(
             key=line[0].key2,
