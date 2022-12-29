@@ -12,7 +12,8 @@ python = "^3.7"
 colorama = "^0.4.6"
 ansiwrap = "^0.8.4"
 watchdog = "^2.2.0"
-python-Levenshtein = "^0.20.8"
+levenshtein = "^0.20.9"
+cxxfilt = "^0.3.0"
 
 
 [build-system]

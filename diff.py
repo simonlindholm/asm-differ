@@ -388,7 +388,7 @@ import traceback
 
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
-    "Run `python3 -m pip install --user colorama watchdog python-Levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
+    "Run `python3 -m pip install --user colorama watchdog levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
 )
 
 try:
