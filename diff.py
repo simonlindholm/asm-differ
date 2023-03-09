@@ -368,7 +368,6 @@ if __name__ == "__main__":
 # (We do imports late to optimize auto-complete performance.)
 
 import abc
-import ast
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, replace
 import difflib
@@ -991,7 +990,7 @@ ObjdumpCommand = Tuple[List[str], str, Optional[str]]
 
 def maybe_eval_int(expr: str) -> Optional[int]:
     try:
-        ret = ast.literal_eval(expr)
+        ret = eval(expr)
         if not isinstance(ret, int):
             raise Exception("not an integer")
         return ret
