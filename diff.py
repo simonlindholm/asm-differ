@@ -987,10 +987,41 @@ def symbol_formatter(group: str, base_index: int) -> FormatFunction:
 
 ObjdumpCommand = Tuple[List[str], str, Optional[str]]
 
+# eval_expr adapted from https://stackoverflow.com/a/9558001
+
+import ast
+import operator as op
+
+# supported operators
+operators: Dict[Type[Union[ast.operator, ast.unaryop]], Any] = {
+    ast.Add: op.add,
+    ast.Sub: op.sub,
+    ast.Mult: op.mul,
+    ast.Div: op.truediv,
+    ast.Pow: op.pow,
+    ast.BitXor: op.xor,
+    ast.USub: op.neg,
+}
+
+
+def eval_expr(expr: str) -> Any:
+    return eval_(ast.parse(expr, mode="eval").body)
+
+
+def eval_(node: ast.AST) -> Any:
+    if isinstance(node, ast.Num):  # <number>
+        return node.n
+    elif isinstance(node, ast.BinOp):  # <left> <operator> <right>
+        return operators[type(node.op)](eval_(node.left), eval_(node.right))
+    elif isinstance(node, ast.UnaryOp):  # <operator> <operand> e.g., -1
+        return operators[type(node.op)](eval_(node.operand))
+    else:
+        raise TypeError(node)
+
 
 def maybe_eval_int(expr: str) -> Optional[int]:
     try:
-        ret = eval(expr)
+        ret = eval_expr(expr)
         if not isinstance(ret, int):
             raise Exception("not an integer")
         return ret
