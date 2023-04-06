@@ -557,6 +557,7 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
         "mips-linux-gnu-objdump",
         "mips64-elf-objdump",
         "mips-elf-objdump",
+        "sh-elf-objdump",
     ]
     for objdump_cand in objdump_candidates:
         try:
@@ -1811,6 +1812,17 @@ class AsmProcessorI686(AsmProcessor):
         return mnemonic == "ret"
 
 
+class AsmProcessorSH2(AsmProcessor):
+    def __init__(self, config: Config) -> None:
+        super().__init__(config)
+
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
+        return prev, None
+
+    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
+        if mnemonic == "rts":
+            return True
+
 @dataclass
 class ArchSettings:
     name: str
@@ -2005,6 +2017,15 @@ I686_BRANCH_INSTRUCTIONS = {
     "jz",
 }
 
+SH2_BRANCH_INSTRUCTIONS = {
+    "bf",
+    "bf.s",
+    "bt",
+    "bt.s",
+    "bra",
+    "bsr"
+}
+
 MIPS_SETTINGS = ArchSettings(
     name="mips",
     re_int=re.compile(r"[0-9]+"),
@@ -2126,6 +2147,29 @@ I686_SETTINGS = ArchSettings(
     proc=AsmProcessorI686,
 )
 
+SH2_SETTINGS = ArchSettings(
+    name="sh2",
+    re_int=re.compile(r"[0-9]+"),
+    # match <text>, match ! and after
+    re_comment=re.compile(r"<.*>|!.*"),
+    #   - r0-r15 general purpose registers, r15 is stack pointer during exceptions
+    #   - sr, gbr, vbr - control registers
+    #   - mach, macl, pr, pc - system registers
+    re_reg=re.compile(r"r1[0-5]|r[0-9]"),
+    # sh2 has pc-relative and gbr-relative but not stack-pointer-relative
+    re_sprel=re.compile(r"(?<=,)([0-9]+|0x[0-9a-f]+)\(sp\)"),
+    # max immediate size is 8-bit
+    re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
+    re_imm=re.compile(r"\b0[xX][0-9a-fA-F]+\b"),
+    # https://github.com/bminor/binutils-gdb/blob/master/bfd/elf32-sh-relocs.h#L21
+    re_reloc=re.compile(r"R_SH_"),
+    arch_flags=["-m", "sh2"],
+    branch_instructions=SH2_BRANCH_INSTRUCTIONS,
+    instructions_with_address_immediates=SH2_BRANCH_INSTRUCTIONS.union({"bf", "bf.s", "bt", "bt.s", "bra", "bsr"}),
+    delay_slot_instructions=SH2_BRANCH_INSTRUCTIONS.union({"bf.s", "bt.s", "bra", "braf", "bsr", "bsrf", "jmp", "jsr", "rts"}),
+    proc=AsmProcessorSH2,
+)
+
 ARCH_SETTINGS = [
     MIPS_SETTINGS,
     MIPSEL_SETTINGS,
@@ -2135,6 +2179,7 @@ ARCH_SETTINGS = [
     AARCH64_SETTINGS,
     PPC_SETTINGS,
     I686_SETTINGS,
+    SH2_SETTINGS
 ]
 
 
