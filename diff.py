@@ -54,7 +54,7 @@ if __name__ == "__main__":
         argcomplete = None
 
     parser = argparse.ArgumentParser(
-        description="Diff MIPS, PPC, AArch64, or ARM32 assembly."
+        description="Diff MIPS, PPC, AArch64, ARM32, or SH2 assembly."
     )
 
     start_argument = parser.add_argument(
