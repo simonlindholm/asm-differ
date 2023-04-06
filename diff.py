@@ -2023,7 +2023,7 @@ SH2_BRANCH_INSTRUCTIONS = {
     "bt",
     "bt.s",
     "bra",
-    "bsr"
+    "bsr",
 }
 
 MIPS_SETTINGS = ArchSettings(
@@ -2179,7 +2179,7 @@ ARCH_SETTINGS = [
     AARCH64_SETTINGS,
     PPC_SETTINGS,
     I686_SETTINGS,
-    SH2_SETTINGS
+    SH2_SETTINGS,
 ]
 
 
