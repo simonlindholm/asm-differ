@@ -407,7 +407,7 @@ class ProjectSettings:
     build_command: List[str]
     map_format: str
     build_dir: str
-    ms_map_address_offset: int
+    map_address_offset: int
     baseimg: Optional[str]
     myimg: Optional[str]
     mapfile: Optional[str]
@@ -481,7 +481,7 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_flags=settings.get("objdump_flags", []),
         expected_dir=settings.get("expected_dir", "expected/"),
         map_format=settings.get("map_format", "gnu"),
-        ms_map_address_offset=settings.get("ms_map_address_offset", 0),
+        map_address_offset=settings.get("map_address_offset", settings.get("ms_map_address_offset", 0)),
         build_dir=settings.get("build_dir", settings.get("mw_build_dir", "build/")),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
@@ -1274,7 +1274,6 @@ def search_map_file(
             fileofs = (
                 int(names_find.group(1), 16)
                 - load_address
-                + project.ms_map_address_offset
             )
             if for_binary:
                 return None, fileofs
@@ -1504,6 +1503,7 @@ def dump_binary(
         _, start_addr = search_map_file(start, project, config, for_binary=True)
         if start_addr is None:
             fail("Not able to find function in map file.")
+        start_addr += project.map_address_offset
     if end is not None:
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
