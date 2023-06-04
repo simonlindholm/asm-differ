@@ -593,7 +593,7 @@ BUFFER_CMD: List[str] = ["tail", "-c", str(10**9)]
 # -i ignores case when searching
 # -c something about how the screen gets redrawn; I don't remember the purpose
 # -#6 makes left/right arrow keys scroll by 6 characters
-LESS_CMD: List[str] = ["less", "-SRic", "-#6"]
+LESS_CMD: List[str] = ["less", "-SRic", "-+F", "-+X", "-#6"]
 
 DEBOUNCE_DELAY: float = 0.1
 
