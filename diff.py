@@ -481,7 +481,9 @@ def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
         objdump_flags=settings.get("objdump_flags", []),
         expected_dir=settings.get("expected_dir", "expected/"),
         map_format=settings.get("map_format", "gnu"),
-        map_address_offset=settings.get("map_address_offset", settings.get("ms_map_address_offset", 0)),
+        map_address_offset=settings.get(
+            "map_address_offset", settings.get("ms_map_address_offset", 0)
+        ),
         build_dir=settings.get("build_dir", settings.get("mw_build_dir", "build/")),
         show_line_numbers_default=settings.get("show_line_numbers_default", True),
         disassemble_all=settings.get("disassemble_all", False),
@@ -1271,10 +1273,7 @@ def search_map_file(
         if len(find) == 1:
             names_find = re.search(r"(\S+) ... (\S+)", find[0])
             assert names_find is not None
-            fileofs = (
-                int(names_find.group(1), 16)
-                - load_address
-            )
+            fileofs = int(names_find.group(1), 16) - load_address
             if for_binary:
                 return None, fileofs
 
@@ -1820,8 +1819,8 @@ class AsmProcessorSH2(AsmProcessor):
         return prev, None
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
-        if mnemonic == "rts":
-            return True
+        return mnemonic == "rts"
+
 
 @dataclass
 class ArchSettings:
@@ -2165,8 +2164,12 @@ SH2_SETTINGS = ArchSettings(
     re_reloc=re.compile(r"R_SH_"),
     arch_flags=["-m", "sh2"],
     branch_instructions=SH2_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=SH2_BRANCH_INSTRUCTIONS.union({"bf", "bf.s", "bt", "bt.s", "bra", "bsr"}),
-    delay_slot_instructions=SH2_BRANCH_INSTRUCTIONS.union({"bf.s", "bt.s", "bra", "braf", "bsr", "bsrf", "jmp", "jsr", "rts"}),
+    instructions_with_address_immediates=SH2_BRANCH_INSTRUCTIONS.union(
+        {"bf", "bf.s", "bt", "bt.s", "bra", "bsr"}
+    ),
+    delay_slot_instructions=SH2_BRANCH_INSTRUCTIONS.union(
+        {"bf.s", "bt.s", "bra", "braf", "bsr", "bsrf", "jmp", "jsr", "rts"}
+    ),
     proc=AsmProcessorSH2,
 )
 
@@ -2542,7 +2545,7 @@ def diff_sequences(
     try:
         rem1 = remap(seq1)
         rem2 = remap(seq2)
-    except ValueError as e:
+    except ValueError:
         if len(seq1) + len(seq2) < 0x110000:
             raise
         # If there are too many unique elements, chr() doesn't work.
@@ -3157,7 +3160,7 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
 
     def diff_line_to_table_line(line: Tuple[OutputLine, ...]) -> TableLine:
         cells = [
-            (line[0].base or Text(), line[0].line1)
+            (line[0].base or Text(), line[0].line1),
         ]
         for ol in line[1:]:
             cells.append((ol.fmt2, ol.line2))
