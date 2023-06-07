@@ -2148,9 +2148,12 @@ I686_SETTINGS = ArchSettings(
 
 SH2_SETTINGS = ArchSettings(
     name="sh2",
-    re_int=re.compile(r"[0-9]+"),
+    # don't hexify anything since mov instructions are not prefixed with 0x
+    # so they get double-converted (i.e 44 -> 0x2c when it should be 0x44)
+    # any immediate values other than the branch instructions are prefixed with #
+    re_int=re.compile(r""),
     # match <text>, match ! and after
-    re_comment=re.compile(r"<.*>|!.*"),
+    re_comment=re.compile(r"<.*?>|!.*"),
     #   - r0-r15 general purpose registers, r15 is stack pointer during exceptions
     #   - sr, gbr, vbr - control registers
     #   - mach, macl, pr, pc - system registers
