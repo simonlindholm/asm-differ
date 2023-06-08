@@ -2148,9 +2148,10 @@ I686_SETTINGS = ArchSettings(
 
 SH2_SETTINGS = ArchSettings(
     name="sh2",
-    re_int=re.compile(r"[0-9]+"),
+    # match -128-127 preceded by a '#' with a ',' after (8 bit immediates)
+    re_int=re.compile(r"(?<=#)(-?(?:1[01][0-9]|12[0-8]|[1-9][0-9]?|0))(?=,)"),
     # match <text>, match ! and after
-    re_comment=re.compile(r"<.*>|!.*"),
+    re_comment=re.compile(r"<.*?>|!.*"),
     #   - r0-r15 general purpose registers, r15 is stack pointer during exceptions
     #   - sr, gbr, vbr - control registers
     #   - mach, macl, pr, pc - system registers
@@ -2188,6 +2189,12 @@ ARCH_SETTINGS = [
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
     full = pat.group(0)
+
+    # sh2 only has 8-bit immediates, just convert them uniformly without
+    # any -hex stuff
+    if arch.name == "sh2":
+        return hex(int(full) & 0xFF)
+
     if len(full) <= 1:
         # leave one-digit ints alone
         return full
