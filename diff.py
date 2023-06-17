@@ -1568,7 +1568,8 @@ class AsmProcessorMIPS(AsmProcessor):
             # integer.
             return prev, None
         before, imm, after = parse_relocated_line(prev)
-        repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
+        addend = reloc_addend_from_imm(imm, before, self.config.arch)
+        repl = row.split()[-1] + addend
         if "R_MIPS_LO16" in row:
             repl = f"%lo({repl})"
         elif "R_MIPS_HI16" in row:
@@ -1589,6 +1590,8 @@ class AsmProcessorMIPS(AsmProcessor):
             repl = f"%got({repl})"
         elif "R_MIPS_CALL16" in row:
             repl = f"%call16({repl})"
+        elif "R_MIPS_LITERAL" in row:
+            repl = repl[:-len(addend)]
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
         return before + repl + after, repl
