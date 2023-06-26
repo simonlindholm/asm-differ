@@ -2190,7 +2190,8 @@ SH2_SETTINGS = ArchSettings(
 )
 
 SH4_SETTINGS = replace(
-    SH2_SETTINGS, name="sh4",
+    SH2_SETTINGS, 
+    name="sh4",
     #   - fr0-fr15, dr0-dr14, xd0-xd14, fv0-fv12 FP registers
     #     dr/xd registers can only be even-numbered, and fv registers can only be a multiple of 4
     re_reg=re.compile(
