@@ -2040,15 +2040,6 @@ SH2_BRANCH_INSTRUCTIONS = {
     "bsr",
 }
 
-SH4_BRANCH_INSTRUCTIONS = {
-    "bf",
-    "bf.s",
-    "bt",
-    "bt.s",
-    "bra",
-    "bsr",
-}
-
 MIPS_SETTINGS = ArchSettings(
     name="mips",
     re_int=re.compile(r"[0-9]+"),
