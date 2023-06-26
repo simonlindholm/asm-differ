@@ -1826,17 +1826,6 @@ class AsmProcessorSH2(AsmProcessor):
         return mnemonic == "rts"
 
 
-class AsmProcessorSH4(AsmProcessor):
-    def __init__(self, config: Config) -> None:
-        super().__init__(config)
-    
-    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
-        return prev, None
-    
-    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
-        return mnemonic == "rts"
-
-
 @dataclass
 class ArchSettings:
     name: str
@@ -2197,8 +2186,7 @@ SH4_SETTINGS = replace(
     re_reg=re.compile(
         r"r1[0-5]|r[0-9]|fr1[0-5]|fr[0-9]|dr[02468]|dr1[024]|xd[02468]|xd1[024]|fv[048]|fv12"
     ),
-    arch_flags=["-m", "sh4"], 
-    proc=AsmProcessorSH4,
+    arch_flags=["-m", "sh4"],
 )
 
 SH4EL_SETTINGS = replace(SH4_SETTINGS, name="sh4el", big_endian=False)
