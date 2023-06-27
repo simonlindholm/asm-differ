@@ -54,7 +54,7 @@ if __name__ == "__main__":
         argcomplete = None
 
     parser = argparse.ArgumentParser(
-        description="Diff MIPS, PPC, AArch64, ARM32, or SH2 assembly."
+        description="Diff MIPS, PPC, AArch64, ARM32, SH2, or SH4 assembly."
     )
 
     start_argument = parser.add_argument(
@@ -560,6 +560,7 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
         "mips64-elf-objdump",
         "mips-elf-objdump",
         "sh-elf-objdump",
+        "sh4-linux-gnu-objdump",
     ]
     for objdump_cand in objdump_candidates:
         try:
@@ -2177,6 +2178,19 @@ SH2_SETTINGS = ArchSettings(
     proc=AsmProcessorSH2,
 )
 
+SH4_SETTINGS = replace(
+    SH2_SETTINGS, 
+    name="sh4",
+    #   - fr0-fr15, dr0-dr14, xd0-xd14, fv0-fv12 FP registers
+    #     dr/xd registers can only be even-numbered, and fv registers can only be a multiple of 4
+    re_reg=re.compile(
+        r"r1[0-5]|r[0-9]|fr1[0-5]|fr[0-9]|dr[02468]|dr1[024]|xd[02468]|xd1[024]|fv[048]|fv12"
+    ),
+    arch_flags=["-m", "sh4"],
+)
+
+SH4EL_SETTINGS = replace(SH4_SETTINGS, name="sh4el", big_endian=False)
+
 ARCH_SETTINGS = [
     MIPS_SETTINGS,
     MIPSEL_SETTINGS,
@@ -2187,15 +2201,17 @@ ARCH_SETTINGS = [
     PPC_SETTINGS,
     I686_SETTINGS,
     SH2_SETTINGS,
+    SH4_SETTINGS,
+    SH4EL_SETTINGS,
 ]
 
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
     full = pat.group(0)
 
-    # sh2 only has 8-bit immediates, just convert them uniformly without
+    # sh2/sh4 only has 8-bit immediates, just convert them uniformly without
     # any -hex stuff
-    if arch.name == "sh2":
+    if arch.name == "sh2" or arch.name == "sh4" or arch.name == "sh4el":
         return hex(int(full) & 0xFF)
 
     if len(full) <= 1:
