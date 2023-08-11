@@ -2111,78 +2111,6 @@ M68K_BRANCH_INSTRUCTIONS = {
     }
 )
 
-M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES_AND_SUFFIXES = {
-    "add",
-    "adda",
-    "addi",
-    "addq",
-    "and",
-    "andi",
-    "asl",
-    "asr",
-    "bchg",
-    "bclr",
-    "bset",
-    "btst",
-    "chk",
-    "clr",
-    "cmp",
-    "cmpa",
-    "cmpi",
-    "eor",
-    "eori",
-    "lsl",
-    "lsr",
-    # move to/from %usp takes only register operands
-    "move",
-    "movea",
-    "movem",
-    "muls",
-    "mulu",
-    "neg",
-    "negx",
-    "not",
-    "or",
-    "ori",
-    "ror",
-    "rol",
-    "roxl",
-    "roxr",
-    "sub",
-    "suba",
-    "subi",
-    "subq",
-    "tst",
-}
-
-M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES = (
-    {
-        f"{instr}{suffix}"
-        for instr in M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES_AND_SUFFIXES
-        for suffix in {"b", "w", "l"}
-    }
-    .union(
-        {
-            # Scc needs special generation
-            f"s{cond}"
-            for cond in M68K_CONDS
-        }
-    )
-    .union(
-        # These instructions don't have suffixes
-        {
-            "divsw",
-            "divsll",
-            "divuw",
-            "divull",
-            "lea",
-            "nbcd",
-            "pea",
-            "tas",
-        }
-    )
-)
-
 
 MIPS_SETTINGS = ArchSettings(
     name="mips",
@@ -2358,14 +2286,14 @@ M68K_SETTINGS = ArchSettings(
     # - fp, sr
     re_reg=re.compile(r"%\b(d[0-7]|a[0-6]|usp|fp|sr)(:[wl])?\b"),
     # This matches all stack accesses that do not use an index register
-    re_sprel=re.compile(r"-?(0x[0-9a-f]+)?(?=\(%sp|%a7\))"),
-    re_imm=re.compile(r"#?-?\b(0x[0-9a-f]+|[0-9]+)\b"),
+    re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%sp|%a7)\))"),
+    re_imm=re.compile(r"#?-?\b(0x[0-9a-f]+|[0-9]+)(?!\()"),
     re_large_imm=re.compile(r"#?-?([1-9][0-9]{2,}|0x[0-9a-f]{3,})"),
     re_reloc=re.compile(r"R_68K_"),
     arch_flags=["-m", "m68k"],
     branch_instructions=M68K_BRANCH_INSTRUCTIONS,
     # Pretty much every instruction can take an address immediate
-    instructions_with_address_immediates=M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES,
+    instructions_with_address_immediates=M68K_BRANCH_INSTRUCTIONS.union("jmp", "jsr"),
     proc=AsmProcessorM68k,
 )
 
