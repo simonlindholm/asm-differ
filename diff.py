@@ -1842,8 +1842,6 @@ class AsmProcessorM68k(AsmProcessor):
         repl = row.split()[-1]
         mnemonic, args = prev.split(maxsplit=1)
 
-        print(prev + "\n" + row)
-
         addr_imm = re.search(r"(?<![#da])(0x[0-9a-f]+|[0-9]+) ?", args)
         if not addr_imm:
             assert False, f"failed to find address immediate for line '{prev}'"
