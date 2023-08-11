@@ -54,7 +54,7 @@ if __name__ == "__main__":
         argcomplete = None
 
     parser = argparse.ArgumentParser(
-        description="Diff MIPS, PPC, AArch64, ARM32, SH2, or SH4 assembly."
+        description="Diff MIPS, PPC, AArch64, ARM32, SH2, SH4, or m68k assembly."
     )
 
     start_argument = parser.add_argument(
@@ -561,6 +561,7 @@ def get_objdump_executable(objdump_executable: Optional[str]) -> str:
         "mips-elf-objdump",
         "sh-elf-objdump",
         "sh4-linux-gnu-objdump",
+        "m68k-elf-objdump",
     ]
     for objdump_cand in objdump_candidates:
         try:
@@ -1826,6 +1827,55 @@ class AsmProcessorSH2(AsmProcessor):
         return mnemonic == "rts"
 
 
+class AsmProcessorM68k(AsmProcessor):
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str]
+    ) -> Tuple[str, str]:
+        # replace objdump's syntax of pointer accesses with the equivilant in AT&T syntax for readability
+        return mnemonic, re.sub(
+            r"%(sp|a[0-7]|fp|pc)@(?:(?:\((-?(?:0x[0-9a-f]+|[0-9]+)) *(,%d[0-7]:[wl])?\))|(\+)|(-))?",
+            r"\5\2(%\1\3)\4",
+            args,
+        )
+
+    def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
+        repl = row.split()[-1]
+        mnemonic, args = prev.split(maxsplit=1)
+
+        addr_imm = re.search(r"(?<![#da])(0x[0-9a-f]+|[0-9]+) ?", args)
+        if not addr_imm:
+            assert False, f"failed to find address immediate for line '{prev}'"
+        start, end = addr_imm.span()
+
+        if "R_68K_NONE" in row:
+            pass
+        elif "R_68K_32" in row:
+            pass
+        elif "R_68K_16" in row:
+            pass
+        elif "R_68K_8" in row:
+            pass
+        elif "R_68K_GOT32O" in row:
+            repl = "@GOT"
+        elif "R_68K_GOT16O" in row:
+            repl += "@GOT"
+        elif "R_68K_GOT8O" in row:
+            repl += "@GOT"
+        elif "R_68K_GOT32" in row:
+            repl += "@GOTPC"
+        elif "R_68K_GOT16" in row:
+            repl += "@GOTPC"
+        elif "R_68K_GOT8" in row:
+            repl += "@GOTPC"
+        else:
+            assert False, f"unknown relocation type '{row}' for line '{prev}'"
+
+        return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
+
+    def is_end_of_function(self, mnemonic: str, args: str) -> bool:
+        return mnemonic == "rts" or mnemonic == "rte" or mnemonic == "rtr"
+
+
 @dataclass
 class ArchSettings:
     name: str
@@ -2029,6 +2079,111 @@ SH2_BRANCH_INSTRUCTIONS = {
     "bsr",
 }
 
+M68K_CONDS = {
+    "ra",
+    "cc",
+    "cs",
+    "eq",
+    "ge",
+    "gt",
+    "hi",
+    "le",
+    "ls",
+    "lt",
+    "mi",
+    "ne",
+    "pl",
+    "vc",
+    "vs",
+}
+
+M68K_BRANCH_INSTRUCTIONS = {
+    f"{prefix}{cond}{suffix}"
+    for prefix in {"b", "db"}
+    for cond in M68K_CONDS
+    for suffix in {"s", "w"}
+}.union(
+    {
+        "dbt",
+        "dbf",
+        "bsrw",
+        "bsrs",
+    }
+)
+
+M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES_AND_SUFFIXES = {
+    "add",
+    "adda",
+    "addi",
+    "addq",
+    "and",
+    "andi",
+    "asl",
+    "asr",
+    "bchg",
+    "bclr",
+    "bset",
+    "btst",
+    "chk",
+    "clr",
+    "cmp",
+    "cmpa",
+    "cmpi",
+    "eor",
+    "eori",
+    "lsl",
+    "lsr",
+    # move to/from %usp takes only register operands
+    "move",
+    "movea",
+    "movem",
+    "muls",
+    "mulu",
+    "neg",
+    "negx",
+    "not",
+    "or",
+    "ori",
+    "ror",
+    "rol",
+    "roxl",
+    "roxr",
+    "sub",
+    "suba",
+    "subi",
+    "subq",
+    "tst",
+}
+
+M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES = (
+    {
+        f"{instr}{suffix}"
+        for instr in M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES_AND_SUFFIXES
+        for suffix in {"b", "w", "l"}
+    }
+    .union(
+        {
+            # Scc needs special generation
+            f"s{cond}"
+            for cond in M68K_CONDS
+        }
+    )
+    .union(
+        # These instructions don't have suffixes
+        {
+            "divsw",
+            "divsll",
+            "divuw",
+            "divull",
+            "lea",
+            "nbcd",
+            "pea",
+            "tas",
+        }
+    )
+)
+
+
 MIPS_SETTINGS = ArchSettings(
     name="mips",
     re_int=re.compile(r"[0-9]+"),
@@ -2191,6 +2346,29 @@ SH4_SETTINGS = replace(
 
 SH4EL_SETTINGS = replace(SH4_SETTINGS, name="sh4el", big_endian=False)
 
+M68K_SETTINGS = ArchSettings(
+    name="m68k",
+    re_int=re.compile(r"[0-9]+"),
+    # '|' is used by assemblers, but is not used by objdump
+    re_comment=re.compile(r"<.*>"),
+    # Includes:
+    # - d0-d7 data registers
+    # - a0-a6 address registers
+    # - usp (user sp)
+    # - fp, sr
+    re_reg=re.compile(r"%\b(d[0-7]|a[0-6]|usp|fp|sr)(:[wl])?\b"),
+    # This matches all stack accesses that do not use an index register
+    re_sprel=re.compile(r"-?(0x[0-9a-f]+)?(?=\(%sp|%a7\))"),
+    re_imm=re.compile(r"#?-?\b(0x[0-9a-f]+|[0-9]+)\b"),
+    re_large_imm=re.compile(r"#?-?([1-9][0-9]{2,}|0x[0-9a-f]{3,})"),
+    re_reloc=re.compile(r"R_68K_"),
+    arch_flags=["-m", "m68k"],
+    branch_instructions=M68K_BRANCH_INSTRUCTIONS,
+    # Pretty much every instruction can take an address immediate
+    instructions_with_address_immediates=M68K_INSTRUCTIONS_WITH_ADDRESS_IMMEDIATES,
+    proc=AsmProcessorM68k,
+)
+
 ARCH_SETTINGS = [
     MIPS_SETTINGS,
     MIPSEL_SETTINGS,
@@ -2203,6 +2381,7 @@ ARCH_SETTINGS = [
     SH2_SETTINGS,
     SH4_SETTINGS,
     SH4EL_SETTINGS,
+    M68K_SETTINGS,
 ]
 
 
