@@ -2282,9 +2282,11 @@ M68K_SETTINGS = ArchSettings(
     # Includes:
     # - d0-d7 data registers
     # - a0-a6 address registers
+    # - fp0-fp7 floating-point registers
     # - usp (user sp)
-    # - fp, sr
-    re_reg=re.compile(r"%\b(d[0-7]|a[0-6]|usp|fp|sr)(:[wl])?\b"),
+    # - fp, sr, ccr
+    # - fpcr, fpsr, fpiar
+    re_reg=re.compile(r"%\b(d[0-7]|a[0-6]|usp|fp([0-7]|cr|sr|iar)?|sr|ccr)(:[wl])?\b"),
     # This matches all stack accesses that do not use an index register
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%sp|%a7)\))"),
     re_imm=re.compile(r"#?-?\b(0x[0-9a-f]+|[0-9]+)(?!\()"),
