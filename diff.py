@@ -212,14 +212,10 @@ if __name__ == "__main__":
         "-s",
         "--stop-at-ret",
         dest="stop_at_ret",
-        metavar="N",
-        type=int,
-        default=None,
-        const=1,
-        nargs='?',
-        help="""Stop disassembling at the Nth return instruction.
-        Defaults to not stopping on returns, or stopping at the first return
-        encountered if N is not specified.""",
+        action="count",
+        help="""Stop disassembling when a return instruction is encountered.
+        As some functions have multiple return points, you can pass this
+        multiple times.""",
     )
     parser.add_argument(
         "-i",
