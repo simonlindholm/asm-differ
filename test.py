@@ -24,13 +24,13 @@ class TestSh2(unittest.TestCase):
             compress=None, 
             show_rodata_refs=True, 
             show_branches=True,
-            show_line_numbers=False, 
-            show_source=False, 
-            stop_at_ret=None, 
-            ignore_large_imms=False, 
-            ignore_addr_diffs=True, 
-            algorithm='levenshtein', 
-            reg_categories={}, 
+            show_line_numbers=False,
+            show_source=False,
+            stop_at_ret=None,
+            ignore_large_imms=False,
+            ignore_addr_diffs=True,
+            algorithm="levenshtein",
+            reg_categories={},
         )
         return config
 
