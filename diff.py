@@ -1495,12 +1495,10 @@ def dump_objfile(
 def dump_binary(
     start: str, end: Optional[str], config: Config, project: ProjectSettings
 ) -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
-    if not project.baseimg or not project.myimg and not config.file:
+    binfile = config.file or project.myimg
+    if not project.baseimg or not binfile:
         fail("Missing myimg/baseimg in config.")
-    binfile = project.myimg
-    if config.file is not None:
-        binfile = config.file
-    if config.make:
+    if config.make and project.myimg is not None:
         run_make(project.myimg, project)
     if not os.path.isfile(binfile):
         fail(f"Not able to find binary file: {binfile}")
