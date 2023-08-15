@@ -212,9 +212,14 @@ if __name__ == "__main__":
         "-s",
         "--stop-at-ret",
         dest="stop_at_ret",
-        action="store_true",
-        help="""Stop disassembling at the first return instruction.
-        Some functions have multiple return points, so use with care!""",
+        metavar="N",
+        type=int,
+        default=None,
+        const=1,
+        nargs='?',
+        help="""Stop disassembling at the Nth return instruction.
+        Defaults to not stopping on returns, or stopping at the first return
+        encountered if N is not specified.""",
     )
     parser.add_argument(
         "-i",
@@ -449,7 +454,7 @@ class Config:
     show_branches: bool
     show_line_numbers: bool
     show_source: bool
-    stop_at_ret: bool
+    stop_at_ret: int
     ignore_large_imms: bool
     ignore_addr_diffs: bool
     algorithm: str
@@ -2405,6 +2410,7 @@ def process(dump: str, config: Config) -> List[Line]:
     source_lines = []
     source_filename = None
     source_line_num = None
+    rets_remaining = config.stop_at_ret
 
     i = 0
     num_instr = 0
@@ -2586,7 +2592,9 @@ def process(dump: str, config: Config) -> List[Line]:
         source_lines = []
 
         if config.stop_at_ret and processor.is_end_of_function(mnemonic, args):
-            break
+            rets_remaining -= 1
+            if rets_remaining == 0:
+                break
 
     processor.post_process(output)
     return output
