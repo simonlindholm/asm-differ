@@ -1498,8 +1498,8 @@ def dump_binary(
     binfile = config.file or project.myimg
     if not project.baseimg or not binfile:
         fail("Missing myimg/baseimg in config.")
-    if config.make and project.myimg is not None:
-        run_make(project.myimg, project)
+    if config.make:
+        run_make(binfile, project)
     if not os.path.isfile(binfile):
         fail(f"Not able to find binary file: {binfile}")
     start_addr = maybe_eval_int(start)
