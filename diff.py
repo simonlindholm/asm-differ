@@ -120,11 +120,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-f",
-        "--objfile",
-        dest="objfile",
+        "--file",
+        dest="file",
         type=str,
-        help="""File path for an object file being diffed. When used
-        the map file isn't searched for the function given. Useful for dynamically
+        help="""File path for a file being diffed. When used the map
+        file isn't searched for the function given. Useful for dynamically
         linked libraries.""",
     )
     parser.add_argument(
@@ -431,7 +431,7 @@ class Config:
 
     # Build/objdump options
     diff_obj: bool
-    objfile: Optional[str]
+    file: Optional[str]
     make: bool
     source_old_binutils: bool
     diff_section: str
@@ -524,7 +524,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         arch=arch,
         # Build/objdump options
         diff_obj=args.diff_obj,
-        objfile=args.objfile,
+        file=args.file,
         make=args.make,
         source_old_binutils=args.source_old_binutils,
         diff_section=args.diff_section,
@@ -1462,7 +1462,7 @@ def dump_objfile(
     if start.startswith("0"):
         fail("numerical start address not supported with -o; pass a function name")
 
-    objfile = config.objfile
+    objfile = config.file
     if not objfile:
         objfile, _ = search_map_file(start, project, config, for_binary=False)
 
@@ -1495,16 +1495,21 @@ def dump_objfile(
 def dump_binary(
     start: str, end: Optional[str], config: Config, project: ProjectSettings
 ) -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
-    if not project.baseimg or not project.myimg:
+    binfile = config.file or project.myimg
+    if not project.baseimg or not binfile:
         fail("Missing myimg/baseimg in config.")
     if config.make:
-        run_make(project.myimg, project)
+        run_make(binfile, project)
+    if not os.path.isfile(binfile):
+        fail(f"Not able to find binary file: {binfile}")
     start_addr = maybe_eval_int(start)
-    if start_addr is None:
+    if start_addr is None and config.file is None:
         _, start_addr = search_map_file(start, project, config, for_binary=True)
         if start_addr is None:
             fail("Not able to find function in map file.")
         start_addr += project.map_address_offset
+    elif start_addr is None:
+            fail("Start address must be an integer expression when using binary -f")
     if end is not None:
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
@@ -1516,9 +1521,9 @@ def dump_binary(
     ]
     flags2 = [f"--start-address={start_addr}", f"--stop-address={end_addr}"]
     return (
-        project.myimg,
+        binfile,
         (objdump_flags + flags1, project.baseimg, None),
-        (objdump_flags + flags2, project.myimg, None),
+        (objdump_flags + flags2, binfile, None),
     )
 
 
