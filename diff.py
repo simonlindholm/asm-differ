@@ -450,7 +450,7 @@ class Config:
     show_branches: bool
     show_line_numbers: bool
     show_source: bool
-    stop_at_ret: int
+    stop_at_ret: Optional[int]
     ignore_large_imms: bool
     ignore_addr_diffs: bool
     algorithm: str
@@ -2587,7 +2587,7 @@ def process(dump: str, config: Config) -> List[Line]:
         num_instr += 1
         source_lines = []
 
-        if config.stop_at_ret and processor.is_end_of_function(mnemonic, args):
+        if rets_remaining and processor.is_end_of_function(mnemonic, args):
             rets_remaining -= 1
             if rets_remaining == 0:
                 break
