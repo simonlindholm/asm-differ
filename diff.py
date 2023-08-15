@@ -213,9 +213,8 @@ if __name__ == "__main__":
         "--stop-at-ret",
         dest="stop_at_ret",
         action="count",
-        help="""Stop disassembling when a return instruction is encountered.
-        As some functions have multiple return points, you can pass this
-        multiple times.""",
+        help="""Stop disassembling at the first return instruction.
+        You can also pass -ss to stop at the second return instruction, and so on.""",
     )
     parser.add_argument(
         "-i",
