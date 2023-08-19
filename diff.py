@@ -3615,7 +3615,7 @@ def main() -> None:
     else:
         if not args.make and not args.agree:
             yn = input(
-                "Warning: watch-mode (-w) enabled without auto-make (-m). "
+                "Warning: watch-mode (-w) enabled without auto-make (-m) or agree-all (-y). "
                 "You will have to run make manually. Ok? (Y/n) "
             )
             if yn.lower() == "n":
