@@ -265,6 +265,14 @@ if __name__ == "__main__":
         Recommended in combination with -m.""",
     )
     parser.add_argument(
+        "-y",
+        "--yes",
+        dest="agree",
+        action="store_true",
+        help="""Automatically agree to any yes/no questions asked.
+        Useful if you really want to use the -w option without -m."""
+    )
+    parser.add_argument(
         "-0",
         "--diff_mode=single_base",
         dest="diff_mode",
@@ -3605,7 +3613,7 @@ def main() -> None:
     elif not args.watch:
         display.run_sync()
     else:
-        if not args.make:
+        if not args.make and not args.agree:
             yn = input(
                 "Warning: watch-mode (-w) enabled without auto-make (-m). "
                 "You will have to run make manually. Ok? (Y/n) "
