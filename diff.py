@@ -2571,7 +2571,7 @@ def process(dump: str, config: Config) -> List[Line]:
         if (
             mnemonic in arch.branch_instructions or is_text_relative_j
         ) and symbol is None:
-            x86_longjmp = re.search(r"\*(.*)\(", args)
+            x86_longjmp = re.search(r"\*([0-9a-fA-Fx]+)", args)
             if x86_longjmp:
                 capture = x86_longjmp.group(1)
                 if capture != "":
