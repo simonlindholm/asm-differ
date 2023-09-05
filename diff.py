@@ -2058,9 +2058,22 @@ class AsmProcessorI686(AsmProcessor):
             addr_imm = re.search(r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))0x[0-9a-f]+", args)
             offset = True
 
+        is_read = False
+        if "OFF32" in row: # watcom
+            addr_imm = re.search(r"(?<!\$)ds:0x[0-9a-f]+", args)
+        else:
+            addr_imm = re.search(r"(?<!\$)(0x)?[0-9a-f]+", args)
         if not addr_imm:
-            assert False, f"failed to find address immediate for line '{prev}'"
-
+            # e.g. ds:0
+            addr_imm = re.search(r"(?<!\$)ds:(0x)?[0-9a-f]+", args)
+            is_read = True
+            if not addr_imm:
+                is_read = False
+                addr_imm = re.search(r"cs:0", args)
+                if not addr_imm:
+                    addr_imm = re.search(r"(?<!\$)(?<=,)[0-9a-f]+", args)
+                    if not addr_imm:
+                        assert False, f"failed to find address immediate for line '{prev}'"
         start, end = addr_imm.span()
 
         if "R_386_NONE" in row:
@@ -2099,6 +2112,19 @@ class AsmProcessorI686(AsmProcessor):
             repl = f"%got({repl})"
         elif "R_386_32PLT" in row:
             repl = f"%plt({repl})"
+        elif "OFF32" in row: # watcom
+            if is_read:
+                repl = "[" + repl
+            add_rel = re.search(r"(?<=:)(0x)?[0-9a-f]+", args)
+            if add_rel:
+                add_val = add_rel.group(0)
+                if add_val != "0" and add_val != "0x0":
+                    repl = repl + "+0x%x" % (int(add_rel.group(0), 16))
+                if is_read:
+                    repl += "]"
+        elif "OFFPC32" in row: # watcom
+            if "+0xfffffffc" in repl:
+                repl = repl.split("+0xfffffffc")[0]
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
@@ -2542,7 +2568,7 @@ I686_SETTINGS = ArchSettings(
     # The x86 architecture has a variable instruction length. The raw bytes of
     # an instruction as displayed by objdump can line wrap if it's long enough.
     # This destroys the objdump output processor logic, so we avoid this.
-    arch_flags=["-m", "i386", "--no-show-raw-insn"],
+    arch_flags=["-m", "i386", "--no-show-raw-insn", "-Mintel"],
     branch_instructions=I686_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=I686_BRANCH_INSTRUCTIONS.union({"mov"}),
     proc=AsmProcessorI686,
@@ -2907,27 +2933,9 @@ def process(dump: str, config: Config) -> List[Line]:
         if (
             mnemonic in arch.branch_instructions or is_text_relative_j
         ) and symbol is None:
-            # Here, we try to match a wide variety of addressing mode:
-            # - Global deref with offset: *0x1234(%eax)
-            # - Global deref: *0x1234
-            # - Register deref: *(%eax)
-            #
-            # We first have a single regex to match register deref and global
-            # deref with offset
-            x86_longjmp = re.search(r"\*(.*)\(", args)
-            if x86_longjmp:
-                capture = x86_longjmp.group(1)
-                if capture != "" and capture.isnumeric():
-                    branch_target = int(capture, 16)
-            else:
-                # Then, we try to match the global deref in a separate regex.
-                x86_longjmp = re.search(r"\*(.*)", args)
-                if x86_longjmp:
-                    capture = x86_longjmp.group(1)
-                    if capture != "" and capture.isnumeric():
-                        branch_target = int(capture, 16)
-                else:
-                    branch_target = int(args.split(",")[-1], 16)
+            x86_regcall = re.search(r"(?i)dword ptr .*\[.+\]", args)
+            if not x86_regcall: # ignore register calls (e.g. `call dword ptr [ebx + 0xc]`)
+                branch_target = int(args.split(",")[-1], 16)
 
         output.append(
             Line(
@@ -3110,8 +3118,24 @@ def diff_sameline(
 
     # Compare each field in order
     new_parts, old_parts = new.split(None, 1), old.split(None, 1)
-    newfields = new_parts[1].split(",") if len(new_parts) > 1 else []
-    oldfields = old_parts[1].split(",") if len(old_parts) > 1 else []
+    # For i686:
+    # Fix up ret diffs in case one of them has an arguments
+    # And the other one doesn't
+    # TODO convert me to len checks
+    try:
+        newfields = new_parts[1].split(",")
+    except IndexError as e:
+        if config.arch.name == "i686":
+            newfields = ["0x0"]
+        else:
+            raise e
+    try:
+        oldfields = new_parts[1].split(",")
+    except IndexError as e:
+        if config.arch.name == "i686":
+            oldfields = ["0x0"]
+        else:
+            raise e
     if ignore_last_field:
         newfields = newfields[:-1]
         oldfields = oldfields[:-1]
