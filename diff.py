@@ -2571,13 +2571,27 @@ def process(dump: str, config: Config) -> List[Line]:
         if (
             mnemonic in arch.branch_instructions or is_text_relative_j
         ) and symbol is None:
-            x86_longjmp = re.search(r"\*([0-9a-fA-Fx]+)", args)
+            # Here, we try to match a wide variety of addressing mode:
+            # - Global deref with offset: *0x1234(%eax)
+            # - Global deref: *0x1234
+            # - Register deref: *(%eax)
+            #
+            # We first have a single regex to match register deref and global
+            # deref with offset
+            x86_longjmp = re.search(r"\*(.*)\(", args)
             if x86_longjmp:
                 capture = x86_longjmp.group(1)
                 if capture != "":
                     branch_target = int(capture, 16)
             else:
-                branch_target = int(args.split(",")[-1], 16)
+                # Then, we try to match the global deref in a separate regex.
+                x86_longjmp = re.search(r"\*(.*)", args)
+                if x86_longjmp:
+                    capture = x86_longjmp.group(1)
+                    if capture != "":
+                        branch_target = int(capture, 16)
+                else:
+                    branch_target = int(args.split(",")[-1], 16)
 
         output.append(
             Line(
