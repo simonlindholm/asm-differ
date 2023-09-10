@@ -2776,7 +2776,8 @@ def diff_sameline(
 
     # Compare each field in order
     new_parts, old_parts = new.split(None, 1), old.split(None, 1)
-    newfields, oldfields = new_parts[1].split(","), old_parts[1].split(",")
+    newfields = new_parts[1].split(",") if len(new_parts) > 1 else []
+    oldfields = old_parts[1].split(",") if len(old_parts) > 1 else []
     if ignore_last_field:
         newfields = newfields[:-1]
         oldfields = oldfields[:-1]
@@ -2785,8 +2786,8 @@ def diff_sameline(
         # we split that part out to make it a separate field
         # however, we don't split if it has a proceeding % macro, e.g. "%lo(.data)"
         re_paren = re.compile(r"(?<!%hi)(?<!%lo)(?<!%got)(?<!%call16)(?<!%gp_rel)\(")
-        oldfields = oldfields[:-1] + re_paren.split(oldfields[-1])
-        newfields = newfields[:-1] + re_paren.split(newfields[-1])
+        oldfields = oldfields[:-1] + (re_paren.split(oldfields[-1]) if len(oldfields) > 0 else [])
+        newfields = newfields[:-1] + (re_paren.split(newfields[-1]) if len(newfields) > 0 else [])
 
     for nf, of in zip(newfields, oldfields):
         if nf != of:
