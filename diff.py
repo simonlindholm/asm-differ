@@ -2574,24 +2574,27 @@ def process(dump: str, config: Config) -> List[Line]:
             # Here, we try to match a wide variety of addressing mode:
             # - Global deref with offset: *0x1234(%eax)
             # - Global deref: *0x1234
-            # - Register deref: *(%eax)
+            # - Register deref: *%eax
             #
-            # We first have a single regex to match register deref and global
-            # deref with offset
-            x86_longjmp = re.search(r"\*(.*)\(", args)
-            if x86_longjmp:
-                capture = x86_longjmp.group(1)
-                if capture != "":
-                    branch_target = int(capture, 16)
-            else:
-                # Then, we try to match the global deref in a separate regex.
-                x86_longjmp = re.search(r"\*(.*)", args)
+            # First check if we have a register deref and leave it alone if we do.
+            x86_longjmp = re.search(r"\*\%e[a-d,s][i,p,x]", args)
+            if not x86_longjmp:
+                # Next match if we have an offset followed by register
+                x86_longjmp = re.search(r"\*(.*)\(", args)
                 if x86_longjmp:
                     capture = x86_longjmp.group(1)
+                    
                     if capture != "":
                         branch_target = int(capture, 16)
                 else:
-                    branch_target = int(args.split(",")[-1], 16)
+                    # Then, we try to match the global deref in a separate regex.
+                    x86_longjmp = re.search(r"\*(.*)", args)
+                    if x86_longjmp:
+                        capture = x86_longjmp.group(1)
+                        if capture != "":
+                                branch_target = int(capture, 16)
+                        else:
+                            branch_target = int(args.split(",")[-1], 16)
 
         output.append(
             Line(
