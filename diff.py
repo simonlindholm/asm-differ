@@ -270,7 +270,7 @@ if __name__ == "__main__":
         dest="agree",
         action="store_true",
         help="""Automatically agree to any yes/no questions asked.
-        Useful if you really want to use the -w option without -m."""
+        Useful if you really want to use the -w option without -m.""",
     )
     parser.add_argument(
         "-0",
@@ -1517,7 +1517,7 @@ def dump_binary(
             fail("Not able to find function in map file.")
         start_addr += project.map_address_offset
     elif start_addr is None:
-            fail("Start address must be an integer expression when using binary -f")
+        fail("Start address must be an integer expression when using binary -f")
     if end is not None:
         end_addr = eval_int(end, "End address must be an integer expression.")
     else:
@@ -1606,7 +1606,7 @@ class AsmProcessorMIPS(AsmProcessor):
         elif "R_MIPS_CALL16" in row:
             repl = f"%call16({repl})"
         elif "R_MIPS_LITERAL" in row:
-            repl = repl[:-len(addend)]
+            repl = repl[: -len(addend)]
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
         return before + repl + after, repl
@@ -1623,7 +1623,6 @@ class AsmProcessorPPC(AsmProcessor):
     def pre_process(
         self, mnemonic: str, args: str, next_row: Optional[str]
     ) -> Tuple[str, str]:
-
         if next_row and "R_PPC_EMB_SDA21" in next_row:
             # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
             # we may encounter this in either pre-transformed or post-transformed
@@ -2011,6 +2010,12 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bgt",
     "bgt+",
     "bgt-",
+    "bso",
+    "bso+",
+    "bso-",
+    "bns",
+    "bns+",
+    "bns-",
 }
 
 I686_BRANCH_INSTRUCTIONS = {
@@ -2275,7 +2280,7 @@ SH2_SETTINGS = ArchSettings(
 )
 
 SH4_SETTINGS = replace(
-    SH2_SETTINGS, 
+    SH2_SETTINGS,
     name="sh4",
     #   - fr0-fr15, dr0-dr14, xd0-xd14, fv0-fv12 FP registers
     #     dr/xd registers can only be even-numbered, and fv registers can only be a multiple of 4
@@ -2543,8 +2548,10 @@ def process(dump: str, config: Config) -> List[Line]:
 
         is_text_relative_j = False
         if (
-            arch.name in MIPS_ARCH_NAMES
-            and mnemonic == "j"
+            (
+                (arch.name in MIPS_ARCH_NAMES and mnemonic == "j")
+                or (arch.name == "ppc" and mnemonic in PPC_BRANCH_INSTRUCTIONS)
+            )
             and symbol is not None
             and symbol.startswith(".text")
         ):
@@ -2633,7 +2640,6 @@ def normalize_stack(row: str, arch: ArchSettings) -> str:
 def check_for_symbol_mismatch(
     old_line: Line, new_line: Line, symbol_map: Dict[str, str]
 ) -> bool:
-
     assert old_line.symbol is not None
     assert new_line.symbol is not None
 
@@ -2729,7 +2735,7 @@ def diff_lines(
     algorithm: str,
 ) -> List[Tuple[Optional[Line], Optional[Line]]]:
     ret = []
-    for (tag, i1, i2, j1, j2) in diff_sequences(
+    for tag, i1, i2, j1, j2 in diff_sequences(
         [line.mnemonic for line in lines1],
         [line.mnemonic for line in lines2],
         algorithm,
@@ -2752,7 +2758,6 @@ def diff_lines(
 def diff_sameline(
     old_line: Line, new_line: Line, config: Config, symbol_map: Dict[str, str]
 ) -> Tuple[int, int, bool]:
-
     old = old_line.scorable_line
     new = new_line.scorable_line
     if old == new:
@@ -2786,8 +2791,12 @@ def diff_sameline(
         # we split that part out to make it a separate field
         # however, we don't split if it has a proceeding % macro, e.g. "%lo(.data)"
         re_paren = re.compile(r"(?<!%hi)(?<!%lo)(?<!%got)(?<!%call16)(?<!%gp_rel)\(")
-        oldfields = oldfields[:-1] + (re_paren.split(oldfields[-1]) if len(oldfields) > 0 else [])
-        newfields = newfields[:-1] + (re_paren.split(newfields[-1]) if len(newfields) > 0 else [])
+        oldfields = oldfields[:-1] + (
+            re_paren.split(oldfields[-1]) if len(oldfields) > 0 else []
+        )
+        newfields = newfields[:-1] + (
+            re_paren.split(newfields[-1]) if len(newfields) > 0 else []
+        )
 
     for nf, of in zip(newfields, oldfields):
         if nf != of:
@@ -2928,7 +2937,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     bts2: Set[int] = set()
 
     if config.show_branches:
-        for (lines, btset, sc) in [
+        for lines, btset, sc in [
             (lines1, bts1, sc5),
             (lines2, bts2, sc6),
         ]:
@@ -2946,7 +2955,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     line_num_base = -1
     line_num_offset = 0
     line_num_2to1 = {}
-    for (line1, line2) in diffed_lines:
+    for line1, line2 in diffed_lines:
         if line1 is not None and line1.line_num is not None:
             line_num_base = line1.line_num
             line_num_offset = 0
@@ -2955,7 +2964,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
         if line2 is not None and line2.line_num is not None:
             line_num_2to1[line2.line_num] = (line_num_base, line_num_offset)
 
-    for (line1, line2) in diffed_lines:
+    for line1, line2 in diffed_lines:
         line_color1 = line_color2 = sym_color = BasicFormat.NONE
         line_prefix = " "
         is_data_ref = False
@@ -3277,7 +3286,7 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
                 differ = difflib.SequenceMatcher(
                     a=old_chunk, b=new_chunk, autojunk=False
                 )
-                for (tag, i1, i2, j1, j2) in differ.get_opcodes():
+                for tag, i1, i2, j1, j2 in differ.get_opcodes():
                     if tag in ["equal", "replace"]:
                         for i, j in zip(range(i1, i2), range(j1, j2)):
                             diff_lines.append((empty, new_chunk[j], old_chunk[i]))
