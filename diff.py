@@ -2548,10 +2548,8 @@ def process(dump: str, config: Config) -> List[Line]:
 
         is_text_relative_j = False
         if (
-            (
-                (arch.name in MIPS_ARCH_NAMES and mnemonic == "j")
-                or (arch.name == "ppc" and mnemonic in PPC_BRANCH_INSTRUCTIONS)
-            )
+            arch.name in MIPS_ARCH_NAMES
+            and mnemonic == "j"
             and symbol is not None
             and symbol.startswith(".text")
         ):
