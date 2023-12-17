@@ -1575,6 +1575,13 @@ class AsmProcessorMIPS(AsmProcessor):
         super().__init__(config)
         self.seen_jr_ra = False
 
+    def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
+        if mnemonic == "li":
+            return re.sub(
+                f"(-?0x[0-9a-fA-F]+)", lambda m: str(int(m.group(1), 16)), row
+            )
+        return row
+
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
         if "R_MIPS_NONE" in row or "R_MIPS_JALR" in row:
