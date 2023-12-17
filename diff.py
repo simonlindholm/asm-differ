@@ -470,6 +470,7 @@ class Config:
     penalty_reordering = 60
     penalty_insertion = 100
     penalty_deletion = 100
+    ignore_equivalent_immediates = False
 
 
 def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
@@ -1576,9 +1577,8 @@ class AsmProcessorMIPS(AsmProcessor):
         self.seen_jr_ra = False
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
-        if mnemonic == "li":
-            # only consider values of 1-9 equivalent
-            regex = re.compile(f",(0x[1-9])$")
+        if self.config.ignore_equivalent_immediates and mnemonic == "li":
+            regex = re.compile(f",(0x[1-9])$")  # only 1 thru 9
             return re.sub(regex, lambda m: f",{int(m.group(1), 16)}", row)
         return row
 
@@ -2185,7 +2185,9 @@ MIPS_SETTINGS = ArchSettings(
     proc=AsmProcessorMIPS,
 )
 
-MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
+MIPSEL_SETTINGS = replace(
+    MIPS_SETTINGS, name="mipsel", big_endian=False, arch_flags=["-m", "mips:3000"]
+)
 
 MIPSEE_SETTINGS = replace(
     MIPSEL_SETTINGS, name="mipsee", arch_flags=["-m", "mips:5900"]
