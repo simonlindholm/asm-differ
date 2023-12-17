@@ -1578,8 +1578,8 @@ class AsmProcessorMIPS(AsmProcessor):
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
         if self.config.ignore_equivalent_immediates and mnemonic == "li":
-            regex = re.compile(f",(0x[1-9])$")  # only 1 thru 9
-            return re.sub(regex, lambda m: f",{int(m.group(1), 16)}", row)
+            regex = re.compile(f",0x([1-9])$")  # only 1 thru 9
+            return re.sub(regex, lambda m: f",{m.group(1)}", row)
         return row
 
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
