@@ -1575,11 +1575,13 @@ class AsmProcessorMIPS(AsmProcessor):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         self.seen_jr_ra = False
+        self.ignore_equivalent_immediates_regex = re.compile(r",0x([1-9])$")
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
         if self.config.ignore_equivalent_immediates and mnemonic == "li":
-            regex = re.compile(f",0x([1-9])$")  # only 1 thru 9
-            return re.sub(regex, lambda m: f",{m.group(1)}", row)
+            return re.sub(
+                self.ignore_equivalent_immediates_regex, lambda m: f",{m.group(1)}", row
+            )
         return row
 
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
