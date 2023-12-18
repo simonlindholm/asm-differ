@@ -470,7 +470,7 @@ class Config:
     penalty_reordering = 60
     penalty_insertion = 100
     penalty_deletion = 100
-    ignore_equivalent_immediates = False
+    ignore_equivalent_immediates: bool = False
 
 
 def create_project_settings(settings: Dict[str, Any]) -> ProjectSettings:
@@ -557,6 +557,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
         reg_categories=project.reg_categories,
+        ignore_equivalent_immediates=args.ignore_equivalent_immediates,
     )
 
 
@@ -1665,7 +1666,7 @@ class AsmProcessorPPC(AsmProcessor):
             # Replace the current offset with the next line's ".text+0x" offset
             splitArgs = args.split(",")
             splitArgs[-1] = next_row.split(".text+0x")[-1]
-            args = ','.join(splitArgs)
+            args = ",".join(splitArgs)
 
         return mnemonic, args
 
