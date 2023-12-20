@@ -2653,14 +2653,14 @@ def process(dump: str, config: Config) -> List[Line]:
             x86_longjmp = re.search(r"\*(.*)\(", args)
             if x86_longjmp:
                 capture = x86_longjmp.group(1)
-                if capture != "":
+                if capture != "" and capture.isnumeric():
                     branch_target = int(capture, 16)
             else:
                 # Then, we try to match the global deref in a separate regex.
                 x86_longjmp = re.search(r"\*(.*)", args)
                 if x86_longjmp:
                     capture = x86_longjmp.group(1)
-                    if capture != "":
+                    if capture != "" and capture.isnumeric():
                         branch_target = int(capture, 16)
                 else:
                     branch_target = int(args.split(",")[-1], 16)
