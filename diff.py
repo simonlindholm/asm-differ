@@ -1809,12 +1809,42 @@ class AsmProcessorAArch64(AsmProcessor):
 
 class AsmProcessorI686(AsmProcessor):
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
+        if "WRTSEG" in row: # ignore WRTSEG (watcom)
+            return prev, None
         repl = row.split()[-1]
         mnemonic, args = prev.split(maxsplit=1)
+        offset = False
 
-        addr_imm = re.search(r"(?<!\$)0x[0-9a-f]+", args)
+        # Calls
+        # Example call a2f
+        # Example call *0
+        if mnemonic == "call":
+            addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
+        
+        # Direct use of reloc
+        # Example 0x0,0x8(%edi)
+        # Example 0x0,%edi
+        # Example *0x0(,%edx,4)
+        # Example %edi,0
+        # Example movb $0x0,0x0
+        # Example $0x0,0x4(%edi)
+        # Match 0x0 part to replace
+        else:
+            addr_imm = re.search(r"(?:0x)?0+$", args)
+
+        if not addr_imm:
+            addr_imm = re.search(r"(^\$?|(?<=\*))0x0", args)
+
+        # Offset value
+        # Example 0x4,%eax
+        # Example $0x4,%eax
+        if not addr_imm:
+            addr_imm = re.search(r"(^|(?<=\*)|(?<=\$))0x[0-9a-f]+", args)
+            offset = True
+
         if not addr_imm:
             assert False, f"failed to find address immediate for line '{prev}'"
+
         start, end = addr_imm.span()
 
         if "R_386_NONE" in row:
@@ -1831,6 +1861,16 @@ class AsmProcessorI686(AsmProcessor):
             pass
         elif "R_386_PC8" in row:
             pass
+        elif "dir32" in row:
+            if "+" in repl:
+                repl = repl.split("+")[0]
+        elif "DISP32" in row:
+            pass
+        elif "OFF32" in row:
+            pass
+        elif "OFFPC32" in row:
+            if "+" in repl:
+                repl = repl.split("+")[0]
         elif "R_386_GOT32" in row:
             repl = f"%got({repl})"
         elif "R_386_PLT32" in row:
@@ -1845,6 +1885,9 @@ class AsmProcessorI686(AsmProcessor):
             repl = f"%plt({repl})"
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
+
+        if offset:
+            repl = f"{repl}+{addr_imm.group()}"
 
         return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
 
@@ -2265,7 +2308,7 @@ I686_SETTINGS = ArchSettings(
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
     re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)"),
-    re_reloc=re.compile(r"R_386_"),
+    re_reloc=re.compile(r"R_386_|dir32|DISP32|WRTSEG|OFF32|OFFPC32"),
     # The x86 architecture has a variable instruction length. The raw bytes of
     # an instruction as displayed by objdump can line wrap if it's long enough.
     # This destroys the objdump output processor logic, so we avoid this.
@@ -2610,14 +2653,14 @@ def process(dump: str, config: Config) -> List[Line]:
             x86_longjmp = re.search(r"\*(.*)\(", args)
             if x86_longjmp:
                 capture = x86_longjmp.group(1)
-                if capture != "":
+                if capture != "" and capture.isnumeric():
                     branch_target = int(capture, 16)
             else:
                 # Then, we try to match the global deref in a separate regex.
                 x86_longjmp = re.search(r"\*(.*)", args)
                 if x86_longjmp:
                     capture = x86_longjmp.group(1)
-                    if capture != "":
+                    if capture != "" and capture.isnumeric():
                         branch_target = int(capture, 16)
                 else:
                     branch_target = int(args.split(",")[-1], 16)
