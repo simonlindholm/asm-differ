@@ -2221,7 +2221,9 @@ MIPS_SETTINGS = ArchSettings(
     proc=AsmProcessorMIPS,
 )
 
-MIPSEL_SETTINGS = replace(MIPS_SETTINGS, name="mipsel", big_endian=False)
+MIPSEL_SETTINGS = replace(
+    MIPS_SETTINGS, name="mipsel", big_endian=False, arch_flags=["-m", "mips:3000"]
+)
 
 MIPSEE_SETTINGS = replace(
     MIPSEL_SETTINGS, name="mipsee", arch_flags=["-m", "mips:5900"]
