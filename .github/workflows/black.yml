@@ -7,9 +7,9 @@ on:
 permissions: read-all
 
 jobs:
-  tests:
+  black:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m pip install --user colorama watchdog levenshtein cxxfilt black
+      - run: python3 -m pip install --user colorama watchdog levenshtein cxxfilt black==23.12.1
       - run: python3 -m black .
