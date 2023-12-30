@@ -1656,7 +1656,7 @@ class AsmProcessorPPC(AsmProcessor):
             # Replace the current offset with the next line's ".text+0x" offset
             splitArgs = args.split(",")
             splitArgs[-1] = next_row.split(".text+0x")[-1]
-            args = ','.join(splitArgs)
+            args = ",".join(splitArgs)
 
         return mnemonic, args
 
