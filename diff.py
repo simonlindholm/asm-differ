@@ -1021,12 +1021,18 @@ def eval_expr(expr: str) -> Any:
 
 
 def eval_(node: ast.AST) -> Any:
-    if isinstance(node, ast.Num):  # <number>
-        return node.n
+    if (
+        hasattr(ast, "Constant")
+        and isinstance(node, ast.Constant)
+        and isinstance(node.value, int)
+    ):  # <number>
+        return node.value
     elif isinstance(node, ast.BinOp):  # <left> <operator> <right>
         return operators[type(node.op)](eval_(node.left), eval_(node.right))
     elif isinstance(node, ast.UnaryOp):  # <operator> <operand> e.g., -1
         return operators[type(node.op)](eval_(node.operand))
+    elif hasattr(ast, "Num") and isinstance(node, ast.Num):  # <number>, pre 3.8
+        return node.n
     else:
         raise TypeError(node)
 
@@ -1237,7 +1243,7 @@ def search_map_file(
             + re.escape(config.diff_section)
             + r"\))? \t"
             # object name
-            + "(\S+)",
+            + r"(\S+)",
             contents,
         )
         if len(find) > 1:
@@ -1809,7 +1815,7 @@ class AsmProcessorAArch64(AsmProcessor):
 
 class AsmProcessorI686(AsmProcessor):
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
-        if "WRTSEG" in row: # ignore WRTSEG (watcom)
+        if "WRTSEG" in row:  # ignore WRTSEG (watcom)
             return prev, None
         repl = row.split()[-1]
         mnemonic, args = prev.split(maxsplit=1)
@@ -1820,7 +1826,7 @@ class AsmProcessorI686(AsmProcessor):
         # Example call *0
         if mnemonic == "call":
             addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
-        
+
         # Direct use of reloc
         # Example 0x0,0x8(%edi)
         # Example 0x0,%edi
@@ -3197,7 +3203,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             for source_line in line2.source_lines:
                 line_format = BasicFormat.SOURCE_OTHER
                 if config.source_old_binutils:
-                    if source_line and re.fullmatch(".*\.c(?:pp)?:\d+", source_line):
+                    if source_line and re.fullmatch(r".*\.c(?:pp)?:\d+", source_line):
                         line_format = BasicFormat.SOURCE_FILENAME
                     elif source_line and source_line.endswith("():"):
                         line_format = BasicFormat.SOURCE_FUNCTION
