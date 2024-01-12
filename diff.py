@@ -3474,14 +3474,14 @@ def debounced_fs_watch(
         observed = set()
         for target in targets:
             if os.path.isdir(target):
-                observer.schedule(event_handler, target, recursive=True)
+                observer.schedule(event_handler, target, recursive=True)  # type: ignore
             else:
                 file_targets.append(os.path.normpath(target))
                 target = os.path.dirname(target) or "."
                 if target not in observed:
                     observed.add(target)
-                    observer.schedule(event_handler, target)
-        observer.start()
+                    observer.schedule(event_handler, target)  # type: ignore
+        observer.start()  # type: ignore
         while True:
             t = listenq.get()
             more = True
