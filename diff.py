@@ -1027,13 +1027,13 @@ def eval_(node: ast.AST) -> Any:
         hasattr(ast, "Constant")
         and isinstance(node, ast.Constant)
         and isinstance(node.value, int)
-    ):  # <number>
+    ):  # Python 3.8+
         return node.value
-    elif isinstance(node, ast.BinOp):  # <left> <operator> <right>
+    elif isinstance(node, ast.BinOp):
         return operators[type(node.op)](eval_(node.left), eval_(node.right))
-    elif isinstance(node, ast.UnaryOp):  # <operator> <operand> e.g., -1
+    elif isinstance(node, ast.UnaryOp):
         return operators[type(node.op)](eval_(node.operand))
-    elif hasattr(ast, "Num") and isinstance(node, ast.Num):  # <number>, pre 3.8
+    elif sys.version_info < (3, 8) and isinstance(node, ast.Num):
         return node.n
     else:
         raise TypeError(node)
