@@ -1004,15 +1004,17 @@ ObjdumpCommand = Tuple[List[str], str, Optional[str]]
 import ast
 import operator as op
 
-# supported operators
 operators: Dict[Type[Union[ast.operator, ast.unaryop]], Any] = {
     ast.Add: op.add,
     ast.Sub: op.sub,
     ast.Mult: op.mul,
     ast.Div: op.truediv,
+    ast.USub: op.neg,
     ast.Pow: op.pow,
     ast.BitXor: op.xor,
-    ast.USub: op.neg,
+    ast.BitOr: op.or_,
+    ast.BitAnd: op.and_,
+    ast.Invert: op.inv,
 }
 
 
