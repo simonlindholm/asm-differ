@@ -1008,7 +1008,7 @@ operators: Dict[Type[Union[ast.operator, ast.unaryop]], Any] = {
     ast.Add: op.add,
     ast.Sub: op.sub,
     ast.Mult: op.mul,
-    ast.Div: op.truediv,
+    ast.Div: op.floordiv,
     ast.USub: op.neg,
     ast.Pow: op.pow,
     ast.BitXor: op.xor,
