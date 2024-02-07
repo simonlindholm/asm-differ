@@ -87,22 +87,29 @@ if __name__ == "__main__":
             if not mapfile:
                 return []
             completes = []
-            with open(
-                mapfile,
-                encoding=MAPFILE_ENCODING,
-                errors=MAPFILE_ENCODING_ERROR_HANDLER,
-            ) as f:
-                data = f.read()
+            encoding = MAPFILE_ENCODING
+            # We assume the encoding is self-synchronizing,
+            # meaning that for example finding bytes corresponding to the space
+            # character, is equivalent to finding a space character.
+            # This is true for ASCII and UTF-8 data, for example.
+            # This allows processing the map file as bytes instead of entirely
+            # processing it as decoded text, which is slow.
+            space = " ".encode(encoding)
+            line_return = "\n".encode(encoding)
+            with open(mapfile, "rb") as f:
+                import mmap
+
+                data = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
                 # assume symbols are prefixed by a space character
-                search = f" {prefix}"
+                search = f" {prefix}".encode(encoding)
                 pos = data.find(search)
                 while pos != -1:
                     # skip the space character in the search string
-                    pos += 1
+                    pos += len(space)
                     # assume symbols are suffixed by either a space
                     # character or a (unix-style) line return
-                    spacePos = data.find(" ", pos)
-                    lineReturnPos = data.find("\n", pos)
+                    spacePos = data.find(space, pos)
+                    lineReturnPos = data.find(line_return, pos)
                     if lineReturnPos == -1:
                         endPos = spacePos
                     elif spacePos == -1:
@@ -115,7 +122,7 @@ if __name__ == "__main__":
                     else:
                         match = data[pos:endPos]
                         pos = data.find(search, endPos)
-                    completes.append(match)
+                    completes.append(match.decode(encoding))
             return completes
 
         setattr(start_argument, "completer", complete_symbol)
