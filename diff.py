@@ -29,6 +29,16 @@ def static_assert_unreachable(x: NoReturn) -> NoReturn:
     raise Exception("Unreachable! " + repr(x))
 
 
+# The encoding to use for reading the map file to text.
+# It is expected the map file will be ASCII-only or mostly,
+# which UTF-8 is compatible with.
+MAPFILE_ENCODING = "UTF-8"
+# In case the map file isn't UTF-8 and some bytes can't be decoded as UTF-8,
+# don't error and subtitute with U+FFFD.
+# (cf the Python documentation on `codecs.replace_errors`)
+MAPFILE_ENCODING_ERROR_HANDLER = "replace"
+
+
 class DiffMode(enum.Enum):
     SINGLE = "single"
     SINGLE_BASE = "single_base"
@@ -77,7 +87,11 @@ if __name__ == "__main__":
             if not mapfile:
                 return []
             completes = []
-            with open(mapfile) as f:
+            with open(
+                mapfile,
+                encoding=MAPFILE_ENCODING,
+                errors=MAPFILE_ENCODING_ERROR_HANDLER,
+            ) as f:
                 data = f.read()
                 # assume symbols are prefixed by a space character
                 search = f" {prefix}"
@@ -1194,7 +1208,11 @@ def search_map_file(
         fail(f"No map file configured; cannot find function {fn_name}.")
 
     try:
-        with open(project.mapfile) as f:
+        with open(
+            project.mapfile,
+            encoding=MAPFILE_ENCODING,
+            errors=MAPFILE_ENCODING_ERROR_HANDLER,
+        ) as f:
             contents = f.read()
     except Exception:
         fail(f"Failed to open map file {project.mapfile} for reading.")
