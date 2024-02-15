@@ -1264,7 +1264,7 @@ def search_map_file(
     elif project.map_format == "mw":
         find = re.findall(
             # start address, size, virtual address, file offset, alignment
-            r"  \S+ \S+ (\S+) (\S+)? +(?:\S+ )?"
+            r"  [0-9a-f]{8} [0-9a-f]{6} ([0-9a-f]{8})(?: ([0-9a-f]{8}))?(?: +\S{1,2})? +"
             + re.escape(fn_name)
             + r"(?: \(entry of "
             + re.escape(config.diff_section)
