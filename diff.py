@@ -1854,7 +1854,8 @@ class AsmProcessorI686(AsmProcessor):
         # Calls
         # Example call a2f
         # Example call *0
-        if mnemonic == "call":
+        # Example jmp  64
+        if mnemonic == "call" or mnemonic == "jmp":
             addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
 
         # Direct use of reloc
