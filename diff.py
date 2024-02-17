@@ -2037,6 +2037,7 @@ MIPS_BRANCH_INSTRUCTIONS = MIPS_BRANCH_LIKELY_INSTRUCTIONS.union(
         "bltz",
         "bc1t",
         "bc1f",
+        "bal",
     }
 )
 
