@@ -2256,8 +2256,8 @@ MIPS_SETTINGS = ArchSettings(
     arch_flags=["-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal"}),
-    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr"}),
+    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "bal"}),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr", "bal"}),
     proc=AsmProcessorMIPS,
 )
 
