@@ -1642,7 +1642,12 @@ class AsmProcessorMIPS(AsmProcessor):
         elif "R_MIPS_CALL16" in row:
             repl = f"%call16({repl})"
         elif "R_MIPS_LITERAL" in row:
-            repl = repl[: -len(addend)]
+            # MWCC emits R_MIPS_LITERAL for float literals which don't have the same structure as the
+            # relocations emitted by GCC
+            # Only remove the addend if it is found in the relocation
+            if addend != "":
+                # .lit4+0x4000-0x4000 -> .lit4+0x4000
+                repl = repl[: -len(addend)]
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
         return before + repl + after, repl
