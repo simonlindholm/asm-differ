@@ -1885,6 +1885,10 @@ class AsmProcessorI686(AsmProcessor):
             offset = True
 
         if not addr_imm:
+            addr_imm = re.search(r"(^|(?<=\*)|(?<=\%fs\:))0x[0-9a-f]+", args)
+            offset = True
+            
+        if not addr_imm:
             assert False, f"failed to find address immediate for line '{prev}'"
 
         start, end = addr_imm.span()
