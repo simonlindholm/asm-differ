@@ -973,7 +973,7 @@ class PythonFormatter(Formatter):
                     output_row[column_name] = column
             output_rows.append(output_row)
         output["rows"] = output_rows
-        return json.dumps(output)
+        return output
 
 
 @dataclass
