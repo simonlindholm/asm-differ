@@ -908,7 +908,7 @@ class HtmlFormatter(Formatter):
 
 
 @dataclass
-class JsonFormatter(Formatter):
+class PythonFormatter(Formatter):
     arch_str: str
 
     def apply_format(self, chunk: str, f: Format) -> str:
@@ -973,6 +973,13 @@ class JsonFormatter(Formatter):
                     output_row[column_name] = column
             output_rows.append(output_row)
         output["rows"] = output_rows
+        return json.dumps(output)
+
+
+@dataclass
+class JsonFormatter(PythonFormatter):
+    def table(self, data: TableData) -> str:
+        output = super().table(data)
         return json.dumps(output)
 
 
@@ -2265,8 +2272,12 @@ MIPS_SETTINGS = ArchSettings(
     arch_flags=["-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "bal"}),
-    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr", "bal"}),
+    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union(
+        {"j", "jal", "bal"}
+    ),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union(
+        {"j", "jal", "jr", "jalr", "bal"}
+    ),
     proc=AsmProcessorMIPS,
 )
 
