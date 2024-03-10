@@ -959,6 +959,10 @@ class JsonFormatter(Formatter):
                 column: Dict[str, Any] = {}
                 column["text"] = serialize(text)
                 if line:
+                    if line.mnemonic is not None:
+                        column["mnemonic"] = line.mnemonic
+                    if line.symbol is not None:
+                        column["symbol"] = line.symbol
                     if line.line_num is not None:
                         column["line"] = line.line_num
                     if line.branch_target is not None:
@@ -2265,8 +2269,12 @@ MIPS_SETTINGS = ArchSettings(
     arch_flags=["-m", "mips:4300"],
     branch_likely_instructions=MIPS_BRANCH_LIKELY_INSTRUCTIONS,
     branch_instructions=MIPS_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "bal"}),
-    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union({"j", "jal", "jr", "jalr", "bal"}),
+    instructions_with_address_immediates=MIPS_BRANCH_INSTRUCTIONS.union(
+        {"j", "jal", "bal"}
+    ),
+    delay_slot_instructions=MIPS_BRANCH_INSTRUCTIONS.union(
+        {"j", "jal", "jr", "jalr", "bal"}
+    ),
     proc=AsmProcessorMIPS,
 )
 
