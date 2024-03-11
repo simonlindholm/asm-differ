@@ -908,7 +908,7 @@ class HtmlFormatter(Formatter):
 
 
 @dataclass
-class JsonFormatter(Formatter):
+class PythonFormatter(Formatter):
     arch_str: str
 
     def apply_format(self, chunk: str, f: Format) -> str:
@@ -916,6 +916,10 @@ class JsonFormatter(Formatter):
         return NotImplemented
 
     def table(self, data: TableData) -> str:
+        # This method is unused by this formatter
+        return NotImplemented
+
+    def raw(self, data: TableData) -> Dict[str, Any]:
         def serialize_format(s: str, f: Format) -> Dict[str, Any]:
             if f == BasicFormat.NONE:
                 return {"text": s}
@@ -977,6 +981,13 @@ class JsonFormatter(Formatter):
                     output_row[column_name] = column
             output_rows.append(output_row)
         output["rows"] = output_rows
+        return output
+
+
+@dataclass
+class JsonFormatter(PythonFormatter):
+    def table(self, data: TableData) -> str:
+        output = super().raw(data)
         return json.dumps(output)
 
 
