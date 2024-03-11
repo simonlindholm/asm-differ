@@ -916,6 +916,10 @@ class PythonFormatter(Formatter):
         return NotImplemented
 
     def table(self, data: TableData) -> str:
+        # This method is unused by this formatter
+        return NotImplemented
+
+    def raw(self, data: TableData) -> Dict[str, Any]:
         def serialize_format(s: str, f: Format) -> Dict[str, Any]:
             if f == BasicFormat.NONE:
                 return {"text": s}
@@ -979,7 +983,7 @@ class PythonFormatter(Formatter):
 @dataclass
 class JsonFormatter(PythonFormatter):
     def table(self, data: TableData) -> str:
-        output = super().table(data)
+        output = super().raw(data)
         return json.dumps(output)
 
 
