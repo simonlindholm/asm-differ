@@ -383,6 +383,13 @@ if __name__ == "__main__":
         help="""Compress streaks of lines with same instructions (but possibly
         different regalloc), leaving N lines of context around other parts.""",
     )
+    parser.add_argument(
+        "-d",
+        "--diff-function-symbols",
+        dest="diff_function_symbols",
+        action="store_true",
+        help="Include and diff function symbols."
+    )
 
     # Project-specific flags, e.g. different versions/make arguments.
     add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
@@ -483,6 +490,7 @@ class Config:
     ignore_addr_diffs: bool
     algorithm: str
     reg_categories: Dict[str, int]
+    diff_function_symbols: bool
 
     # Score options
     score_stack_differences = True
@@ -577,6 +585,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
         reg_categories=project.reg_categories,
+        diff_function_symbols=args.diff_function_symbols
     )
 
 
@@ -1114,9 +1123,22 @@ def run_make_capture_output(
 
 
 def restrict_to_function(dump: str, fn_name: str) -> str:
+
+    # Regex objdump's output to find the beginning of the line which contains the offset and symbol
+    # "OFFSET <SYM>:"
+    restrictFunctionRegex = f"[0-9A-Fa-f]+ <{fn_name}>:"
+    restrictFindResults = re.search(restrictFunctionRegex, dump)
+
     try:
-        ind = dump.index("\n", dump.index(f"<{fn_name}>:"))
-        return dump[ind + 1 :]
+        if restrictFindResults is None:
+            # If the regex doesn't find anything, use the old restriction
+            ind = dump.index("\n", dump.index(f"<{fn_name}>:"))
+            return dump[ind :]
+        else:
+            # If it does, split the dump from the beginning of the line to the end of the dump
+            # this is to ensure that later, we can find the format "OFFSET <SYM>:" in the first line
+            # when displaying the symbols
+            return dump[restrictFindResults.span()[0]:]
     except ValueError:
         return ""
 
@@ -2575,6 +2597,25 @@ def process(dump: str, config: Config) -> List[Line]:
     while i < len(lines):
         row = lines[i]
         i += 1
+
+        if config.diff_function_symbols:
+
+            # Regex the current row to check for "OFFSET <SYM>:"
+            funcNameMatch = re.match(r"[0-9A-Fa-f]+ <(.+)>:", row)
+
+            # if the list isn't empty, we have a match
+            if funcNameMatch:
+                # Add the function symbol to the diff output
+                funcSym = funcNameMatch.groups()[0] + ":"
+                output.append(
+                    Line(
+                        mnemonic="...",
+                        diff_row=funcSym,
+                        original=funcSym,
+                        normalized_original="...",
+                        scorable_line=funcSym,
+                    )
+                )
 
         if not row:
             continue
