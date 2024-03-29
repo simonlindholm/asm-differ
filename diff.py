@@ -1133,7 +1133,7 @@ def restrict_to_function(dump: str, fn_name: str) -> str:
         if restrictFindResults is None:
             # If the regex doesn't find anything, use the old restriction
             ind = dump.index("\n", dump.index(f"<{fn_name}>:"))
-            return dump[ind :]
+            return dump[ind + 1 :]
         else:
             # If it does, split the dump from the beginning of the line to the end of the dump
             # this is to ensure that later, we can find the format "OFFSET <SYM>:" in the first line
