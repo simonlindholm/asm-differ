@@ -31,6 +31,7 @@ class TestSh2(unittest.TestCase):
             ignore_addr_diffs=True,
             algorithm="levenshtein",
             reg_categories={},
+            diff_function_symbols=False,
         )
         return config
 

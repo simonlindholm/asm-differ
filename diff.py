@@ -2609,11 +2609,11 @@ def process(dump: str, config: Config) -> List[Line]:
                 funcSym = funcNameMatch.groups()[0] + ":"
                 output.append(
                     Line(
-                        mnemonic="...",
-                        diff_row=funcSym,
-                        original=funcSym,
+                        mnemonic=funcSym, # this is needed for score changes
+                        diff_row=funcSym, # this is needed to be set for highlighting
+                        original=funcSym, # this is the value that is printed
                         normalized_original="...",
-                        scorable_line=funcSym,
+                        scorable_line="...",
                     )
                 )
 
