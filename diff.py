@@ -2602,8 +2602,7 @@ def process(dump: str, config: Config) -> List[Line]:
 
             # Regex the current row to check for "OFFSET <SYM>:"
             funcNameMatch = re.match(r"[0-9A-Fa-f]+ <(.+)>:", row)
-
-            # if the list isn't empty, we have a match
+            
             if funcNameMatch:
                 # Add the function symbol to the diff output
                 funcSym = funcNameMatch.groups()[0] + ":"
