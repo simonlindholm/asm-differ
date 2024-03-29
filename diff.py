@@ -2598,7 +2598,13 @@ def process(dump: str, config: Config) -> List[Line]:
         row = lines[i]
         i += 1
 
-        if config.diff_function_symbols:
+        if not row:
+            continue
+
+        if config.diff_function_symbols == True:
+            # If diffing function symbols is enabled
+            # Check if the line contains a function label
+            # If so, create a line to diff for the label
 
             # Regex the current row to check for "OFFSET <SYM>:"
             funcNameMatch = re.match(r"[0-9A-Fa-f]+ <(.+)>:", row)
@@ -2615,10 +2621,9 @@ def process(dump: str, config: Config) -> List[Line]:
                         scorable_line="...",
                     )
                 )
-
-        if not row:
-            continue
-
+                continue
+        
+        # Filter out function label lines "OFFSET <SYM>:"
         if re.match(r"^[0-9a-f]+ <.*>:$", row):
             continue
 
