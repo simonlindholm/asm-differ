@@ -585,7 +585,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
         reg_categories=project.reg_categories,
-        diff_function_symbols=args.diff_function_symbols
+        diff_function_symbols=args.diff_function_symbols,
     )
 
 
@@ -1123,22 +1123,10 @@ def run_make_capture_output(
 
 
 def restrict_to_function(dump: str, fn_name: str) -> str:
-
-    # Regex objdump's output to find the beginning of the line which contains the offset and symbol
-    # "OFFSET <SYM>:"
-    restrictFunctionRegex = f"[0-9A-Fa-f]+ <{fn_name}>:"
-    restrictFindResults = re.search(restrictFunctionRegex, dump)
-
     try:
-        if restrictFindResults is None:
-            # If the regex doesn't find anything, use the old restriction
-            ind = dump.index("\n", dump.index(f"<{fn_name}>:"))
-            return dump[ind + 1 :]
-        else:
-            # If it does, split the dump from the beginning of the line to the end of the dump
-            # this is to ensure that later, we can find the format "OFFSET <SYM>:" in the first line
-            # when displaying the symbols
-            return dump[restrictFindResults.span()[0]:]
+        # Find the start of the line that contains "<fn_name>:"
+        ind = dump.rfind("\n", 0, dump.index(f"<{fn_name}>:"))
+        return dump[ind:]
     except ValueError:
         return ""
 
@@ -2600,31 +2588,26 @@ def process(dump: str, config: Config) -> List[Line]:
 
         if not row:
             continue
+        
+        # Check if the currrent line has "OFFSET <SYMBOL>:"
+        function_label_match = re.match(r"^[0-9a-f]+ <(.*)>:$", row)
 
-        if config.diff_function_symbols == True:
-            # If diffing function symbols is enabled
-            # Check if the line contains a function label
-            # If so, create a line to diff for the label
+        if function_label_match:
+            function_name = function_label_match.groups()[0] + ":"
 
-            # Regex the current row to check for "OFFSET <SYM>:"
-            funcNameMatch = re.match(r"[0-9A-Fa-f]+ <(.+)>:", row)
-            
-            if funcNameMatch:
-                # Add the function symbol to the diff output
-                funcSym = funcNameMatch.groups()[0] + ":"
+            if config.diff_function_symbols:
+                # If diffing function symbols is enabled
+                # Add the symbol to the diff output
+                
                 output.append(
                     Line(
-                        mnemonic=funcSym, # this is needed for score changes
-                        diff_row=funcSym, # this is needed to be set for highlighting
-                        original=funcSym, # this is the value that is printed
-                        normalized_original="...",
-                        scorable_line="...",
+                        mnemonic=function_name, # this is needed for score changes
+                        diff_row=function_name, # this is needed to be set for highlighting
+                        original=function_name, # this is the value that is printed
+                        normalized_original=function_name,
+                        scorable_line=function_name,
                     )
                 )
-                continue
-        
-        # Filter out function label lines "OFFSET <SYM>:"
-        if re.match(r"^[0-9a-f]+ <.*>:$", row):
             continue
 
         if row.startswith("DATAREF"):
