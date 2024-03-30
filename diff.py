@@ -1125,8 +1125,8 @@ def run_make_capture_output(
 def restrict_to_function(dump: str, fn_name: str) -> str:
     try:
         # Find the start of the line that contains "<fn_name>:"
-        ind = dump.rfind("\n", 0, dump.index(f"<{fn_name}>:"))
-        return dump[ind + 1 :]
+        ind = dump.rfind("\n", 0, dump.index(f"<{fn_name}>:")) + 1
+        return dump[ind:]
     except ValueError:
         return ""
 
@@ -2601,11 +2601,11 @@ def process(dump: str, config: Config) -> List[Line]:
                 
                 output.append(
                     Line(
-                        mnemonic=function_name, # this is needed for score changes
-                        diff_row=function_name, # this is needed to be set for highlighting
-                        original=function_name, # this is the value that is printed
+                        mnemonic="<label>",
+                        diff_row=function_name,
+                        original=function_name,
                         normalized_original=function_name,
-                        scorable_line=function_name,
+                        scorable_line="label " + function_name,
                     )
                 )
             continue
