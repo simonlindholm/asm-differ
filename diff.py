@@ -1126,7 +1126,7 @@ def restrict_to_function(dump: str, fn_name: str) -> str:
     try:
         # Find the start of the line that contains "<fn_name>:"
         ind = dump.rfind("\n", 0, dump.index(f"<{fn_name}>:"))
-        return dump[ind:]
+        return dump[ind + 1 :]
     except ValueError:
         return ""
 
