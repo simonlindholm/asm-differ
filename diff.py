@@ -383,6 +383,13 @@ if __name__ == "__main__":
         help="""Compress streaks of lines with same instructions (but possibly
         different regalloc), leaving N lines of context around other parts.""",
     )
+    parser.add_argument(
+        "-d",
+        "--diff-function-symbols",
+        dest="diff_function_symbols",
+        action="store_true",
+        help="Include and diff function symbols."
+    )
 
     # Project-specific flags, e.g. different versions/make arguments.
     add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
@@ -483,6 +490,7 @@ class Config:
     ignore_addr_diffs: bool
     algorithm: str
     reg_categories: Dict[str, int]
+    diff_function_symbols: bool
 
     # Score options
     score_stack_differences = True
@@ -577,6 +585,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         ignore_addr_diffs=args.ignore_addr_diffs,
         algorithm=args.algorithm,
         reg_categories=project.reg_categories,
+        diff_function_symbols=args.diff_function_symbols,
     )
 
 
@@ -1115,8 +1124,9 @@ def run_make_capture_output(
 
 def restrict_to_function(dump: str, fn_name: str) -> str:
     try:
-        ind = dump.index("\n", dump.index(f"<{fn_name}>:"))
-        return dump[ind + 1 :]
+        # Find the start of the line that contains "<fn_name>:"
+        ind = dump.rfind("\n", 0, dump.index(f"<{fn_name}>:")) + 1
+        return dump[ind:]
     except ValueError:
         return ""
 
@@ -2578,8 +2588,26 @@ def process(dump: str, config: Config) -> List[Line]:
 
         if not row:
             continue
+        
+        # Check if the currrent line has "OFFSET <SYMBOL>:"
+        function_label_match = re.match(r"^[0-9a-f]+ <(.*)>:$", row)
 
-        if re.match(r"^[0-9a-f]+ <.*>:$", row):
+        if function_label_match:
+            function_name = function_label_match.groups()[0] + ":"
+
+            if config.diff_function_symbols:
+                # If diffing function symbols is enabled
+                # Add the symbol to the diff output
+                
+                output.append(
+                    Line(
+                        mnemonic="<label>",
+                        diff_row=function_name,
+                        original=function_name,
+                        normalized_original=function_name,
+                        scorable_line="label " + function_name,
+                    )
+                )
             continue
 
         if row.startswith("DATAREF"):
