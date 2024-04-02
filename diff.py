@@ -1193,7 +1193,7 @@ def preprocess_objdump_out(
     This format is suitable for saving to disk with `--write-asm`.
 
     - Optionally filter the output to a single function (`restrict`)
-    - Otherwise, strip objdump header (7 lines)
+    - Otherwise, strip objdump header (6 lines)
     - Prepend .data references ("DATAREF" lines) when working with object files
     """
     out = objdump_out
@@ -1201,7 +1201,7 @@ def preprocess_objdump_out(
     if restrict is not None:
         out = restrict_to_function(out, restrict)
     else:
-        for i in range(7):
+        for i in range(6):
             out = out[out.find("\n") + 1 :]
         out = out.rstrip("\n")
 
