@@ -140,7 +140,7 @@ if __name__ == "__main__":
         see symbol names. (Recommended)""",
     )
     parser.add_argument(
-        "-os",
+        "--objsym",
         dest="diff_obj_symbol",
         metavar="SYMBOL",
         help="""Diff a specific function in two .o files, both non-stripped.""",
