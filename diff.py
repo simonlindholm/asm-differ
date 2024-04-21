@@ -140,6 +140,12 @@ if __name__ == "__main__":
         see symbol names. (Recommended)""",
     )
     parser.add_argument(
+        "-os",
+        dest="diff_obj_symbol",
+        metavar="SYMBOL",
+        help="""Diff a specific function in two .o files, both non-stripped.""",
+    )
+    parser.add_argument(
         "-f",
         "--file",
         dest="file",
@@ -1522,7 +1528,7 @@ def dump_elf(
 
 
 def dump_objfile(
-    start: str, end: Optional[str], config: Config, project: ProjectSettings
+    start: str, end: Optional[str], diff_obj_symbol: str, config: Config, project: ProjectSettings
 ) -> Tuple[str, ObjdumpCommand, ObjdumpCommand]:
     if config.base_shift:
         fail("--base-shift not compatible with -o")
@@ -1550,6 +1556,8 @@ def dump_objfile(
 
     if project.disassemble_all:
         disassemble_flag = "-D"
+    elif diff_obj_symbol:
+        disassemble_flag = f"--disassemble={diff_obj_symbol}"
     else:
         disassemble_flag = "-d"
 
@@ -3772,7 +3780,7 @@ def main() -> None:
         )
     elif config.diff_obj:
         make_target, basecmd, mycmd = dump_objfile(
-            args.start, args.end, config, project
+            args.start, args.end, args.diff_obj_symbol, config, project
         )
     else:
         make_target, basecmd, mycmd = dump_binary(args.start, args.end, config, project)
