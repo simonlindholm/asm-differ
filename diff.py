@@ -2308,7 +2308,7 @@ MIPSEE_SETTINGS = replace(
 )
 
 MIPSEL_4000_SETTINGS = replace(
-    MIPSEL_SETTINGS, name="mipsel:4000", arch_flags=["-m", "mips:4000"]
+    MIPSEL_SETTINGS, name="mipsel:4000", arch_flags=["-m", "mips:gs464"]
 )
 
 MIPS_ARCH_NAMES = {"mips", "mipsel", "mipsee", "mipsel:4000"}
@@ -2588,7 +2588,7 @@ def process(dump: str, config: Config) -> List[Line]:
 
         if not row:
             continue
-        
+
         # Check if the currrent line has "OFFSET <SYMBOL>:"
         function_label_match = re.match(r"^[0-9a-f]+ <(.*)>:$", row)
 
@@ -2598,7 +2598,7 @@ def process(dump: str, config: Config) -> List[Line]:
             if config.diff_function_symbols:
                 # If diffing function symbols is enabled
                 # Add the symbol to the diff output
-                
+
                 output.append(
                     Line(
                         mnemonic="<label>",
