@@ -563,7 +563,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         diff_obj=args.diff_obj,
         file=args.file,
         make=args.make,
-        source_old_binutils=args.source_old_binutils,
+        source_old_binutils=args.source_old_binutils or "llvm-" in project.objdump_executable,
         diff_section=args.diff_section,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
@@ -1505,9 +1505,15 @@ def dump_elf(
     else:
         disassemble_flag = "-d"
 
-    flags2 = [
-        f"--disassemble={diff_elf_symbol}",
-    ]
+    if "llvm-" in project.objdump_executable:
+        flags2 = [
+            "--disassemble",
+            f"--disassemble-symbols={diff_elf_symbol}"
+        ]
+    else:
+        flags2 = [
+            f"--disassemble={diff_elf_symbol}",
+        ]
 
     objdump_flags = [disassemble_flag, "-rz", "-j", config.diff_section]
     return (
@@ -2350,6 +2356,7 @@ AARCH64_SETTINGS = ArchSettings(
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_imm=re.compile(r"(?<!sp, )#-?(0x[0-9a-fA-F]+|[0-9]+)\b"),
     re_reloc=re.compile(r"R_AARCH64_"),
+    arch_flags=["--no-show-raw-insn"],
     branch_instructions=AARCH64_BRANCH_INSTRUCTIONS,
     instructions_with_address_immediates=AARCH64_BRANCH_INSTRUCTIONS.union(
         {"bl", "adrp"}
@@ -2656,7 +2663,7 @@ def process(dump: str, config: Config) -> List[Line]:
         line_num = eval_line_num(line_num_str.strip())
 
         # TODO: use --no-show-raw-insn for all arches
-        if arch.name == "i686":
+        if arch.name == "i686" or arch.name == "aarch64":
             row = "\t".join(tabs[1:])
         else:
             row = "\t".join(tabs[2:])
