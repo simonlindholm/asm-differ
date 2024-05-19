@@ -49,359 +49,278 @@ class DiffMode(enum.Enum):
 
 # ==== COMMAND-LINE ====
 
-if __name__ == "__main__":
-    # Prefer to use diff_settings.py from the current working directory
-    sys.path.insert(0, ".")
-    try:
-        import diff_settings
-    except ModuleNotFoundError:
-        fail("Unable to find diff_settings.py in the same directory.")
-    sys.path.pop(0)
-
-    try:
-        import argcomplete
-    except ModuleNotFoundError:
-        argcomplete = None
-
-    parser = argparse.ArgumentParser(
-        description="Diff MIPS, PPC, AArch64, ARM32, SH2, SH4, or m68k assembly."
-    )
-
-    start_argument = parser.add_argument(
-        "start",
-        help="Function name or address to start diffing from.",
-    )
-
-    if argcomplete:
-
-        def complete_symbol(
-            prefix: str, parsed_args: argparse.Namespace, **kwargs: object
-        ) -> List[str]:
-            if not prefix or prefix.startswith("-"):
-                # skip reading the map file, which would
-                # result in a lot of useless completions
-                return []
-            config: Dict[str, Any] = {}
-            diff_settings.apply(config, parsed_args)  # type: ignore
-            mapfile = config.get("mapfile")
-            if not mapfile:
-                return []
-            completes = []
-            encoding = MAPFILE_ENCODING
-            # We assume the encoding is self-synchronizing,
-            # meaning that for example finding bytes corresponding to the space
-            # character, is equivalent to finding a space character.
-            # This is true for ASCII and UTF-8 data, for example.
-            # This allows processing the map file as bytes instead of entirely
-            # processing it as decoded text, which is slow.
-            space = " ".encode(encoding)
-            line_return = "\n".encode(encoding)
-            with open(mapfile, "rb") as f:
-                import mmap
-
-                data = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-                # assume symbols are prefixed by a space character
-                search = f" {prefix}".encode(encoding)
-                pos = data.find(search)
-                while pos != -1:
-                    # skip the space character in the search string
-                    pos += len(space)
-                    # assume symbols are suffixed by either a space
-                    # character or a (unix-style) line return
-                    spacePos = data.find(space, pos)
-                    lineReturnPos = data.find(line_return, pos)
-                    if lineReturnPos == -1:
-                        endPos = spacePos
-                    elif spacePos == -1:
-                        endPos = lineReturnPos
-                    else:
-                        endPos = min(spacePos, lineReturnPos)
-                    if endPos == -1:
-                        match = data[pos:]
-                        pos = -1
-                    else:
-                        match = data[pos:endPos]
-                        pos = data.find(search, endPos)
-                    completes.append(match.decode(encoding))
-            return completes
-
-        setattr(start_argument, "completer", complete_symbol)
-
-    parser.add_argument(
-        "end",
-        nargs="?",
-        help="Address to end diff at.",
-    )
-    parser.add_argument(
-        "-o",
-        dest="diff_obj",
-        action="store_true",
-        help="""Diff .o files rather than a whole binary. This makes it possible to
-        see symbol names. (Recommended)""",
-    )
-    parser.add_argument(
-        "-f",
-        "--file",
-        dest="file",
-        type=str,
-        help="""File path for a file being diffed. When used the map
-        file isn't searched for the function given. Useful for dynamically
-        linked libraries.""",
-    )
-    parser.add_argument(
-        "-e",
-        "--elf",
-        dest="diff_elf_symbol",
-        metavar="SYMBOL",
-        help="""Diff a given function in two ELFs, one being stripped and the other
-        one non-stripped. Requires objdump from binutils 2.33+.""",
-    )
-    parser.add_argument(
-        "-c",
-        "--source",
-        dest="show_source",
-        action="store_true",
-        help="Show source code (if possible). Only works with -o or -e.",
-    )
-    parser.add_argument(
-        "-C",
-        "--source-old-binutils",
-        dest="source_old_binutils",
-        action="store_true",
-        help="""Tweak --source handling to make it work with binutils < 2.33.
-        Implies --source.""",
-    )
-    parser.add_argument(
-        "-j",
-        "--section",
-        dest="diff_section",
-        default=".text",
-        metavar="SECTION",
-        help="Diff restricted to a given output section.",
-    )
-    parser.add_argument(
-        "-L",
-        "--line-numbers",
-        dest="show_line_numbers",
-        action="store_const",
-        const=True,
-        help="""Show source line numbers in output, when available. May be enabled by
-        default depending on diff_settings.py.""",
-    )
-    parser.add_argument(
-        "--no-line-numbers",
-        dest="show_line_numbers",
-        action="store_const",
-        const=False,
-        help="Hide source line numbers in output.",
-    )
-    parser.add_argument(
-        "--inlines",
-        dest="inlines",
-        action="store_true",
-        help="Show inline function calls (if possible). Only works with -o or -e.",
-    )
-    parser.add_argument(
-        "--base-asm",
-        dest="base_asm",
-        metavar="FILE",
-        help="Read assembly from given file instead of configured base img.",
-    )
-    parser.add_argument(
-        "--write-asm",
-        dest="write_asm",
-        metavar="FILE",
-        help="Write the current assembly output to file, e.g. for use with --base-asm.",
-    )
-    parser.add_argument(
-        "-m",
-        "--make",
-        dest="make",
-        action="store_true",
-        help="Automatically run 'make' on the .o file or binary before diffing.",
-    )
-    parser.add_argument(
-        "-l",
-        "--skip-lines",
-        dest="skip_lines",
-        metavar="LINES",
-        type=int,
-        default=0,
-        help="Skip the first LINES lines of output.",
-    )
-    parser.add_argument(
-        "-s",
-        "--stop-at-ret",
-        dest="stop_at_ret",
-        action="count",
-        help="""Stop disassembling at the first return instruction.
-        You can also pass -ss to stop at the second return instruction, and so on.""",
-    )
-    parser.add_argument(
-        "-i",
-        "--ignore-large-imms",
-        dest="ignore_large_imms",
-        action="store_true",
-        help="Pretend all large enough immediates are the same.",
-    )
-    parser.add_argument(
-        "-I",
-        "--ignore-addr-diffs",
-        dest="ignore_addr_diffs",
-        action="store_true",
-        help="Ignore address differences. Currently only affects AArch64 and ARM32.",
-    )
-    parser.add_argument(
-        "-B",
-        "--no-show-branches",
-        dest="show_branches",
-        action="store_false",
-        help="Don't visualize branches/branch targets.",
-    )
-    parser.add_argument(
-        "-R",
-        "--no-show-rodata-refs",
-        dest="show_rodata_refs",
-        action="store_false",
-        help="Don't show .rodata -> .text references (typically from jump tables).",
-    )
-    parser.add_argument(
-        "-S",
-        "--base-shift",
-        dest="base_shift",
-        metavar="N",
-        type=str,
-        default="0",
-        help="""Diff position N in our img against position N + shift in the base img.
-        Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable
-        flag to pass if it is known that position 0x1234 in the base img syncs
-        up with position 0x4321 in our img. Not supported together with -o.""",
-    )
-    parser.add_argument(
-        "-w",
-        "--watch",
-        dest="watch",
-        action="store_true",
-        help="""Automatically update when source/object files change.
-        Recommended in combination with -m.""",
-    )
-    parser.add_argument(
-        "-y",
-        "--yes",
-        dest="agree",
-        action="store_true",
-        help="""Automatically agree to any yes/no questions asked.
-        Useful if you really want to use the -w option without -m.""",
-    )
-    parser.add_argument(
-        "-0",
-        "--diff_mode=single_base",
-        dest="diff_mode",
-        action="store_const",
-        const=DiffMode.SINGLE_BASE,
-        help="""View the base asm only (not a diff).""",
-    )
-    parser.add_argument(
-        "-1",
-        "--diff_mode=single",
-        dest="diff_mode",
-        action="store_const",
-        const=DiffMode.SINGLE,
-        help="""View the current asm only (not a diff).""",
-    )
-    parser.add_argument(
-        "-3",
-        "--threeway=prev",
-        dest="diff_mode",
-        action="store_const",
-        const=DiffMode.THREEWAY_PREV,
-        help="""Show a three-way diff between target asm, current asm, and asm
-        prior to -w rebuild. Requires -w.""",
-    )
-    parser.add_argument(
-        "-b",
-        "--threeway=base",
-        dest="diff_mode",
-        action="store_const",
-        const=DiffMode.THREEWAY_BASE,
-        help="""Show a three-way diff between target asm, current asm, and asm
-        when diff.py was started. Requires -w.""",
-    )
-    parser.add_argument(
-        "--width",
-        dest="column_width",
-        metavar="COLS",
-        type=int,
-        default=50,
-        help="Sets the width of the left and right view column.",
-    )
-    parser.add_argument(
-        "--algorithm",
-        dest="algorithm",
-        default="levenshtein",
-        choices=["levenshtein", "difflib"],
-        help="""Diff algorithm to use. Levenshtein gives the minimum diff, while difflib
-        aims for long sections of equal opcodes. Defaults to %(default)s.""",
-    )
-    parser.add_argument(
-        "--max-size",
-        "--max-lines",
-        metavar="LINES",
-        dest="max_lines",
-        type=int,
-        default=1024,
-        help="The maximum length of the diff, in lines.",
-    )
-    parser.add_argument(
-        "--no-pager",
-        dest="no_pager",
-        action="store_true",
-        help="""Disable the pager; write output directly to stdout, then exit.
-        Incompatible with --watch.""",
-    )
-    parser.add_argument(
-        "--format",
-        choices=("color", "plain", "html", "json"),
-        default="color",
-        help="Output format, default is color. --format=html or json implies --no-pager.",
-    )
-    parser.add_argument(
-        "-U",
-        "--compress-matching",
-        metavar="N",
-        dest="compress_matching",
-        type=int,
-        help="""Compress streaks of matching lines, leaving N lines of context
-        around non-matching parts.""",
-    )
-    parser.add_argument(
-        "-V",
-        "--compress-sameinstr",
-        metavar="N",
-        dest="compress_sameinstr",
-        type=int,
-        help="""Compress streaks of lines with same instructions (but possibly
-        different regalloc), leaving N lines of context around other parts.""",
-    )
-    parser.add_argument(
-        "-d",
-        "--diff-function-symbols",
-        dest="diff_function_symbols",
-        action="store_true",
-        help="Include and diff function symbols."
-    )
-
-    # Project-specific flags, e.g. different versions/make arguments.
-    add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
-    if add_custom_arguments_fn:
-        add_custom_arguments_fn(parser)
-
-    if argcomplete:
-        argcomplete.autocomplete(parser)
+parser = argparse.ArgumentParser(
+    description="Diff MIPS, PPC, AArch64, ARM32, SH2, SH4, or m68k assembly."
+)
+start_argument = parser.add_argument(
+    "start",
+    help="Function name or address to start diffing from.",
+)
+parser.add_argument(
+    "end",
+    nargs="?",
+    help="Address to end diff at.",
+)
+parser.add_argument(
+    "-o",
+    dest="diff_obj",
+    action="store_true",
+    help="""Diff .o files rather than a whole binary. This makes it possible to
+    see symbol names. (Recommended)""",
+)
+parser.add_argument(
+    "-f",
+    "--file",
+    dest="file",
+    type=str,
+    help="""File path for a file being diffed. When used the map
+    file isn't searched for the function given. Useful for dynamically
+    linked libraries.""",
+)
+parser.add_argument(
+    "-e",
+    "--elf",
+    dest="diff_elf_symbol",
+    metavar="SYMBOL",
+    help="""Diff a given function in two ELFs, one being stripped and the other
+    one non-stripped. Requires objdump from binutils 2.33+.""",
+)
+parser.add_argument(
+    "-c",
+    "--source",
+    dest="show_source",
+    action="store_true",
+    help="Show source code (if possible). Only works with -o or -e.",
+)
+parser.add_argument(
+    "-C",
+    "--source-old-binutils",
+    dest="source_old_binutils",
+    action="store_true",
+    help="""Tweak --source handling to make it work with binutils < 2.33.
+    Implies --source.""",
+)
+parser.add_argument(
+    "-j",
+    "--section",
+    dest="diff_section",
+    default=".text",
+    metavar="SECTION",
+    help="Diff restricted to a given output section.",
+)
+parser.add_argument(
+    "-L",
+    "--line-numbers",
+    dest="show_line_numbers",
+    action="store_const",
+    const=True,
+    help="""Show source line numbers in output, when available. May be enabled by
+    default depending on diff_settings.py.""",
+)
+parser.add_argument(
+    "--no-line-numbers",
+    dest="show_line_numbers",
+    action="store_const",
+    const=False,
+    help="Hide source line numbers in output.",
+)
+parser.add_argument(
+    "--inlines",
+    dest="inlines",
+    action="store_true",
+    help="Show inline function calls (if possible). Only works with -o or -e.",
+)
+parser.add_argument(
+    "--base-asm",
+    dest="base_asm",
+    metavar="FILE",
+    help="Read assembly from given file instead of configured base img.",
+)
+parser.add_argument(
+    "--write-asm",
+    dest="write_asm",
+    metavar="FILE",
+    help="Write the current assembly output to file, e.g. for use with --base-asm.",
+)
+parser.add_argument(
+    "-m",
+    "--make",
+    dest="make",
+    action="store_true",
+    help="Automatically run 'make' on the .o file or binary before diffing.",
+)
+parser.add_argument(
+    "-l",
+    "--skip-lines",
+    dest="skip_lines",
+    metavar="LINES",
+    type=int,
+    default=0,
+    help="Skip the first LINES lines of output.",
+)
+parser.add_argument(
+    "-s",
+    "--stop-at-ret",
+    dest="stop_at_ret",
+    action="count",
+    help="""Stop disassembling at the first return instruction.
+    You can also pass -ss to stop at the second return instruction, and so on.""",
+)
+parser.add_argument(
+    "-i",
+    "--ignore-large-imms",
+    dest="ignore_large_imms",
+    action="store_true",
+    help="Pretend all large enough immediates are the same.",
+)
+parser.add_argument(
+    "-I",
+    "--ignore-addr-diffs",
+    dest="ignore_addr_diffs",
+    action="store_true",
+    help="Ignore address differences. Currently only affects AArch64 and ARM32.",
+)
+parser.add_argument(
+    "-B",
+    "--no-show-branches",
+    dest="show_branches",
+    action="store_false",
+    help="Don't visualize branches/branch targets.",
+)
+parser.add_argument(
+    "-R",
+    "--no-show-rodata-refs",
+    dest="show_rodata_refs",
+    action="store_false",
+    help="Don't show .rodata -> .text references (typically from jump tables).",
+)
+parser.add_argument(
+    "-S",
+    "--base-shift",
+    dest="base_shift",
+    metavar="N",
+    type=str,
+    default="0",
+    help="""Diff position N in our img against position N + shift in the base img.
+    Arithmetic is allowed, so e.g. |-S "0x1234 - 0x4321"| is a reasonable
+    flag to pass if it is known that position 0x1234 in the base img syncs
+    up with position 0x4321 in our img. Not supported together with -o.""",
+)
+parser.add_argument(
+    "-w",
+    "--watch",
+    dest="watch",
+    action="store_true",
+    help="""Automatically update when source/object files change.
+    Recommended in combination with -m.""",
+)
+parser.add_argument(
+    "-y",
+    "--yes",
+    dest="agree",
+    action="store_true",
+    help="""Automatically agree to any yes/no questions asked.
+    Useful if you really want to use the -w option without -m.""",
+)
+parser.add_argument(
+    "-0",
+    "--diff_mode=single_base",
+    dest="diff_mode",
+    action="store_const",
+    const=DiffMode.SINGLE_BASE,
+    help="""View the base asm only (not a diff).""",
+)
+parser.add_argument(
+    "-1",
+    "--diff_mode=single",
+    dest="diff_mode",
+    action="store_const",
+    const=DiffMode.SINGLE,
+    help="""View the current asm only (not a diff).""",
+)
+parser.add_argument(
+    "-3",
+    "--threeway=prev",
+    dest="diff_mode",
+    action="store_const",
+    const=DiffMode.THREEWAY_PREV,
+    help="""Show a three-way diff between target asm, current asm, and asm
+    prior to -w rebuild. Requires -w.""",
+)
+parser.add_argument(
+    "-b",
+    "--threeway=base",
+    dest="diff_mode",
+    action="store_const",
+    const=DiffMode.THREEWAY_BASE,
+    help="""Show a three-way diff between target asm, current asm, and asm
+    when diff.py was started. Requires -w.""",
+)
+parser.add_argument(
+    "--width",
+    dest="column_width",
+    metavar="COLS",
+    type=int,
+    default=50,
+    help="Sets the width of the left and right view column.",
+)
+parser.add_argument(
+    "--algorithm",
+    dest="algorithm",
+    default="levenshtein",
+    choices=["levenshtein", "difflib"],
+    help="""Diff algorithm to use. Levenshtein gives the minimum diff, while difflib
+    aims for long sections of equal opcodes. Defaults to %(default)s.""",
+)
+parser.add_argument(
+    "--max-size",
+    "--max-lines",
+    metavar="LINES",
+    dest="max_lines",
+    type=int,
+    default=1024,
+    help="The maximum length of the diff, in lines.",
+)
+parser.add_argument(
+    "--no-pager",
+    dest="no_pager",
+    action="store_true",
+    help="""Disable the pager; write output directly to stdout, then exit.
+    Incompatible with --watch.""",
+)
+parser.add_argument(
+    "--format",
+    choices=("color", "plain", "html", "json"),
+    default="color",
+    help="Output format, default is color. --format=html or json implies --no-pager.",
+)
+parser.add_argument(
+    "-U",
+    "--compress-matching",
+    metavar="N",
+    dest="compress_matching",
+    type=int,
+    help="""Compress streaks of matching lines, leaving N lines of context
+    around non-matching parts.""",
+)
+parser.add_argument(
+    "-V",
+    "--compress-sameinstr",
+    metavar="N",
+    dest="compress_sameinstr",
+    type=int,
+    help="""Compress streaks of lines with same instructions (but possibly
+    different regalloc), leaving N lines of context around other parts.""",
+)
+parser.add_argument(
+    "-d",
+    "--diff-function-symbols",
+    dest="diff_function_symbols",
+    action="store_true",
+    help="Include and diff function symbols.",
+)
 
 # ==== IMPORTS ====
-
-# (We do imports late to optimize auto-complete performance.)
 
 import abc
 from collections import Counter, defaultdict
@@ -563,7 +482,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         diff_obj=args.diff_obj,
         file=args.file,
         make=args.make,
-        source_old_binutils=args.source_old_binutils or "llvm-" in project.objdump_executable,
+        source_old_binutils=args.source_old_binutils
+        or "llvm-" in project.objdump_executable,
         diff_section=args.diff_section,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
@@ -1506,10 +1426,7 @@ def dump_elf(
         disassemble_flag = "-d"
 
     if "llvm-" in project.objdump_executable:
-        flags2 = [
-            "--disassemble",
-            f"--disassemble-symbols={diff_elf_symbol}"
-        ]
+        flags2 = ["--disassemble", f"--disassemble-symbols={diff_elf_symbol}"]
     else:
         flags2 = [
             f"--disassemble={diff_elf_symbol}",
@@ -3743,6 +3660,82 @@ class Display:
 
 
 def main() -> None:
+    # Prefer to use diff_settings.py from the current working directory
+    sys.path.insert(0, ".")
+    try:
+        import diff_settings
+    except ModuleNotFoundError:
+        fail("Unable to find diff_settings.py in the same directory.")
+    sys.path.pop(0)
+
+    try:
+        import argcomplete
+    except ModuleNotFoundError:
+        argcomplete = None
+
+    if argcomplete:
+
+        def complete_symbol(
+            prefix: str, parsed_args: argparse.Namespace, **kwargs: object
+        ) -> List[str]:
+            if not prefix or prefix.startswith("-"):
+                # skip reading the map file, which would
+                # result in a lot of useless completions
+                return []
+            config: Dict[str, Any] = {}
+            diff_settings.apply(config, parsed_args)  # type: ignore
+            mapfile = config.get("mapfile")
+            if not mapfile:
+                return []
+            completes = []
+            encoding = MAPFILE_ENCODING
+            # We assume the encoding is self-synchronizing,
+            # meaning that for example finding bytes corresponding to the space
+            # character, is equivalent to finding a space character.
+            # This is true for ASCII and UTF-8 data, for example.
+            # This allows processing the map file as bytes instead of entirely
+            # processing it as decoded text, which is slow.
+            space = " ".encode(encoding)
+            line_return = "\n".encode(encoding)
+            with open(mapfile, "rb") as f:
+                import mmap
+
+                data = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                # assume symbols are prefixed by a space character
+                search = f" {prefix}".encode(encoding)
+                pos = data.find(search)
+                while pos != -1:
+                    # skip the space character in the search string
+                    pos += len(space)
+                    # assume symbols are suffixed by either a space
+                    # character or a (unix-style) line return
+                    spacePos = data.find(space, pos)
+                    lineReturnPos = data.find(line_return, pos)
+                    if lineReturnPos == -1:
+                        endPos = spacePos
+                    elif spacePos == -1:
+                        endPos = lineReturnPos
+                    else:
+                        endPos = min(spacePos, lineReturnPos)
+                    if endPos == -1:
+                        match = data[pos:]
+                        pos = -1
+                    else:
+                        match = data[pos:endPos]
+                        pos = data.find(search, endPos)
+                    completes.append(match.decode(encoding))
+            return completes
+
+        setattr(start_argument, "completer", complete_symbol)
+
+    # Project-specific flags, e.g. different versions/make arguments.
+    add_custom_arguments_fn = getattr(diff_settings, "add_custom_arguments", None)
+    if add_custom_arguments_fn:
+        add_custom_arguments_fn(parser)
+
+    if argcomplete:
+        argcomplete.autocomplete(parser)
+
     args = parser.parse_args()
 
     # Apply project-specific configuration.

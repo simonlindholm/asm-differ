@@ -5,7 +5,10 @@ description = ""
 authors = ["Simon Lindholm <simon.lindholm10@gmail.com>"]
 license = "UNLICENSE"
 readme = "README.md"
-packages = [{ include = "diff.py" }]
+packages = [{ include = "asm_differ" }]
+
+[tool.poetry.scripts]
+asm-differ = "asm_differ.diff:main"
 
 [tool.poetry.dependencies]
 python = "^3.7"

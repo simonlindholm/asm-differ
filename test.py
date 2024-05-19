@@ -1,5 +1,5 @@
 import unittest
-import diff
+import asm_differ.diff as diff
 import json
 
 
