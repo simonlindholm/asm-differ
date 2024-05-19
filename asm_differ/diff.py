@@ -3489,7 +3489,7 @@ def debounced_fs_watch(
         listenq: "queue.Queue[float]" = queue.Queue()
         file_targets: List[str] = []
         event_handler = WatchEventHandler(listenq, file_targets)
-        observer = watchdog.observers.Observer()
+        observer = watchdog.observers.Observer()  # type: ignore
         observed = set()
         for target in targets:
             if os.path.isdir(target):
