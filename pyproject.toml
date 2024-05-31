@@ -8,11 +8,11 @@ readme = "README.md"
 packages = [{ include = "diff.py" }]
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.8"
 colorama = "^0.4.6"
 ansiwrap = "^0.8.4"
-watchdog = "^2.2.0"
-levenshtein = "^0.20.9"
+watchdog = "^4.0.1"
+levenshtein = "^0.25.0"
 cxxfilt = "^0.3.0"
 
 
