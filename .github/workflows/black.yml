@@ -11,5 +11,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -m pip install --user colorama watchdog levenshtein cxxfilt black==23.12.1
+      - run: python3 -m pip install --user colorama watchdog levenshtein cxxfilt black==24.4.2
       - run: python3 -m black --check .
