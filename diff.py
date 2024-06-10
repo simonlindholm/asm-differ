@@ -1795,6 +1795,21 @@ class AsmProcessorPPC(AsmProcessor):
         return mnemonic == "blr"
 
 
+ARM32_DEST_OPTIONAL = {
+    "add",
+    "sub",
+    "rsb",
+    "sbc",
+    "and",
+    "orr",
+    "eor",
+    "bic",
+    "asr",
+    "lsl",
+    "lsr",
+    "ror",
+}
+
 # Example: "cmp r0, #0x10"
 ARM32_COMPARE_IMM_PATTERN = r"cmp\s+(r[0-9]|1[0-3]),\s+#(\w+)"
 
@@ -1903,6 +1918,18 @@ class AsmProcessorARM32(AsmProcessor):
                 if value > 0:
                     return value + 1
         return 0
+
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
+    ) -> Tuple[str, str]:
+        arg_parts = args.split()
+        # Normalize instructions that omit the destination register.
+        if len(arg_parts) == 2 and any(
+            [insn in mnemonic for insn in ARM32_DEST_OPTIONAL]
+        ):
+            arg_parts.insert(1, arg_parts[0])
+            return mnemonic, " ".join(arg_parts)
+        return mnemonic, args
 
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
@@ -2633,6 +2660,7 @@ ARCH_SETTINGS = [
     SH4EL_SETTINGS,
     M68K_SETTINGS,
 ]
+
 
 def is_hexstring(value: str) -> bool:
     try:
