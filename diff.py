@@ -1909,7 +1909,10 @@ class AsmProcessorARM32(AsmProcessor):
         return pool_match.group(1) if pool_match else row
 
     def _post_process_jump_tables(self, lines: List["Line"]) -> None:
-        raw_lines = [f"{line.line_num:x}: {line.original}" if line.line_num else line.original for line in lines]
+        raw_lines = [
+            f"{line.line_num:x}: {line.original}" if line.line_num is not None else line.original
+            for line in lines
+        ]
         for i, jump_table_entry in self._lines_iterator(raw_lines):
             if jump_table_entry is None:
                 continue
@@ -1920,7 +1923,7 @@ class AsmProcessorARM32(AsmProcessor):
     def _post_process_data_pools(self, lines: List["Line"]) -> None:
         lines_by_line_number = {}
         for line in lines:
-            if line.line_num:
+            if line.line_num is not None:
                 lines_by_line_number[line.line_num] = line
         for line in lines:
             if line.data_pool_addr is None:
