@@ -9,6 +9,7 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Sequence,
     Match,
     NoReturn,
     Optional,
@@ -388,7 +389,7 @@ if __name__ == "__main__":
         "--diff-function-symbols",
         dest="diff_function_symbols",
         action="store_true",
-        help="Include and diff function symbols."
+        help="Include and diff function symbols.",
     )
 
     # Project-specific flags, e.g. different versions/make arguments.
@@ -563,7 +564,8 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         diff_obj=args.diff_obj,
         file=args.file,
         make=args.make,
-        source_old_binutils=args.source_old_binutils or "llvm-" in project.objdump_executable,
+        source_old_binutils=args.source_old_binutils
+        or "llvm-" in project.objdump_executable,
         diff_section=args.diff_section,
         inlines=args.inlines,
         max_function_size_lines=args.max_lines,
@@ -1507,10 +1509,7 @@ def dump_elf(
         disassemble_flag = "-d"
 
     if "llvm-" in project.objdump_executable:
-        flags2 = [
-            "--disassemble",
-            f"--disassemble-symbols={diff_elf_symbol}"
-        ]
+        flags2 = ["--disassemble", f"--disassemble-symbols={diff_elf_symbol}"]
     else:
         flags2 = [
             f"--disassemble={diff_elf_symbol}",
@@ -1782,6 +1781,7 @@ class AsmProcessorPPC(AsmProcessor):
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         return mnemonic == "blr"
 
+
 # Example: "cmp r0, #0x10"
 ARM32_COMPARE_IMM_PATTERN = r"cmp\s+(r[0-9]|1[0-3]),\s+#(\w+)"
 
@@ -1799,6 +1799,7 @@ ARM32_JUMP_TABLE_ENTRY_PATTERN = r"(?:(\w+):\s+([0-9a-f]+)\s+)?([\w\.]+)\s+([\w,
 # Example: "ldr r4, [pc, #56]    ; (4c <AddCoins+0x4c>)"
 ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*;\s*)(\([a-fA-F0-9]+.*\))"
 
+
 class AsmProcessorARM32(AsmProcessor):
     @dataclass
     class JumpTableEntry:
@@ -1808,7 +1809,9 @@ class AsmProcessorARM32(AsmProcessor):
         is_word: bool
 
     def preprocess_objdump(self, objdump: str) -> str:
-        def short_table_entry(cur_addr: int, jump_table_start_addr: int, value: int) -> str:
+        def short_table_entry(
+            cur_addr: int, jump_table_start_addr: int, value: int
+        ) -> str:
             branch_target = jump_table_start_addr + value + 4
             return f"  {cur_addr:x}:	{value:04x}      	.short	0x{value:04x}  ; 0x{branch_target:x}"
 
@@ -1822,7 +1825,7 @@ class AsmProcessorARM32(AsmProcessor):
             entry = jump_table_entry
             if entry.is_word:
                 # Split into two ".short" entries.
-                hi, lo = entry.value >> 16, entry.value & 0xffff
+                hi, lo = entry.value >> 16, entry.value & 0xFFFF
                 new_lines.append(
                     short_table_entry(entry.cur_addr, entry.table_start_addr, lo)
                 )
@@ -1831,13 +1834,17 @@ class AsmProcessorARM32(AsmProcessor):
                 )
             else:
                 new_lines.append(
-                    short_table_entry(entry.cur_addr, entry.table_start_addr, entry.value)
+                    short_table_entry(
+                        entry.cur_addr, entry.table_start_addr, entry.value
+                    )
                 )
         return "\n".join(new_lines)
 
     # An iterator for each line of assembly, returning the line index and optional
     # metadata if the line is a jump table entry.
-    def _lines_iterator(self, lines: List[str]) -> Iterator[Tuple[int, Optional[JumpTableEntry]]]:
+    def _lines_iterator(
+        self, lines: List[str]
+    ) -> Iterator[Tuple[int, Optional[JumpTableEntry]]]:
         jump_table_entries = 0
         table_start_addr = 0
         for i, line in enumerate(lines):
@@ -1845,12 +1852,16 @@ class AsmProcessorARM32(AsmProcessor):
             addr = int(addr_match.group(1), 16) if addr_match else -1
             entry_match = re.search(ARM32_JUMP_TABLE_ENTRY_PATTERN, line)
             if jump_table_entries > 0 and entry_match:
-                value = entry_match.group(4) if is_hexstring(entry_match.group(4)) else entry_match.group(2)
+                value = (
+                    entry_match.group(4)
+                    if is_hexstring(entry_match.group(4))
+                    else entry_match.group(2)
+                )
                 table_entry = self.JumpTableEntry(
                     cur_addr=addr,
                     table_start_addr=table_start_addr,
-                    value = int(value, 16),
-                    is_word = entry_match.group(3) == ".word",
+                    value=int(value, 16),
+                    is_word=entry_match.group(3) == ".word",
                 )
                 jump_table_entries -= 2 if table_entry.is_word else 1
 
@@ -1910,7 +1921,11 @@ class AsmProcessorARM32(AsmProcessor):
 
     def _post_process_jump_tables(self, lines: List["Line"]) -> None:
         raw_lines = [
-            f"{line.line_num:x}: {line.original}" if line.line_num is not None else line.original
+            (
+                f"{line.line_num:x}: {line.original}"
+                if line.line_num is not None
+                else line.original
+            )
             for line in lines
         ]
         for i, jump_table_entry in self._lines_iterator(raw_lines):
@@ -1938,6 +1953,7 @@ class AsmProcessorARM32(AsmProcessor):
     def post_process(self, lines: List["Line"]) -> None:
         self._post_process_jump_tables(lines)
         self._post_process_data_pools(lines)
+
 
 class AsmProcessorAArch64(AsmProcessor):
     def __init__(self, config: Config) -> None:
@@ -2601,10 +2617,13 @@ ARCH_SETTINGS = [
     M68K_SETTINGS,
 ]
 
+
 def immediate_to_int(immediate: str) -> int:
     imm_match = re.match(r"#?(0x)?([0-9a-f]+)", immediate)
+    assert imm_match
     base = 16 if imm_match.group(1) else 10
     return int(imm_match.group(2), base)
+
 
 def is_hexstring(value: str) -> bool:
     try:
@@ -2612,6 +2631,7 @@ def is_hexstring(value: str) -> bool:
         return True
     except ValueError:
         return False
+
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
     full = pat.group(0)
@@ -2985,14 +3005,14 @@ def split_off_address(line: str) -> Tuple[str, str]:
 
 def diff_sequences_difflib(
     seq1: List[str], seq2: List[str]
-) -> List[Tuple[str, int, int, int, int]]:
+) -> Sequence[Tuple[str, int, int, int, int]]:
     differ = difflib.SequenceMatcher(a=seq1, b=seq2, autojunk=False)
     return differ.get_opcodes()
 
 
 def diff_sequences(
     seq1: List[str], seq2: List[str], algorithm: str
-) -> List[Tuple[str, int, int, int, int]]:
+) -> Sequence[Tuple[str, int, int, int, int]]:
     if algorithm != "levenshtein":
         return diff_sequences_difflib(seq1, seq2)
 
@@ -3697,14 +3717,14 @@ def debounced_fs_watch(
         observed = set()
         for target in targets:
             if os.path.isdir(target):
-                observer.schedule(event_handler, target, recursive=True)  # type: ignore
+                observer.schedule(event_handler, target, recursive=True)
             else:
                 file_targets.append(os.path.normpath(target))
                 target = os.path.dirname(target) or "."
                 if target not in observed:
                     observed.add(target)
-                    observer.schedule(event_handler, target)  # type: ignore
-        observer.start()  # type: ignore
+                    observer.schedule(event_handler, target)
+        observer.start()
         while True:
             t = listenq.get()
             more = True
