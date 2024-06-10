@@ -1831,6 +1831,10 @@ class AsmProcessorARM32(AsmProcessor):
         new_lines = []
         lines = objdump.splitlines()
         for i, jump_table_entry in self._lines_iterator(lines):
+            # Normalize the assembly by removing any excess padding.
+            if i == len(lines) - 1 and re.search(r"\.short.*0000", lines[i]):
+                continue
+
             if jump_table_entry is None:
                 new_lines.append(lines[i])
                 continue
