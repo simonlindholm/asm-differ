@@ -1,0 +1,15 @@
+name: mypy
+
+on:
+  pull_request:
+  push:
+
+permissions: read-all
+
+jobs:
+  mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --user colorama watchdog levenshtein cxxfilt mypy==1.10.0
+      - run: python3 -m mypy

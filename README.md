@@ -49,8 +49,9 @@ pip install pre-commit black
 pre-commit install
 ```
 
-Type annotations are used for all Python code. `mypy` should pass without any errors.
+Type annotations are used for all Python code. `mypy` should pass without any errors. (This is all checked in CI.)
 
-PRs that skip the above are still welcome, however.
+There are a handful of unit tests (test.py), however a comparison-based regression test suite is still missing.
+There are loose plans on adding one using scratches from decomp.me as a corpus. Help on this front appreciated!
 
-The targeted Python version is 3.6. There are currently no tests.
+The targeted Python version is 3.7.
