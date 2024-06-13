@@ -1613,7 +1613,7 @@ class AsmProcessor:
         return objdump
 
     def pre_process(
-        self, mnemonic: str, args: str, next_row: Optional[str], comment: str|None
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
     ) -> Tuple[str, str]:
         return mnemonic, args
 
@@ -1694,7 +1694,7 @@ class AsmProcessorMIPS(AsmProcessor):
 
 class AsmProcessorPPC(AsmProcessor):
     def pre_process(
-        self, mnemonic: str, args: str, next_row: Optional[str], comment: str|None
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
     ) -> Tuple[str, str]:
         if next_row and "R_PPC_EMB_SDA21" in next_row:
             # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
@@ -1731,7 +1731,12 @@ class AsmProcessorPPC(AsmProcessor):
             splitArgs[-1] = next_row.split(".text+0x")[-1]
             args = ",".join(splitArgs)
 
-        if comment is not None and mnemonic == "bl":
+        if (
+            comment is not None
+            and next_row is not None
+            and re.search(self.config.arch.re_reloc, next_row) is None
+            and mnemonic == "bl"
+        ):
             # if the mnemonic is bl and the comment doesn't match
             # <.text+0x...> replace the args with the contents of the comment
             if re.search(r"<.+\+0x[0-9a-fA-F]+>", comment) == None:
@@ -2117,7 +2122,7 @@ class AsmProcessorSH2(AsmProcessor):
 
 class AsmProcessorM68k(AsmProcessor):
     def pre_process(
-        self, mnemonic: str, args: str, next_row: Optional[str], comment: str|None
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
     ) -> Tuple[str, str]:
         # replace objdump's syntax of pointer accesses with the equivilant in AT&T syntax for readability
         return mnemonic, re.sub(
