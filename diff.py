@@ -1613,7 +1613,7 @@ class AsmProcessor:
         return objdump
 
     def pre_process(
-        self, mnemonic: str, args: str, next_row: Optional[str]
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
     ) -> Tuple[str, str]:
         return mnemonic, args
 
@@ -1694,7 +1694,7 @@ class AsmProcessorMIPS(AsmProcessor):
 
 class AsmProcessorPPC(AsmProcessor):
     def pre_process(
-        self, mnemonic: str, args: str, next_row: Optional[str]
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
     ) -> Tuple[str, str]:
         if next_row and "R_PPC_EMB_SDA21" in next_row:
             # With sda21 relocs, the linker transforms `r0` into `r2`/`r13`, and
@@ -1730,6 +1730,19 @@ class AsmProcessorPPC(AsmProcessor):
             splitArgs = args.split(",")
             splitArgs[-1] = next_row.split(".text+0x")[-1]
             args = ",".join(splitArgs)
+
+        if (
+            comment is not None
+            and (
+                next_row is None
+                or re.search(self.config.arch.re_reloc, next_row) is None
+            )
+            and mnemonic == "bl"
+        ):
+            # if the mnemonic is bl and the comment doesn't match
+            # <.text+0x...> replace the args with the contents of the comment
+            if re.search(r"<.+\+0x[0-9a-fA-F]+>", comment) is None:
+                args = comment[1:-1]
 
         return mnemonic, args
 
@@ -2111,7 +2124,7 @@ class AsmProcessorSH2(AsmProcessor):
 
 class AsmProcessorM68k(AsmProcessor):
     def pre_process(
-        self, mnemonic: str, args: str, next_row: Optional[str]
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
     ) -> Tuple[str, str]:
         # replace objdump's syntax of pointer accesses with the equivilant in AT&T syntax for readability
         return mnemonic, re.sub(
@@ -2835,7 +2848,7 @@ def process(dump: str, config: Config) -> List[Line]:
         args = row_parts[1].strip() if len(row_parts) >= 2 else ""
 
         next_line = lines[i] if i < len(lines) else None
-        mnemonic, args = processor.pre_process(mnemonic, args, next_line)
+        mnemonic, args = processor.pre_process(mnemonic, args, next_line, comment)
         row = mnemonic + "\t" + args.replace("\t", "  ")
 
         addr = ""
