@@ -1741,7 +1741,7 @@ class AsmProcessorPPC(AsmProcessor):
         ):
             # if the mnemonic is bl and the comment doesn't match
             # <.text+0x...> replace the args with the contents of the comment
-            if re.search(r"<.+\+0x[0-9a-fA-F]+>", comment) == None:
+            if re.search(r"<.+\+0x[0-9a-fA-F]+>", comment) is None:
                 args = comment[1:-1]
 
         return mnemonic, args
