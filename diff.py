@@ -1733,8 +1733,7 @@ class AsmProcessorPPC(AsmProcessor):
 
         if (
             comment is not None
-            and next_row is not None
-            and re.search(self.config.arch.re_reloc, next_row) is None
+            and (next_row is None or re.search(self.config.arch.re_reloc, next_row) is None)
             and mnemonic == "bl"
         ):
             # if the mnemonic is bl and the comment doesn't match
