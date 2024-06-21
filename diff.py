@@ -1924,9 +1924,7 @@ class AsmProcessorARM32(AsmProcessor):
     ) -> Tuple[str, str]:
         arg_parts = args.split()
         # Normalize instructions that omit the destination register.
-        if len(arg_parts) == 2 and any(
-            [insn in mnemonic for insn in ARM32_DEST_OPTIONAL]
-        ):
+        if len(arg_parts) == 2 and any(ins in mnemonic for ins in ARM32_DEST_OPTIONAL):
             arg_parts.insert(1, arg_parts[0])
             return mnemonic, " ".join(arg_parts)
         return mnemonic, args
