@@ -5,7 +5,10 @@ description = ""
 authors = ["Simon Lindholm <simon.lindholm10@gmail.com>"]
 license = "UNLICENSE"
 readme = "README.md"
-packages = [{ include = "diff.py" }]
+packages = [{ include = "asm_differ" }]
+
+[tool.poetry.scripts]
+asm-differ = "asm_differ.diff:main"
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -15,6 +18,10 @@ watchdog = "^4.0.1"
 levenshtein = "^0.25.0"
 cxxfilt = "^0.3.0"
 
+[tool.poetry.group.dev.dependencies]
+pre-commit = "*"
+black = "^24.4.2"
+mypy = "^1.10.0"
 
 [build-system]
 requires = ["poetry-core"]
