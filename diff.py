@@ -2870,6 +2870,12 @@ def process(dump: str, config: Config) -> List[Line]:
         while i < len(lines):
             reloc_row = lines[i]
             if re.search(arch.re_reloc, reloc_row):
+                if match := re.match("\s+([A-f0-9]+):\s+.*", reloc_row):
+                    reloc_line_num = int(match.group(1), 16)
+                    if reloc_line_num != line_num:
+                        i += 1
+                        continue
+
                 original, reloc_symbol = processor.process_reloc(reloc_row, original)
                 if reloc_symbol is not None:
                     symbol = reloc_symbol
