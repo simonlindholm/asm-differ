@@ -3702,10 +3702,12 @@ def debounced_fs_watch(
 
         def on_modified(self, ev: object) -> None:
             if isinstance(ev, watchdog.events.FileModifiedEvent):
+                assert isinstance(ev.src_path, str)
                 self.changed(ev.src_path)
 
         def on_moved(self, ev: object) -> None:
             if isinstance(ev, watchdog.events.FileMovedEvent):
+                assert isinstance(ev.dest_path, str)
                 self.changed(ev.dest_path)
 
         def should_notify(self, path: str) -> bool:
