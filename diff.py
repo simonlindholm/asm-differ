@@ -2996,12 +2996,9 @@ def field_matches_any_symbol(field: str, arch: ArchSettings) -> bool:
         return re.fullmatch((r"^@\d+$"), field) is not None
 
     if arch.name in MIPS_ARCH_NAMES:
-        # Check for MWCC literal symbols that begin with "@"
-
-        # "%hi(@20)" or "%lo(@20)"
-        literalRegex = re.fullmatch(r"%(?:hi|lo)\((@\d+)\)", field)
-
-        if literalRegex and "@" in literalRegex.group(1):
+        if re.fullmatch(r"%(?:hi|lo)\((@\d+)\)", field):
+            # Check for MWCC literal symbols that begin with "@"
+            # "%hi(@20)" or "%lo(@20)"
             return True
 
         return "." in field
