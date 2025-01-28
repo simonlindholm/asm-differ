@@ -2018,40 +2018,58 @@ class AsmProcessorAArch64(AsmProcessor):
         return row
 
 
-class AsmProcessorI686(AsmProcessor):
+class AsmProcessorX86(AsmProcessor):
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         if "WRTSEG" in row:  # ignore WRTSEG (watcom)
             return prev, None
         repl = row.split()[-1]
         mnemonic, args = prev.split(maxsplit=1)
         offset = False
+        addr_imm = None
 
         # Calls
+
+        # Example lcall $0x0, $0x00
+        if "lcall" in mnemonic:
+            addr_imm = re.search(r".*", args)
+
         # Example call a2f
         # Example call *0
         # Example jmp  64
-        if mnemonic in I686_BRANCH_INSTRUCTIONS:
+        elif mnemonic in X86_BRANCH_INSTRUCTIONS:
             addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
 
         # Direct use of reloc
+        # Match 0x0 part to replace
+
+        # Example %edi,0
+        # Example movb $0x0,0x0
+        if not addr_imm:
+            addr_imm = re.search(r"(?:0x)?0+$", args)
+
+        # Example movb $0x0,0x0(%si)
+        if not addr_imm:
+            addr_imm = re.search(r"(?<=,)0x0+(?=\(.*\))", args)
+
         # Example 0x0,0x8(%edi)
         # Example 0x0,%edi
         # Example *0x0(,%edx,4)
-        # Example %edi,0
-        # Example movb $0x0,0x0
         # Example $0x0,0x4(%edi)
-        # Match 0x0 part to replace
-        else:
-            addr_imm = re.search(r"(?:0x)?0+$", args)
-
         if not addr_imm:
             addr_imm = re.search(r"(^\$?|(?<=\*))0x0", args)
 
         # Offset value
+
+        # Example movb $0x0,0x4
+        # Example movb $0x0,0x4(%si)
+        if not addr_imm:
+            addr_imm = re.search(r"(?<=,)0x[0-9a-f]+", args)
+            offset = True
+
         # Example 0x4,%eax
         # Example $0x4,%eax
         if not addr_imm:
-            addr_imm = re.search(r"(^|(?<=\*)|(?<=\$))0x[0-9a-f]+", args)
+            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))0x[0-9a-f]+", args)
             offset = True
 
         if not addr_imm:
@@ -2082,8 +2100,13 @@ class AsmProcessorI686(AsmProcessor):
                 repl = repl.split("+")[0]
         elif "DISP32" in row:
             pass
+        elif "OFF16" in row:
+            pass
         elif "OFF32" in row:
             pass
+        elif "OFFPC16" in row:
+            if "+" in repl:
+                repl = repl.split("+")[0]
         elif "OFFPC32" in row:
             if "+" in repl:
                 repl = repl.split("+")[0]
@@ -2099,6 +2122,11 @@ class AsmProcessorI686(AsmProcessor):
             repl = f"%got({repl})"
         elif "R_386_32PLT" in row:
             repl = f"%plt({repl})"
+        elif "lcall" in mnemonic:
+            if "+" in repl:
+                repl = repl.split("+")[0]
+        elif "SEG" in row:
+            pass
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
@@ -2304,8 +2332,9 @@ PPC_BRANCH_INSTRUCTIONS = {
     "bns-",
 }
 
-I686_BRANCH_INSTRUCTIONS = {
+X86_BRANCH_INSTRUCTIONS = {
     "call",
+    "lcall",
     "jmp",
     "ljmp",
     "ja",
@@ -2521,8 +2550,8 @@ PPC_SETTINGS = ArchSettings(
     proc=AsmProcessorPPC,
 )
 
-I686_SETTINGS = ArchSettings(
-    name="i686",
+X86_SETTINGS = ArchSettings(
+    name="x86",
     re_int=re.compile(r"[0-9]+"),
     re_comment=re.compile(r"<.*>"),
     # Includes:
@@ -2538,14 +2567,20 @@ I686_SETTINGS = ArchSettings(
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
     re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)|([\?$_][^ \t,]+)"),
-    re_reloc=re.compile(r"R_386_|dir32|DISP32|WRTSEG|OFF32|OFFPC32"),
+    re_reloc=re.compile(
+        r"R_386_|dir32|DISP32|WRTSEG|OFF32|OFFPC32|OFF16|OFFPC16|SEG|:\s+3\s"
+    ),
     # The x86 architecture has a variable instruction length. The raw bytes of
     # an instruction as displayed by objdump can line wrap if it's long enough.
     # This destroys the objdump output processor logic, so we avoid this.
-    arch_flags=["-m", "i386", "--no-show-raw-insn"],
-    branch_instructions=I686_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=I686_BRANCH_INSTRUCTIONS.union({"mov"}),
-    proc=AsmProcessorI686,
+    arch_flags=["--no-show-raw-insn"],
+    branch_instructions=X86_BRANCH_INSTRUCTIONS,
+    instructions_with_address_immediates=X86_BRANCH_INSTRUCTIONS.union({"mov"}),
+    proc=AsmProcessorX86,
+)
+
+I686_SETTINGS = replace(
+    X86_SETTINGS, name="i686", arch_flags=["-m", "i386", "--no-show-raw-insn"]
 )
 
 SH2_SETTINGS = ArchSettings(
@@ -2623,6 +2658,7 @@ ARCH_SETTINGS = [
     ARMEL_SETTINGS,
     AARCH64_SETTINGS,
     PPC_SETTINGS,
+    X86_SETTINGS,
     I686_SETTINGS,
     SH2_SETTINGS,
     SH4_SETTINGS,
@@ -2817,7 +2853,7 @@ def process(dump: str, config: Config) -> List[Line]:
         line_num = eval_line_num(line_num_str.strip())
 
         # TODO: use --no-show-raw-insn for all arches
-        if arch.name == "i686" or arch.name == "aarch64":
+        if "--no-show-raw-insn" in arch.arch_flags:
             row = "\t".join(tabs[1:])
         else:
             row = "\t".join(tabs[2:])
