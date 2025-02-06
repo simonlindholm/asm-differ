@@ -2122,7 +2122,7 @@ class AsmProcessorX86(AsmProcessor):
             repl = f"%got({repl})"
         elif "R_386_32PLT" in row:
             repl = f"%plt({repl})"
-        elif "lcall" in mnemonic:
+        elif "FAR16" in row:
             if "+" in repl:
                 repl = repl.split("+")[0]
         elif "SEG" in row:
@@ -2334,7 +2334,6 @@ PPC_BRANCH_INSTRUCTIONS = {
 
 X86_BRANCH_INSTRUCTIONS = {
     "call",
-    "lcall",
     "jmp",
     "ljmp",
     "ja",
@@ -2568,7 +2567,7 @@ X86_SETTINGS = ArchSettings(
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
     re_imm=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)|([\?$_][^ \t,]+)"),
     re_reloc=re.compile(
-        r"R_386_|dir32|DISP32|WRTSEG|OFF32|OFFPC32|OFF16|OFFPC16|SEG|:\s+3\s"
+        r"R_386_|dir32|DISP32|WRTSEG|OFF32|OFFPC32|OFF16|OFFPC16|SEG|FAR16"
     ),
     # The x86 architecture has a variable instruction length. The raw bytes of
     # an instruction as displayed by objdump can line wrap if it's long enough.
