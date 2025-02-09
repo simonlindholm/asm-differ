@@ -1810,7 +1810,9 @@ ARM32_JUMP_TABLE_START = r"add\s+pc,\s*r"
 ARM32_JUMP_TABLE_ENTRY_PATTERN = r"(?:(\w+):\s+([0-9a-f]+)\s+)?([\w\.]+)\s+([\w,\ ]+)"
 
 # Example: "ldr r4, [pc, #56]    ; (4c <AddCoins+0x4c>)"
-ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*[;@]\s*)(\([a-fA-F0-9]+.*\))"
+ARM32_LOAD_POOL_PATTERN = (
+    r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*[;@]\s*)(\([a-fA-F0-9]+.*\))"
+)
 
 
 class AsmProcessorARM32(AsmProcessor):
