@@ -1810,7 +1810,7 @@ ARM32_JUMP_TABLE_START = r"add\s+pc,\s*r"
 ARM32_JUMP_TABLE_ENTRY_PATTERN = r"(?:(\w+):\s+([0-9a-f]+)\s+)?([\w\.]+)\s+([\w,\ ]+)"
 
 # Example: "ldr r4, [pc, #56]    ; (4c <AddCoins+0x4c>)"
-ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*;\s*)(\([a-fA-F0-9]+.*\))"
+ARM32_LOAD_POOL_PATTERN = r"(ldr\s+r([0-9]|1[0-3]),\s+\[pc,.*[;@]\s*)(\([a-fA-F0-9]+.*\))"
 
 
 class AsmProcessorARM32(AsmProcessor):
@@ -1910,6 +1910,14 @@ class AsmProcessorARM32(AsmProcessor):
             # Don't crash on R_ARM_ABS32 relocations incorrectly applied to code.
             # (We may want to do something more fancy here that actually shows the
             # related symbol, but this serves as a stop-gap.)
+            if not prev.strip():
+                # More recent objdump doesn't seem to be emitting .word? Or maybe
+                # I'm just looking at ELFs without proper STT_OBJECT markers.
+                # In any case, this case seems safe enough to handle. The ELF
+                # I was looking at also uses RELA relocations, so we don't even
+                # need to parse the underlying bytes from the previous row.
+                sym = row.split()[-1]
+                return ".word " + sym, sym
             return prev, None
         before, imm, after = parse_relocated_line(prev)
         repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
@@ -1959,9 +1967,12 @@ class AsmProcessorARM32(AsmProcessor):
 
             # Add data symbol and its address to the line.
             line_original = lines_by_line_number[line.data_pool_addr].original
-            value = line_original.split()[1]
             addr = "{:x}".format(line.data_pool_addr)
-            line.original = line.normalized_original + f"={value} ({addr})"
+            if line_original.strip():
+                value = line_original.split()[1]
+                line.original = line.normalized_original + f"={value} ({addr})"
+            else:
+                line.original = line.normalized_original + f"=? ({addr})"
 
     def post_process(self, lines: List["Line"]) -> None:
         self._post_process_jump_tables(lines)
