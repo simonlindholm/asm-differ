@@ -2074,6 +2074,11 @@ class AsmProcessorX86(AsmProcessor):
         # Offset value
 
         # Example movb $0x0,0x4
+        # Example %edi,4
+        if not addr_imm:
+            addr_imm = re.search(r"(?:0x)?[0-9a-f]+$", args)
+            offset = True
+
         # Example movb $0x0,0x4(%si)
         if not addr_imm:
             addr_imm = re.search(r"(?<=,)0x[0-9a-f]+", args)
@@ -2924,6 +2929,14 @@ def process(dump: str, config: Config) -> List[Line]:
             else:
                 break
             i += 1
+
+        # Example call 0 <func_name>
+        if arch.name is "x86" and mnemonic == "call" and comment and symbol is None:
+            addr_imm = re.search(r"(?:0x)?0+$", original)
+            if addr_imm is not None:
+                start, end = addr_imm.span()
+                symbol = comment[1 : len(comment) - 1]
+                original = original[:start] + symbol
 
         is_text_relative_j = False
         if (
