@@ -2080,14 +2080,14 @@ class AsmProcessorX86(AsmProcessor):
 
         # Example movb $0x0,0x0(%si)
         if not addr_imm:
-            addr_imm = re.search(r"(?<=,)0x0+(?=\(.*\))", args)
+            addr_imm = re.search(r"(?<=,)(?:0x)?0+(?=\(.*\))", args)
 
         # Example 0x0,0x8(%edi)
         # Example 0x0,%edi
         # Example *0x0(,%edx,4)
         # Example $0x0,0x4(%edi)
         if not addr_imm:
-            addr_imm = re.search(r"(^\$?|(?<=\*))0x0", args)
+            addr_imm = re.search(r"(^\$?|(?<=\*))(?:0x)?0", args)
 
         # Offset value
 
@@ -2099,17 +2099,19 @@ class AsmProcessorX86(AsmProcessor):
 
         # Example movb $0x0,0x4(%si)
         if not addr_imm:
-            addr_imm = re.search(r"(?<=,)0x[0-9a-f]+", args)
+            addr_imm = re.search(r"(?<=,)(?:0x)?[0-9a-f]+", args)
             offset = True
 
         # Example 0x4,%eax
         # Example $0x4,%eax
         if not addr_imm:
-            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))0x[0-9a-f]+", args)
+            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))(?:0x)?[0-9a-f]+", args)
             offset = True
 
         if not addr_imm:
-            addr_imm = re.search(r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))0x[0-9a-f]+", args)
+            addr_imm = re.search(
+                r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))(?:0x)?[0-9a-f]+", args
+            )
             offset = True
 
         if not addr_imm:
