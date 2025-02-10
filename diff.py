@@ -2032,6 +2032,24 @@ class AsmProcessorAArch64(AsmProcessor):
 
 
 class AsmProcessorX86(AsmProcessor):
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
+    ) -> Tuple[str, str]:
+        if (
+            comment is not None
+            and (
+                next_row is None
+                or re.search(self.config.arch.re_reloc, next_row) is None
+            )
+            and mnemonic == "call"
+        ):
+            # if the mnemonic is call and the comment doesn't match
+            # <.text+0x...> replace the args with the contents of the comment
+            if re.search(r"<.+\+0x[0-9a-fA-F]+>", comment) is None:
+                args = comment[1:-1]
+
+        return mnemonic, args
+
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         if "WRTSEG" in row:  # ignore WRTSEG (watcom)
             return prev, None
@@ -2049,7 +2067,7 @@ class AsmProcessorX86(AsmProcessor):
         # Example call a2f
         # Example call *0
         # Example jmp  64
-        elif mnemonic in X86_BRANCH_INSTRUCTIONS:
+        elif mnemonic in X86_BRANCH_INSTRUCTIONS or "call" in mnemonic:
             addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
 
         # Direct use of reloc
@@ -2351,7 +2369,6 @@ PPC_BRANCH_INSTRUCTIONS = {
 }
 
 X86_BRANCH_INSTRUCTIONS = {
-    "call",
     "jmp",
     "ljmp",
     "ja",
@@ -2929,14 +2946,6 @@ def process(dump: str, config: Config) -> List[Line]:
             else:
                 break
             i += 1
-
-        # Example call 0 <func_name>
-        if arch.name is "x86" and mnemonic == "call" and comment and symbol is None:
-            addr_imm = re.search(r"(?:0x)?0+$", original)
-            if addr_imm is not None:
-                start, end = addr_imm.span()
-                symbol = comment[1 : len(comment) - 1]
-                original = original[:start] + symbol
 
         is_text_relative_j = False
         if (
