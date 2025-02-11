@@ -2113,23 +2113,23 @@ class AsmProcessorX86(AsmProcessor):
         # Example movb $0x0,0x4
         # Example %edi,4
         if not addr_imm:
-            addr_imm = re.search(r"(?:0x)?[0-9a-f]+$", args)
+            addr_imm = re.search(r"(?:-)?(?:0x)?[0-9a-f]+$", args)
             offset = True
 
         # Example movb $0x0,0x4(%si)
         if not addr_imm:
-            addr_imm = re.search(r"(?<=,)(?:0x)?[0-9a-f]+", args)
+            addr_imm = re.search(r"(?<=,)(?:-)?(?:0x)?[0-9a-f]+", args)
             offset = True
 
         # Example 0x4,%eax
         # Example $0x4,%eax
         if not addr_imm:
-            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))(?:0x)?[0-9a-f]+", args)
+            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))(?:-)?(?:0x)?[0-9a-f]+", args)
             offset = True
 
         if not addr_imm:
             addr_imm = re.search(
-                r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))(?:0x)?[0-9a-f]+", args
+                r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))(?:-)?(?:0x)?[0-9a-f]+", args
             )
             offset = True
 
@@ -2191,7 +2191,10 @@ class AsmProcessorX86(AsmProcessor):
             of = addr_imm.group()
             if of[0] == "$":
                 of = of[1:]
-            repl = f"{repl}+{of}"
+            if of[0] == "-":
+                repl = f"{repl}{of}"
+            else:
+                repl = f"{repl}+{of}"
 
         return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
 
