@@ -2032,6 +2032,24 @@ class AsmProcessorAArch64(AsmProcessor):
 
 
 class AsmProcessorX86(AsmProcessor):
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
+    ) -> Tuple[str, str]:
+        if (
+            comment is not None
+            and (
+                next_row is None
+                or re.search(self.config.arch.re_reloc, next_row) is None
+            )
+            and mnemonic == "call"
+        ):
+            # if the mnemonic is call and the comment doesn't match
+            # <.text+0x...> replace the args with the contents of the comment
+            if re.search(r"<.+\+0x[0-9a-fA-F]+>", comment) is None:
+                args = comment[1:-1]
+
+        return mnemonic, args
+
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         if "WRTSEG" in row:  # ignore WRTSEG (watcom)
             return prev, None
@@ -2049,7 +2067,7 @@ class AsmProcessorX86(AsmProcessor):
         # Example call a2f
         # Example call *0
         # Example jmp  64
-        elif mnemonic in X86_BRANCH_INSTRUCTIONS:
+        elif mnemonic in X86_BRANCH_INSTRUCTIONS or "call" in mnemonic:
             addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
 
         # Direct use of reloc
@@ -2062,14 +2080,14 @@ class AsmProcessorX86(AsmProcessor):
 
         # Example movb $0x0,0x0(%si)
         if not addr_imm:
-            addr_imm = re.search(r"(?<=,)0x0+(?=\(.*\))", args)
+            addr_imm = re.search(r"(?<=,)(?:0x)?0+(?=\(.*\))", args)
 
         # Example 0x0,0x8(%edi)
         # Example 0x0,%edi
         # Example *0x0(,%edx,4)
         # Example $0x0,0x4(%edi)
         if not addr_imm:
-            addr_imm = re.search(r"(^\$?|(?<=\*))0x0", args)
+            addr_imm = re.search(r"(^\$?|(?<=\*))(?:0x)?0(?!x)", args)
 
         # Offset value
 
@@ -2081,17 +2099,19 @@ class AsmProcessorX86(AsmProcessor):
 
         # Example movb $0x0,0x4(%si)
         if not addr_imm:
-            addr_imm = re.search(r"(?<=,)0x[0-9a-f]+", args)
+            addr_imm = re.search(r"(?<=,)(?:0x)?[0-9a-f]+", args)
             offset = True
 
         # Example 0x4,%eax
         # Example $0x4,%eax
         if not addr_imm:
-            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))0x[0-9a-f]+", args)
+            addr_imm = re.search(r"(^|(?<=\*)|(?:\$))(?:0x)?[0-9a-f]+", args)
             offset = True
 
         if not addr_imm:
-            addr_imm = re.search(r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))0x[0-9a-f]+", args)
+            addr_imm = re.search(
+                r"(^|(?<=\*)|(?<=\%[fgdecs]s\:))(?:0x)?[0-9a-f]+", args
+            )
             offset = True
 
         if not addr_imm:
@@ -2149,7 +2169,10 @@ class AsmProcessorX86(AsmProcessor):
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
         if offset:
-            repl = f"{repl}+{addr_imm.group()}"
+            of = addr_imm.group()
+            if of[0] == "$":
+                of = of[1:]
+            repl = f"{repl}+{of}"
 
         return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
 
@@ -2351,7 +2374,6 @@ PPC_BRANCH_INSTRUCTIONS = {
 }
 
 X86_BRANCH_INSTRUCTIONS = {
-    "call",
     "jmp",
     "ljmp",
     "ja",
@@ -2592,7 +2614,7 @@ X86_SETTINGS = ArchSettings(
     # This destroys the objdump output processor logic, so we avoid this.
     arch_flags=["--no-show-raw-insn"],
     branch_instructions=X86_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=X86_BRANCH_INSTRUCTIONS.union({"mov"}),
+    instructions_with_address_immediates=X86_BRANCH_INSTRUCTIONS.union({"mov", "call"}),
     proc=AsmProcessorX86,
 )
 
@@ -2929,14 +2951,6 @@ def process(dump: str, config: Config) -> List[Line]:
             else:
                 break
             i += 1
-
-        # Example call 0 <func_name>
-        if arch.name is "x86" and mnemonic == "call" and comment and symbol is None:
-            addr_imm = re.search(r"(?:0x)?0+$", original)
-            if addr_imm is not None:
-                start, end = addr_imm.span()
-                symbol = comment[1 : len(comment) - 1]
-                original = original[:start] + symbol
 
         is_text_relative_j = False
         if (
