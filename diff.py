@@ -2169,7 +2169,10 @@ class AsmProcessorX86(AsmProcessor):
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
         if offset:
-            repl = f"{repl}+{addr_imm.group()}"
+            of = addr_imm.group()
+            if of[0] == "$":
+                of = of[1:]
+            repl = f"{repl}+{of}"
 
         return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
 
