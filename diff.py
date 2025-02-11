@@ -2087,7 +2087,7 @@ class AsmProcessorX86(AsmProcessor):
         # Example *0x0(,%edx,4)
         # Example $0x0,0x4(%edi)
         if not addr_imm:
-            addr_imm = re.search(r"(^\$?|(?<=\*))(?:0x)?0", args)
+            addr_imm = re.search(r"(^\$?|(?<=\*))(?:0x)?0(?!x)", args)
 
         # Offset value
 
@@ -2611,7 +2611,7 @@ X86_SETTINGS = ArchSettings(
     # This destroys the objdump output processor logic, so we avoid this.
     arch_flags=["--no-show-raw-insn"],
     branch_instructions=X86_BRANCH_INSTRUCTIONS,
-    instructions_with_address_immediates=X86_BRANCH_INSTRUCTIONS.union({"mov"}),
+    instructions_with_address_immediates=X86_BRANCH_INSTRUCTIONS.union({"mov", "call"}),
     proc=AsmProcessorX86,
 )
 
