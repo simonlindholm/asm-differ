@@ -2051,8 +2051,27 @@ class AsmProcessorX86(AsmProcessor):
         return mnemonic, args
 
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
-        if "WRTSEG" in row:  # ignore WRTSEG (watcom)
+        # ignore WRTSEG + FP 16-bit fixup
+        ignore = [
+            "WRTSEG",
+            "FIWRQQ",
+            "FIDRQQ",
+            "FIERQQ",
+            "FICRQQ",
+            "FISRQQ",
+            "FIARQQ",
+            "FIFRQQ",
+            "FIGRQQ",
+            "FJCRQQ",
+            "FJSRQQ",
+            "FJARQQ",
+            "FJFRQQ",
+            "FJGRQQ",
+        ]
+
+        if any(x in row for x in ignore):
             return prev, None
+
         repl = row.split()[-1]
         mnemonic, args = prev.split(maxsplit=1)
         offset = False
