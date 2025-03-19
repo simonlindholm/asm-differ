@@ -2623,7 +2623,7 @@ X86_SETTINGS = ArchSettings(
     #   - MMX, SSE vector registers
     #   - cursed registers: eal ebl ebh edl edh...
     re_reg=re.compile(
-        r"\%?\b(e?(([sd]i|[sb]p)l?|[abcd][xhl])|[cdesfg]s|cr[0-7]|x?mm[0-7]|st)\b"
+        r"\%?\b(e?(?:(?:[sd]i|[sb]p)l?|[abcd][xhl])|[cdesfg]s|cr[0-7]|x?mm[0-7]|st)\b"
     ),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
     re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
