@@ -1364,7 +1364,7 @@ def parse_elf_rodata_references(
     data: bytes, config: Config
 ) -> List[Tuple[int, int, str]]:
     e_ident = data[:16]
-    if e_ident[:4] != b"\x7FELF":
+    if e_ident[:4] != b"\x7fELF":
         return []
 
     SHT_SYMTAB = 2
@@ -2847,184 +2847,192 @@ def process(dump: str, config: Config) -> List[Line]:
         if not row:
             continue
 
-        # Check if the currrent line has "OFFSET <SYMBOL>:"
-        function_label_match = re.match(r"^[0-9a-f]+ <(.*)>:$", row)
+        try:
+            # Check if the currrent line has "OFFSET <SYMBOL>:"
+            function_label_match = re.match(r"^[0-9a-f]+ <(.*)>:$", row)
 
-        if function_label_match:
-            function_name = function_label_match.groups()[0] + ":"
+            if function_label_match:
+                function_name = function_label_match.groups()[0] + ":"
 
-            if config.diff_function_symbols:
-                # If diffing function symbols is enabled
-                # Add the symbol to the diff output
+                if config.diff_function_symbols:
+                    # If diffing function symbols is enabled
+                    # Add the symbol to the diff output
 
+                    output.append(
+                        Line(
+                            mnemonic="<label>",
+                            diff_row=function_name,
+                            original=function_name,
+                            normalized_original=function_name,
+                            scorable_line="label " + function_name,
+                        )
+                    )
+                continue
+
+            if row.startswith("DATAREF"):
+                parts = row.split(" ", 3)
+                text_offset = int(parts[1])
+                from_offset = int(parts[2])
+                from_section = parts[3]
+                data_refs[text_offset][from_section].append(from_offset)
+                continue
+
+            if config.diff_obj and num_instr >= config.max_function_size_lines:
                 output.append(
                     Line(
-                        mnemonic="<label>",
-                        diff_row=function_name,
-                        original=function_name,
-                        normalized_original=function_name,
-                        scorable_line="label " + function_name,
+                        mnemonic="...",
+                        diff_row="...",
+                        original="...",
+                        normalized_original="...",
+                        scorable_line="...",
                     )
                 )
-            continue
-
-        if row.startswith("DATAREF"):
-            parts = row.split(" ", 3)
-            text_offset = int(parts[1])
-            from_offset = int(parts[2])
-            from_section = parts[3]
-            data_refs[text_offset][from_section].append(from_offset)
-            continue
-
-        if config.diff_obj and num_instr >= config.max_function_size_lines:
-            output.append(
-                Line(
-                    mnemonic="...",
-                    diff_row="...",
-                    original="...",
-                    normalized_original="...",
-                    scorable_line="...",
-                )
-            )
-            break
-
-        if not re.match(r"^\s+[0-9a-f]+:\s+", row):
-            # This regex is conservative, and assumes the file path does not contain "weird"
-            # characters like tabs or angle brackets.
-            if re.match(r"^[^ \t<>][^\t<>]*:[0-9]+( \(discriminator [0-9]+\))?$", row):
-                source_filename, _, tail = row.rpartition(":")
-                source_line_num = int(tail.partition(" ")[0])
-            source_lines.append(row)
-            continue
-
-        # If the instructions loads a data pool symbol, extract the address of
-        # the symbol.
-        data_pool_addr = None
-        pool_match = re.search(ARM32_LOAD_POOL_PATTERN, row)
-        if pool_match:
-            offset = pool_match.group(3).split(" ")[0][1:]
-            data_pool_addr = int(offset, 16)
-
-        m_comment = re.search(arch.re_comment, row)
-        comment = m_comment[0] if m_comment else None
-        row = re.sub(arch.re_comment, "", row)
-        line_num_str = row.split(":")[0]
-        row = row.rstrip()
-        tabs = row.split("\t")
-        line_num = eval_line_num(line_num_str.strip())
-
-        # TODO: use --no-show-raw-insn for all arches
-        if "--no-show-raw-insn" in arch.arch_flags:
-            row = "\t".join(tabs[1:])
-        else:
-            row = "\t".join(tabs[2:])
-
-        if line_num in data_refs:
-            refs = data_refs[line_num]
-            ref_str = "; ".join(
-                section_name + "+" + ",".join(hex(off) for off in offs)
-                for section_name, offs in refs.items()
-            )
-            output.append(
-                Line(
-                    mnemonic="<data-ref>",
-                    diff_row="<data-ref>",
-                    original=ref_str,
-                    normalized_original=ref_str,
-                    scorable_line="<data-ref>",
-                )
-            )
-
-        if "\t" in row:
-            row_parts = row.split("\t", 1)
-        else:
-            # powerpc-eabi-objdump doesn't use tabs
-            row_parts = [part.lstrip() for part in row.split(" ", 1)]
-
-        mnemonic = row_parts[0].strip()
-        args = row_parts[1].strip() if len(row_parts) >= 2 else ""
-
-        next_line = lines[i] if i < len(lines) else None
-        mnemonic, args = processor.pre_process(mnemonic, args, next_line, comment)
-        row = mnemonic + "\t" + args.replace("\t", "  ")
-
-        addr = ""
-        if mnemonic in arch.instructions_with_address_immediates:
-            row, addr = split_off_address(row)
-            # objdump prefixes addresses with 0x/-0x if they don't resolve to some
-            # symbol + offset. Strip that.
-            addr = addr.replace("0x", "")
-
-        row = re.sub(arch.re_int, lambda m: hexify_int(row, m, arch), row)
-        row += addr
-
-        # Let 'original' be 'row' with relocations applied, while we continue
-        # transforming 'row' into a coarser version that ignores registers and
-        # immediates.
-        original = row
-
-        symbol = None
-        while i < len(lines):
-            reloc_row = lines[i]
-            if re.search(arch.re_reloc, reloc_row):
-                original, reloc_symbol = processor.process_reloc(reloc_row, original)
-                if reloc_symbol is not None:
-                    symbol = reloc_symbol
-            else:
                 break
-            i += 1
 
-        is_text_relative_j = False
-        if (
-            arch.name in MIPS_ARCH_NAMES
-            and mnemonic == "j"
-            and symbol is not None
-            and symbol.startswith(".text")
-        ):
-            symbol = None
-            original = row
-            is_text_relative_j = True
+            if not re.match(r"^\s+[0-9a-f]+:\s+", row):
+                # This regex is conservative, and assumes the file path does not contain "weird"
+                # characters like tabs or angle brackets.
+                if re.match(
+                    r"^[^ \t<>][^\t<>]*:[0-9]+( \(discriminator [0-9]+\))?$", row
+                ):
+                    source_filename, _, tail = row.rpartition(":")
+                    source_line_num = int(tail.partition(" ")[0])
+                source_lines.append(row)
+                continue
 
-        normalized_original = processor.normalize(mnemonic, original)
+            # If the instructions loads a data pool symbol, extract the address of
+            # the symbol.
+            data_pool_addr = None
+            pool_match = re.search(ARM32_LOAD_POOL_PATTERN, row)
+            if pool_match:
+                offset = pool_match.group(3).split(" ")[0][1:]
+                data_pool_addr = int(offset, 16)
 
-        scorable_line = normalized_original
-        if not config.score_stack_differences:
-            scorable_line = re.sub(arch.re_sprel, "addr(sp)", scorable_line)
+            m_comment = re.search(arch.re_comment, row)
+            comment = m_comment[0] if m_comment else None
+            row = re.sub(arch.re_comment, "", row)
+            line_num_str = row.split(":")[0]
+            row = row.rstrip()
+            tabs = row.split("\t")
+            line_num = eval_line_num(line_num_str.strip())
 
-        row = re.sub(arch.re_reg, "<reg>", row)
-        row = re.sub(arch.re_sprel, "addr(sp)", row)
-        if mnemonic in arch.instructions_with_address_immediates:
-            row = row.strip()
-            row, _ = split_off_address(row)
-            row += "<imm>"
-        else:
-            row = normalize_imms(row, arch)
-
-        branch_target = None
-        if (
-            mnemonic in arch.branch_instructions or is_text_relative_j
-        ) and symbol is None:
-            # Here, we try to match a wide variety of addressing mode:
-            # - Global deref with offset: *0x1234(%eax)
-            # - Global deref: *0x1234
-            # - Register deref: *(%eax)
-            #
-            # We first have a single regex to match register deref and global
-            # deref with offset
-            x86_longjmp = re.search(r"\*(.*)\(", args)
-            if x86_longjmp:
-                capture = x86_longjmp.group(1)
-                if capture != "" and capture.isnumeric():
-                    branch_target = int(capture, 16)
+            # TODO: use --no-show-raw-insn for all arches
+            if "--no-show-raw-insn" in arch.arch_flags:
+                row = "\t".join(tabs[1:])
             else:
-                # Then, we try to match the global deref in a separate regex.
-                x86_longjmp = re.search(r"\*(.*)", args)
+                row = "\t".join(tabs[2:])
+
+            if line_num in data_refs:
+                refs = data_refs[line_num]
+                ref_str = "; ".join(
+                    section_name + "+" + ",".join(hex(off) for off in offs)
+                    for section_name, offs in refs.items()
+                )
+                output.append(
+                    Line(
+                        mnemonic="<data-ref>",
+                        diff_row="<data-ref>",
+                        original=ref_str,
+                        normalized_original=ref_str,
+                        scorable_line="<data-ref>",
+                    )
+                )
+
+            if "\t" in row:
+                row_parts = row.split("\t", 1)
+            else:
+                # powerpc-eabi-objdump doesn't use tabs
+                row_parts = [part.lstrip() for part in row.split(" ", 1)]
+
+            mnemonic = row_parts[0].strip()
+            args = row_parts[1].strip() if len(row_parts) >= 2 else ""
+
+            next_line = lines[i] if i < len(lines) else None
+            mnemonic, args = processor.pre_process(mnemonic, args, next_line, comment)
+            row = mnemonic + "\t" + args.replace("\t", "  ")
+
+            addr = ""
+            if mnemonic in arch.instructions_with_address_immediates:
+                row, addr = split_off_address(row)
+                # objdump prefixes addresses with 0x/-0x if they don't resolve to some
+                # symbol + offset. Strip that.
+                addr = addr.replace("0x", "")
+
+            row = re.sub(arch.re_int, lambda m: hexify_int(row, m, arch), row)
+            row += addr
+
+            # Let 'original' be 'row' with relocations applied, while we continue
+            # transforming 'row' into a coarser version that ignores registers and
+            # immediates.
+            original = row
+
+            symbol = None
+            while i < len(lines):
+                reloc_row = lines[i]
+                if re.search(arch.re_reloc, reloc_row):
+                    original, reloc_symbol = processor.process_reloc(
+                        reloc_row, original
+                    )
+                    if reloc_symbol is not None:
+                        symbol = reloc_symbol
+                else:
+                    break
+                i += 1
+
+            is_text_relative_j = False
+            if (
+                arch.name in MIPS_ARCH_NAMES
+                and mnemonic == "j"
+                and symbol is not None
+                and symbol.startswith(".text")
+            ):
+                symbol = None
+                original = row
+                is_text_relative_j = True
+
+            normalized_original = processor.normalize(mnemonic, original)
+
+            scorable_line = normalized_original
+            if not config.score_stack_differences:
+                scorable_line = re.sub(arch.re_sprel, "addr(sp)", scorable_line)
+
+            row = re.sub(arch.re_reg, "<reg>", row)
+            row = re.sub(arch.re_sprel, "addr(sp)", row)
+            if mnemonic in arch.instructions_with_address_immediates:
+                row = row.strip()
+                row, _ = split_off_address(row)
+                row += "<imm>"
+            else:
+                row = normalize_imms(row, arch)
+
+            branch_target = None
+            if (
+                mnemonic in arch.branch_instructions or is_text_relative_j
+            ) and symbol is None:
+                # Here, we try to match a wide variety of addressing mode:
+                # - Global deref with offset: *0x1234(%eax)
+                # - Global deref: *0x1234
+                # - Register deref: *(%eax)
+                #
+                # We first have a single regex to match register deref and global
+                # deref with offset
+                x86_longjmp = re.search(r"\*(.*)\(", args)
                 if x86_longjmp:
                     capture = x86_longjmp.group(1)
                     if capture != "" and capture.isnumeric():
                         branch_target = int(capture, 16)
                 else:
-                    branch_target = int(args.split(",")[-1], 16)
+                    # Then, we try to match the global deref in a separate regex.
+                    x86_longjmp = re.search(r"\*(.*)", args)
+                    if x86_longjmp:
+                        capture = x86_longjmp.group(1)
+                        if capture != "" and capture.isnumeric():
+                            branch_target = int(capture, 16)
+                    else:
+                        branch_target = int(args.split(",")[-1], 16)
+        except Exception as e:
+            # If we fail to parse the line, at least emit something rather than crashing.
+            original = str(e)
 
         output.append(
             Line(
