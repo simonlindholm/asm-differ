@@ -2217,7 +2217,7 @@ class AsmProcessorX86(AsmProcessor):
 
         jump_table_targets: List[str] = []  # target_label
 
-        labels: dict[str, int] = {}  # line number for each label
+        labels: Dict[str, int] = {}  # line number for each label
 
         was_previous_jumptable_entry: bool = False
 
@@ -2234,7 +2234,7 @@ class AsmProcessorX86(AsmProcessor):
                 # If a line begins with ".dword", it is a jumptable
                 was_previous_jumptable_entry = True
 
-                target_line_num: int | None
+                target_line_num: Union[int, None]
                 try:
                     target_line_num = lines[
                         labels[jump_table_target + ":"] + 1
