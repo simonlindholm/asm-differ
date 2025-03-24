@@ -3032,7 +3032,18 @@ def process(dump: str, config: Config) -> List[Line]:
                         branch_target = int(args.split(",")[-1], 16)
         except Exception as e:
             # If we fail to parse the line, at least emit something rather than crashing.
-            original = str(e)
+            output.append(
+                Line(
+                    mnemonic="ERROR",
+                    diff_row=row,
+                    original=str(e),
+                    normalized_original=str(e),
+                    scorable_line=str(e),
+                )
+            )
+            num_instr += 1
+            source_lines = []
+            continue
 
         output.append(
             Line(
