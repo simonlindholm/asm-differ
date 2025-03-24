@@ -2077,6 +2077,9 @@ class AsmProcessorX86(AsmProcessor):
         offset = False
         addr_imm = None
 
+        if prev == "add\t%al,(%eax)" and "dir32" in row:
+            return f".dword {row.split()[-1]}", repl
+        
         # Calls
 
         # Example lcall $0x0, $0x00
@@ -2200,6 +2203,64 @@ class AsmProcessorX86(AsmProcessor):
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         return mnemonic == "ret"
+
+    def _post_process_jump_tables(self, lines: List["Line"]) -> None:
+
+        # Handle jump tables produced by MSVC.
+        # MSVC jump table labels are in the format of "$L{NUM}"
+
+        # Removes extra "add\t%al,(%eax)" which correspond to an existing jumptable entry
+        # and adds branch arrows to the jump table entries
+
+        # This will have errors for multiple text sections as objdump (at least 2.38) doesn't emit
+        # the correct labels for sections that are not the first
+        
+        jump_table_targets: List[str] = [] # target_label
+
+        labels: dict[str, int] = {} # line number for each label
+
+        was_previous_jumptable_entry: bool = False
+
+        for index, line in enumerate(lines[:]):
+            if line.original.startswith(".dword"):
+
+                orig_jump_table_target: str = line.original.split(".dword")[1].strip()
+
+                # Remove "-0x..." from older objdump relocations
+                jump_table_target = re.sub(r"-0x[0-9a-f]+", "", orig_jump_table_target)
+
+                jump_table_targets.append(jump_table_target)
+
+                # If a line begins with ".dword", it is a jumptable
+                was_previous_jumptable_entry = True
+
+                target_line_num: int|None
+                try:
+                    target_line_num = lines[labels[jump_table_target + ":"] + 1].line_num
+                except:
+                    target_line_num = None
+                
+                if target_line_num:
+                    line.original = line.original.replace(
+                        orig_jump_table_target, 
+                        hex(target_line_num).replace("0x", "")
+                    )
+                    
+                    line.branch_target = target_line_num
+            elif was_previous_jumptable_entry == True:
+                # if the previous line was a jumptable and the current line is "add\t%al,(%eax)"
+                # this is the 2nd half of the previous jumptable entry
+                if line.original == "add\t%al,(%eax)":
+                    lines.remove(line)
+                
+                was_previous_jumptable_entry = False
+            elif line.mnemonic == "<label>" and line.original.startswith("$L"):
+                # If this is a label that is an MSVC jumptable label "$L..."
+                # add it to the labels list
+                labels[line.original] = lines.index(line)
+
+    def post_process(self, lines: List["Line"]) -> None:
+        self._post_process_jump_tables(lines)
 
 
 class AsmProcessorSH2(AsmProcessor):
