@@ -3039,6 +3039,7 @@ def process(dump: str, config: Config) -> List[Line]:
                     original=str(e),
                     normalized_original=str(e),
                     scorable_line=str(e),
+                    source_lines=source_lines,
                 )
             )
             num_instr += 1
