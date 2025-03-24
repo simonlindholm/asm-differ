@@ -2087,7 +2087,7 @@ class AsmProcessorX86(AsmProcessor):
         # Example call *0
         # Example jmp  64
         elif mnemonic in X86_BRANCH_INSTRUCTIONS or "call" in mnemonic:
-            addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+", args)
+            addr_imm = re.search(r"(^|(?<=\*)|(?<=\*\%cs\:))[0-9a-f]+(?!x)", args)
 
         # Direct use of reloc
         # Match 0x0 part to replace
