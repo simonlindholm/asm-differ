@@ -2079,7 +2079,7 @@ class AsmProcessorX86(AsmProcessor):
 
         if prev == "add\t%al,(%eax)" and "dir32" in row:
             return f".dword {row.split()[-1]}", repl
-        
+
         # Calls
 
         # Example lcall $0x0, $0x00
@@ -2214,10 +2214,10 @@ class AsmProcessorX86(AsmProcessor):
 
         # This will have errors for multiple text sections as objdump (at least 2.38) doesn't emit
         # the correct labels for sections that are not the first
-        
-        jump_table_targets: List[str] = [] # target_label
 
-        labels: dict[str, int] = {} # line number for each label
+        jump_table_targets: List[str] = []  # target_label
+
+        labels: dict[str, int] = {}  # line number for each label
 
         was_previous_jumptable_entry: bool = False
 
@@ -2234,25 +2234,26 @@ class AsmProcessorX86(AsmProcessor):
                 # If a line begins with ".dword", it is a jumptable
                 was_previous_jumptable_entry = True
 
-                target_line_num: int|None
+                target_line_num: int | None
                 try:
-                    target_line_num = lines[labels[jump_table_target + ":"] + 1].line_num
+                    target_line_num = lines[
+                        labels[jump_table_target + ":"] + 1
+                    ].line_num
                 except:
                     target_line_num = None
-                
+
                 if target_line_num:
                     line.original = line.original.replace(
-                        orig_jump_table_target, 
-                        hex(target_line_num).replace("0x", "")
+                        orig_jump_table_target, hex(target_line_num).replace("0x", "")
                     )
-                    
+
                     line.branch_target = target_line_num
             elif was_previous_jumptable_entry == True:
                 # if the previous line was a jumptable and the current line is "add\t%al,(%eax)"
                 # this is the 2nd half of the previous jumptable entry
                 if line.original == "add\t%al,(%eax)":
                     lines.remove(line)
-                
+
                 was_previous_jumptable_entry = False
             elif line.mnemonic == "<label>" and line.original.startswith("$L"):
                 # If this is a label that is an MSVC jumptable label "$L..."
