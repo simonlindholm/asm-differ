@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2023-2024 asm-differ contributors
+# SPDX-License-Identifier: Unlicense
+
 import unittest
 import diff
 import json
