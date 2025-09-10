@@ -948,6 +948,13 @@ class PythonFormatter(Formatter):
                 return []
             return [serialize_format(s, f) for s, f in text.segments]
 
+        def get_row_style(text: Text) -> Optional[str]:
+            for (_, f) in text.segments:
+                if isinstance(f, BasicFormat) and f in (BasicFormat.DIFF_ADD, BasicFormat.DIFF_CHANGE, BasicFormat.DIFF_REMOVE):
+                    row_style = f"{f.name.lower()}_row"
+                    return row_style
+            return None
+
         output: Dict[str, Any] = {}
         output["arch_str"] = self.arch_str
         output["header"] = {
@@ -990,6 +997,9 @@ class PythonFormatter(Formatter):
                         column["src_line"] = line.source_line_num
                 if line or column["text"]:
                     output_row[column_name] = column
+                row_style = get_row_style(text)
+                if row_style:
+                    output_row["style"] = row_style
             output_rows.append(output_row)
         output["rows"] = output_rows
         return output
