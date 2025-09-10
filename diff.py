@@ -949,8 +949,12 @@ class PythonFormatter(Formatter):
             return [serialize_format(s, f) for s, f in text.segments]
 
         def get_row_style(text: Text) -> Optional[str]:
-            for (_, f) in text.segments:
-                if isinstance(f, BasicFormat) and f in (BasicFormat.DIFF_ADD, BasicFormat.DIFF_CHANGE, BasicFormat.DIFF_REMOVE):
+            for _, f in text.segments:
+                if isinstance(f, BasicFormat) and f in (
+                    BasicFormat.DIFF_ADD,
+                    BasicFormat.DIFF_CHANGE,
+                    BasicFormat.DIFF_REMOVE,
+                ):
                     row_style = f"{f.name.lower()}_row"
                     return row_style
             return None
