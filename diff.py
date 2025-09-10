@@ -672,9 +672,11 @@ FormatFunction = Callable[[str], Format]
 
 class Text:
     segments: List[Tuple[str, Format]]
+    format: Format
 
     def __init__(self, line: str = "", f: Format = BasicFormat.NONE) -> None:
         self.segments = [(line, f)] if line else []
+        self.format = f
 
     def reformat(self, f: Format) -> "Text":
         return Text(self.plain(), f)
@@ -698,7 +700,7 @@ class Text:
     def __add__(self, other: Union["Text", str]) -> "Text":
         if isinstance(other, str):
             other = Text(other)
-        result = Text()
+        result = Text(f=self.format)
         # If two adjacent segments have the same format, merge their lines
         if (
             self.segments
@@ -949,14 +951,12 @@ class PythonFormatter(Formatter):
             return [serialize_format(s, f) for s, f in text.segments]
 
         def get_row_style(text: Text) -> Optional[str]:
-            for _, f in text.segments:
-                if isinstance(f, BasicFormat) and f in (
-                    BasicFormat.DIFF_ADD,
-                    BasicFormat.DIFF_CHANGE,
-                    BasicFormat.DIFF_REMOVE,
-                ):
-                    row_style = f"{f.name.lower()}_row"
-                    return row_style
+            if isinstance(text.format, BasicFormat) and text.format in (
+                BasicFormat.DIFF_ADD,
+                BasicFormat.DIFF_CHANGE,
+                BasicFormat.DIFF_REMOVE,
+            ):
+                return f"{text.format.name.lower()}_row"
             return None
 
         output: Dict[str, Any] = {}
