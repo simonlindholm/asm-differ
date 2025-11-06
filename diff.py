@@ -2226,7 +2226,7 @@ class AsmProcessorSH2(AsmProcessor):
     class ImmEntry:
         value: int
         is_long: bool
-        content: list[str] = field(default_factory=list)
+        content: List[str] = field(default_factory=list)
 
     @dataclass
     class JtblEntry:
@@ -2235,9 +2235,9 @@ class AsmProcessorSH2(AsmProcessor):
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
-        self._jtbls: dict[int, AsmProcessorSH2.JtblEntry] = {}
-        self._imms: dict[int, AsmProcessorSH2.ImmEntry] = {}
-        self._relocs: dict[int, str] = {}
+        self._jtbls: Dict[int, AsmProcessorSH2.JtblEntry] = {}
+        self._imms: Dict[int, AsmProcessorSH2.ImmEntry] = {}
+        self._relocs: Dict[int, str] = {}
 
     def preprocess_objdump(self, objdump: str) -> str:
         new_lines = []
@@ -2257,7 +2257,7 @@ class AsmProcessorSH2(AsmProcessor):
             addr = int(addr_match.group(2), 16) if addr_match else -1
 
             if addr in self._imms:
-                left = addr_match.group(1)
+                left = addr_match.group(1) if addr_match else ""
                 bytes_str = " ".join(self._imms[addr].content)
                 left += f"{bytes_str:<12}"
 
@@ -2293,7 +2293,7 @@ class AsmProcessorSH2(AsmProcessor):
     # Collects info on jtbls, imm loads and relocs so data mistakenly treated
     # as an instruction can be fixed, returns a new list of lines that should
     # make the fixup job a bit easier
-    def _collect_and_normalize(self, lines, is_be):
+    def _collect_and_normalize(self, lines: List[str], is_be: bool):
         # Catalog all relocs, done first just because there might relocs without
         # mov reference, so we can check for these and join them
         for i, line in enumerate(lines):
@@ -2318,6 +2318,7 @@ class AsmProcessorSH2(AsmProcessor):
             )
             addr = int(addr_match.group(2), 16) if addr_match else -1
             mnemonic = addr_match.group(4) if addr_match else ""
+            inst_bytes = addr_match.group(3) if addr_match else ""
 
             # Non-code line, leave alone
             if addr == -1:
@@ -2347,7 +2348,7 @@ class AsmProcessorSH2(AsmProcessor):
                     if self._imms[addr].is_long:
                         skip_next = True
 
-                str_bytes = addr_match.group(3).split()
+                str_bytes = inst_bytes.split()
                 self._imms[addr].content.extend(str_bytes)
                 continue
 
@@ -2361,13 +2362,13 @@ class AsmProcessorSH2(AsmProcessor):
 
                 base = self._jtbls[_addr].base
 
-                str_bytes = addr_match.group(3).split()
+                str_bytes = inst_bytes.split()
                 if is_be:
                     item = int(str_bytes[0] + str_bytes[1], 16)
                 else:
                     item = int(str_bytes[1] + str_bytes[0], 16)
 
-                entry = addr_match.group(1)
+                entry = addr_match.group(1) if addr_match else ""
                 entry += f".word 0x{item:04x} ! tgt 0x{base + item:x}"
                 norm_lines.append(entry)
                 continue
@@ -2410,18 +2411,19 @@ class AsmProcessorSH2(AsmProcessor):
             # Check for jumptables
             if mnemonic == "braf" or mnemonic == "jmp":
                 # search mova up to 4 instructions before
-                mov_lines = lines[i - 1: i - 5 : -1]
+                mov_lines = lines[i - 1 : i - 5 : -1]
                 jtbl_match = None
+                is_mova = False
+                jtbl_addr = 0
 
                 for mov_line in mov_lines:
                     jtbl_match = re.match(SH_POOL_PATTERN, mov_line)
-                    if jtbl_match:
+                    if jtbl_match is not None:
+                        is_mova = jtbl_match.group(2)
+                        jtbl_addr = int(jtbl_match.group(3), 16)
                         break
-                
-                is_mova = jtbl_match.group(2) == "a" if jtbl_match else False
-                if is_mova and addr not in self._relocs:
-                    jtbl_addr = int(jtbl_match.group(3), 16)
 
+                if is_mova and addr not in self._relocs:
                     # Remove from imm table if present
                     if jtbl_addr in self._imms:
                         del self._imms[jtbl_addr]
@@ -2437,7 +2439,7 @@ class AsmProcessorSH2(AsmProcessor):
             norm_lines.append(line)
         return norm_lines
 
-    def _test_jtbl(self, lines):
+    def _test_jtbl(self, lines: List[str]):
         jtbl_count = -1
         part_index = 0
         adjust = 0
@@ -2466,7 +2468,7 @@ class AsmProcessorSH2(AsmProcessor):
 
         return jtbl_count
 
-    def _test_endian(self, lines):
+    def _test_endian(self, lines: List[str]):
         # Endianess is only relevant when pc-relative movs are present
         for line in lines:
             m = re.match(
@@ -2484,7 +2486,7 @@ class AsmProcessorSH2(AsmProcessor):
             return self._detect_be(mov_kind, mov_reg, mov_type, tgt_reg)
         return False
 
-    def _detect_be(self, mov_kind, mov_reg, mov_type, tgt_reg):
+    def _detect_be(self, mov_kind: int, mov_reg: int, mov_type: int, tgt_reg: int):
         if mov_type == "l":
             return mov_kind == 13 and mov_reg == tgt_reg
         if mov_type == "a":
