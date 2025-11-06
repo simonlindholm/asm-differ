@@ -2293,7 +2293,7 @@ class AsmProcessorSH2(AsmProcessor):
     # Collects info on jtbls, imm loads and relocs so data mistakenly treated
     # as an instruction can be fixed, returns a new list of lines that should
     # make the fixup job a bit easier
-    def _collect_and_normalize(self, lines: List[str], is_be: bool):
+    def _collect_and_normalize(self, lines: List[str], is_be: bool) -> List[str]:
         # Catalog all relocs, done first just because there might relocs without
         # mov reference, so we can check for these and join them
         for i, line in enumerate(lines):
@@ -2419,7 +2419,7 @@ class AsmProcessorSH2(AsmProcessor):
                 for mov_line in mov_lines:
                     jtbl_match = re.match(SH_POOL_PATTERN, mov_line)
                     if jtbl_match is not None:
-                        is_mova = jtbl_match.group(2)
+                        is_mova = jtbl_match.group(2) == "a"
                         jtbl_addr = int(jtbl_match.group(3), 16)
                         break
 
@@ -2439,7 +2439,7 @@ class AsmProcessorSH2(AsmProcessor):
             norm_lines.append(line)
         return norm_lines
 
-    def _test_jtbl(self, lines: List[str]):
+    def _test_jtbl(self, lines: List[str]) -> int:
         jtbl_count = -1
         part_index = 0
         adjust = 0
@@ -2468,7 +2468,7 @@ class AsmProcessorSH2(AsmProcessor):
 
         return jtbl_count
 
-    def _test_endian(self, lines: List[str]):
+    def _test_endian(self, lines: List[str]) -> bool:
         # Endianess is only relevant when pc-relative movs are present
         for line in lines:
             m = re.match(
@@ -2486,7 +2486,9 @@ class AsmProcessorSH2(AsmProcessor):
             return self._detect_be(mov_kind, mov_reg, mov_type, tgt_reg)
         return False
 
-    def _detect_be(self, mov_kind: int, mov_reg: int, mov_type: int, tgt_reg: int):
+    def _detect_be(
+        self, mov_kind: int, mov_reg: int, mov_type: str, tgt_reg: int
+    ) -> bool:
         if mov_type == "l":
             return mov_kind == 13 and mov_reg == tgt_reg
         if mov_type == "a":
