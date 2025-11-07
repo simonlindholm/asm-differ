@@ -2395,7 +2395,7 @@ class AsmProcessorSH2(AsmProcessor):
                 else:
                     mov_value = -1
 
-                    # Can be None if direct values are used but the pool 
+                    # Can be None if direct values are used but the pool
                     # doesn't get included in the asm
                     if mov_match.group(5) is not None:
                         mov_value = int(mov_match.group(5), 16)
