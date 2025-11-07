@@ -2336,6 +2336,11 @@ class AsmProcessorSH2(AsmProcessor):
                         value=-1,
                         is_long=True,
                     )
+                elif "R_SH_DIR16" in self._relocs[addr]:
+                    self._imms[addr] = self.ImmEntry(
+                        value=-1,
+                        is_long=False,
+                    )
 
             # It's an imm, will be fixed in the next step
             if addr in self._imms or skip_next:
@@ -2390,7 +2395,9 @@ class AsmProcessorSH2(AsmProcessor):
                 else:
                     mov_value = -1
 
-                    if mov_type != "a":
+                    # Can be None if direct values are used but the pool 
+                    # doesn't get included in the asm
+                    if mov_match.group(5) is not None:
                         mov_value = int(mov_match.group(5), 16)
 
                     self._imms[mov_tgt] = self.ImmEntry(
@@ -2429,7 +2436,7 @@ class AsmProcessorSH2(AsmProcessor):
                         del self._imms[jtbl_addr]
 
                     # Search up to 10 lines before
-                    end = 10 if i >= 10 else i
+                    end = min(i, 10)
                     jtbl_count = self._test_jtbl(lines[i - 2 : i - end : -1])
 
                     if jtbl_count != -1:
