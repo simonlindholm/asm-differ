@@ -3290,10 +3290,11 @@ def process(dump: str, config: Config) -> List[Line]:
             tabs = row.split("\t")
             line_num = eval_line_num(line_num_str.strip())
 
-            if line_num is not None and line_num < prev_line_num:
-                line_group += 1
+            if line_num is not None:
+                if line_num < prev_line_num:
+                    line_group += 1
 
-            prev_line_num = line_num
+                prev_line_num = line_num
 
             # TODO: use --no-show-raw-insn for all arches
             if "--no-show-raw-insn" in arch.arch_flags:
