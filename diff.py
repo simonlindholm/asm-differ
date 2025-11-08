@@ -2431,15 +2431,15 @@ class AsmProcessorSH2(AsmProcessor):
                         break
 
                 if is_mova and addr not in self._relocs:
-                    # Remove from imm table if present
-                    if jtbl_addr in self._imms:
-                        del self._imms[jtbl_addr]
-
                     # Search up to 10 lines before
                     end = min(i, 10)
                     jtbl_count = self._test_jtbl(lines[i - 2 : i - end : -1])
 
                     if jtbl_count != -1:
+                        # Remove from imm table if present
+                        if jtbl_addr in self._imms:
+                            del self._imms[jtbl_addr]
+
                         self._jtbls[jtbl_addr] = self.JtblEntry(jtbl_count, addr + 4)
 
             # None of the above
@@ -2531,6 +2531,15 @@ class AsmProcessorSH2(AsmProcessor):
             # pc-rel mov.w <label>
             return prev, None
         elif "R_SH_CODE" in row:
+            # This one is a GNU thing, can be ignored
+            return prev, None
+        elif "R_SH_DATA" in row:
+            # This one is a GNU thing, can be ignored
+            return prev, None
+        elif "R_SH_LABEL" in row:
+            # This one is a GNU thing, can be ignored
+            return prev, None
+        elif "R_SH_ALIGN" in row:
             # This one is a GNU thing, can be ignored
             return prev, None
         else:
