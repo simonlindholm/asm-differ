@@ -1100,13 +1100,6 @@ def eval_int(expr: str, emsg: str) -> int:
     return ret
 
 
-def eval_line_num(expr: str) -> Optional[int]:
-    expr = expr.strip().replace(":", "")
-    if expr == "":
-        return None
-    return int(expr, 16)
-
-
 def run_make(target: str, project: ProjectSettings) -> None:
     subprocess.check_call(project.build_command + [target])
 
@@ -3291,10 +3284,10 @@ def process(dump: str, config: Config) -> List[Line]:
             m_comment = re.search(arch.re_comment, row)
             comment = m_comment[0] if m_comment else None
             row = re.sub(arch.re_comment, "", row)
-            line_num_str = row.split(":")[0]
+            line_num_str = row.split(":")[0].strip()
             row = row.rstrip()
             tabs = row.split("\t")
-            line_num = eval_line_num(line_num_str.strip())
+            line_num = int(line_num_str, 16) if line_num_str else None
 
             if line_num is not None:
                 if line_num < prev_line_num:
