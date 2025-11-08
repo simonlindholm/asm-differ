@@ -3187,6 +3187,7 @@ class Line:
     scorable_line: str
     symbol: Optional[str] = None
     line_num: Optional[int] = None
+    line_group: int = 0
     branch_target: Optional[int] = None
     data_pool_addr: Optional[int] = None
     source_filename: Optional[str] = None
@@ -3201,6 +3202,8 @@ def process(dump: str, config: Config) -> List[Line]:
     source_lines = []
     source_filename = None
     source_line_num = None
+    line_group = 0
+    prev_line_num = 0
     rets_remaining = config.stop_at_ret
 
     i = 0
@@ -3286,6 +3289,11 @@ def process(dump: str, config: Config) -> List[Line]:
             row = row.rstrip()
             tabs = row.split("\t")
             line_num = eval_line_num(line_num_str.strip())
+
+            if line_num is not None and line_num < prev_line_num:
+                line_group += 1
+
+            prev_line_num = line_num
 
             # TODO: use --no-show-raw-insn for all arches
             if "--no-show-raw-insn" in arch.arch_flags:
@@ -3426,6 +3434,7 @@ def process(dump: str, config: Config) -> List[Line]:
                 scorable_line=scorable_line,
                 symbol=symbol,
                 line_num=line_num,
+                line_group=line_group,
                 branch_target=branch_target,
                 data_pool_addr=data_pool_addr,
                 source_filename=source_filename,
@@ -3758,8 +3767,8 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
     sc4 = symbol_formatter("my-stack", 4)
     sc5 = symbol_formatter("base-branch", 0)
     sc6 = symbol_formatter("my-branch", 0)
-    bts1: Set[int] = set()
-    bts2: Set[int] = set()
+    bts1: Set[Tuple[int, int]] = set()
+    bts2: Set[Tuple[int, int]] = set()
 
     if config.show_branches:
         for lines, btset, sc in [
@@ -3769,7 +3778,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             for line in lines:
                 bt = line.branch_target
                 if bt is not None:
-                    btset.add(bt)
+                    btset.add((line.line_group, bt))
                     sc(str(bt))
 
     lines1 = trim_nops(lines1, arch)
@@ -3931,7 +3940,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             out: Text,
             line: Optional[Line],
             line_color: Format,
-            btset: Set[int],
+            btset: Set[Tuple[int, int]],
             sc: FormatFunction,
         ) -> Optional[Text]:
             if line is None:
@@ -3941,7 +3950,7 @@ def do_diff(lines1: List[Line], lines2: List[Line], config: Config) -> Diff:
             in_arrow = Text("  ")
             out_arrow = Text()
             if config.show_branches:
-                if line.line_num in btset:
+                if (line.line_group, line.line_num) in btset:
                     in_arrow = Text("~>", sc(str(line.line_num)))
                 if line.branch_target is not None:
                     out_arrow = " " + Text("~>", sc(str(line.branch_target)))
