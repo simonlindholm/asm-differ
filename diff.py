@@ -689,8 +689,7 @@ class Text:
         return any(s for s, f in self.segments)
 
     def __str__(self) -> str:
-        # Use Formatter.apply(...) instead
-        return NotImplemented
+        raise NotImplementedError("Use Formatter.apply(...) instead")
 
     def __eq__(self, other: object) -> bool:
         return NotImplemented
@@ -923,12 +922,10 @@ class PythonFormatter(Formatter):
     arch_str: str
 
     def apply_format(self, chunk: str, f: Format) -> str:
-        # This method is unused by this formatter
-        return NotImplemented
+        raise NotImplementedError("apply_format does not apply to PythonFormatter")
 
     def table(self, data: TableData) -> str:
-        # This method is unused by this formatter
-        return NotImplemented
+        raise NotImplementedError("table does not apply to PythonFormatter")
 
     def raw(self, data: TableData) -> Dict[str, Any]:
         def serialize_format(s: str, f: Format) -> Dict[str, Any]:
