@@ -14,6 +14,8 @@ watchdog = "^6.0.0"
 levenshtein = "^0.27.1"
 cxxfilt = "^0.3.0"
 
+[tool.poetry.scripts]
+asm-differ = "diff:main"
 
 [build-system]
 requires = ["poetry-core"]

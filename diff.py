@@ -50,7 +50,12 @@ class DiffMode(enum.Enum):
 
 # ==== COMMAND-LINE ====
 
-if __name__ == "__main__":
+parser: Optional[argparse.ArgumentParser] = None
+
+
+def main_early() -> None:
+    global parser
+
     # Prefer to use diff_settings.py from the current working directory
     sys.path.insert(0, ".")
     try:
@@ -399,6 +404,10 @@ if __name__ == "__main__":
 
     if argcomplete:
         argcomplete.autocomplete(parser)
+
+
+if __name__ == "__main__":
+    main_early()
 
 # ==== IMPORTS ====
 
@@ -4403,8 +4412,11 @@ class Display:
         self.ready_queue.get()
 
 
-def main() -> None:
+def main_late() -> None:
+    assert parser is not None, "set by main_early"
     args = parser.parse_args()
+
+    import diff_settings
 
     # Apply project-specific configuration.
     settings: Dict[str, Any] = {}
@@ -4520,5 +4532,10 @@ def main() -> None:
             display.terminate()
 
 
+def main() -> None:
+    main_early()
+    main_late()
+
+
 if __name__ == "__main__":
-    main()
+    main_late()
