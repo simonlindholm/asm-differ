@@ -2219,7 +2219,7 @@ class AsmProcessorX86(AsmProcessor):
 
         labels: Dict[str, int] = {}  # line number for each label
 
-        was_previous_jumptable_entry: bool = False
+        was_previous_jumptable_entry = False
 
         for index, line in enumerate(lines[:]):
             if line.original.startswith(".dword"):
