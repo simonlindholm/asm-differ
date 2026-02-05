@@ -2248,7 +2248,7 @@ class AsmProcessorX86(AsmProcessor):
                     )
 
                     line.branch_target = target_line_num
-            elif was_previous_jumptable_entry == True:
+            elif was_previous_jumptable_entry:
                 # if the previous line was a jumptable and the current line is "add\t%al,(%eax)"
                 # this is the 2nd half of the previous jumptable entry
                 if line.original == "add\t%al,(%eax)":
