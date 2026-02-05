@@ -2242,7 +2242,7 @@ class AsmProcessorX86(AsmProcessor):
                 except:
                     target_line_num = None
 
-                if target_line_num:
+                if target_line_num is not None:
                     line.original = line.original.replace(
                         orig_jump_table_target, hex(target_line_num).replace("0x", "")
                     )
