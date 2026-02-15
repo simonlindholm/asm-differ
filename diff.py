@@ -2241,7 +2241,7 @@ class AsmProcessorX86(AsmProcessor):
                     target_line_num = lines[
                         labels[jump_table_target + ":"] + 1
                     ].line_num
-                except:
+                except Exception:
                     target_line_num = None
 
                 if target_line_num is not None:
