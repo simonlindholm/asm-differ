@@ -2221,7 +2221,9 @@ class AsmProcessorX86(AsmProcessor):
 
         was_previous_jumptable_entry = False
 
-        for index, line in enumerate(lines[:]):
+        indices_to_delete = []
+
+        for index, line in enumerate(lines):
             if line.original.startswith(".dword"):
 
                 orig_jump_table_target: str = line.original.split(".dword")[1].strip()
@@ -2250,13 +2252,16 @@ class AsmProcessorX86(AsmProcessor):
                 # if the previous line was a jumptable and the current line is "add\t%al,(%eax)"
                 # this is the 2nd half of the previous jumptable entry
                 if line.original == "add\t%al,(%eax)":
-                    lines.remove(line)
+                    indices_to_delete.append(index)
 
                 was_previous_jumptable_entry = False
             elif line.mnemonic == "<label>" and line.original.startswith("$L"):
                 # If this is a label that is an MSVC jumptable label "$L..."
                 # add it to the labels list
-                labels[line.original] = lines.index(line)
+                labels[line.original] = index
+        
+        for index in reversed(indices_to_delete):
+            del lines[index]
 
     def post_process(self, lines: List["Line"]) -> None:
         self._post_process_jump_tables(lines)
