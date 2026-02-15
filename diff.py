@@ -2234,7 +2234,7 @@ class AsmProcessorX86(AsmProcessor):
                 # If a line begins with ".dword", it is a jumptable
                 was_previous_jumptable_entry = True
 
-                target_line_num: Union[int, None]
+                target_line_num: Optional[int]
                 try:
                     target_line_num = lines[
                         labels[jump_table_target + ":"] + 1
