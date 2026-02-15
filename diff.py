@@ -2259,7 +2259,7 @@ class AsmProcessorX86(AsmProcessor):
                 # If this is a label that is an MSVC jumptable label "$L..."
                 # add it to the labels list
                 labels[line.original] = index
-        
+
         for index in reversed(indices_to_delete):
             del lines[index]
 
