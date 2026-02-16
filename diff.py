@@ -2078,7 +2078,7 @@ class AsmProcessorX86(AsmProcessor):
         addr_imm = None
 
         if prev == "add\t%al,(%eax)" and "dir32" in row:
-            return f".dword {row.split()[-1]}", repl
+            return f".dword\t{row.split()[-1]}", repl
 
         # Calls
 
