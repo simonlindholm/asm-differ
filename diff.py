@@ -3002,7 +3002,7 @@ X86_SETTINGS = ArchSettings(
         r"\%?\b(e?(?:(?:[sd]i|[sb]p)l?|[abcd][xhl])|[cdesfg]s|cr[0-7]|x?mm[0-7]|st)\b"
     ),
     re_large_imm=re.compile(r"-?[1-9][0-9]{2,}|-?0x[0-9a-f]{3,}"),
-    re_sprel=re.compile(r"-?(0x[0-9a-f]+|[0-9]+)(?=\((%ebp|%esi)\))"),
+    re_sprel=re.compile(r"(-?0x[0-9a-f]+|-?[0-9]+)(?=\((%ebp|%esi)\))"),
     re_imm=re.compile(r"(?:\b|-)(0x[0-9a-f]+|[0-9]+)|([\?$_][^ \t,]+)"),
     re_reloc=re.compile(
         r"R_386_|dir32|DISP32|WRTSEG|OFF32|OFFPC32|OFF16|OFFPC16|SEG|FAR16"
