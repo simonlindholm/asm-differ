@@ -2228,7 +2228,7 @@ class AsmProcessorX86(AsmProcessor):
 
                 orig_jump_table_target: str = line.original.split(".dword")[1].strip()
 
-                # Remove "-0x..." from older objdump relocations
+                # Remove "-0x..." from older objdump (at least 2.39) relocations
                 jump_table_target = re.sub(r"-0x[0-9a-f]+", "", orig_jump_table_target)
 
                 jump_table_targets.append(jump_table_target)
