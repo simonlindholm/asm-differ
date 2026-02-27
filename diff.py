@@ -1794,6 +1794,21 @@ class AsmProcessorPPC(AsmProcessor):
         return mnemonic == "blr"
 
 
+ARM32_DEST_OPTIONAL = {
+    "add",
+    "sub",
+    "rsb",
+    "sbc",
+    "and",
+    "orr",
+    "eor",
+    "bic",
+    "asr",
+    "lsl",
+    "lsr",
+    "ror",
+}
+
 # Example: "cmp r0, #0x10"
 ARM32_COMPARE_IMM_PATTERN = r"cmp\s+(r[0-9]|1[0-3]),\s+#(\w+)"
 
@@ -1832,6 +1847,10 @@ class AsmProcessorARM32(AsmProcessor):
         new_lines = []
         lines = objdump.splitlines()
         for i, jump_table_entry in self._lines_iterator(lines):
+            # Normalize the assembly by removing any excess padding.
+            if i == len(lines) - 1 and re.search(r"\.short.*0000", lines[i]):
+                continue
+
             if jump_table_entry is None:
                 new_lines.append(lines[i])
                 continue
@@ -1896,10 +1915,20 @@ class AsmProcessorARM32(AsmProcessor):
         for i in reversed(range(line_no)):
             cmp_match = re.search(ARM32_COMPARE_IMM_PATTERN, raw_lines[i])
             if cmp_match:
-                value = immediate_to_int(cmp_match.group(2))
+                value = int(cmp_match.group(2).lstrip("#"), 0)
                 if value > 0:
                     return value + 1
         return 0
+
+    def pre_process(
+        self, mnemonic: str, args: str, next_row: Optional[str], comment: Optional[str]
+    ) -> Tuple[str, str]:
+        arg_parts = args.split()
+        # Normalize instructions that omit the destination register.
+        if len(arg_parts) == 2 and any(ins in mnemonic for ins in ARM32_DEST_OPTIONAL):
+            arg_parts.insert(1, arg_parts[0])
+            return mnemonic, " ".join(arg_parts)
+        return mnemonic, args
 
     def process_reloc(self, row: str, prev: str) -> Tuple[str, Optional[str]]:
         arch = self.config.arch
@@ -3104,13 +3133,6 @@ ARCH_SETTINGS = [
     SH4EL_SETTINGS,
     M68K_SETTINGS,
 ]
-
-
-def immediate_to_int(immediate: str) -> int:
-    imm_match = re.match(r"#?(0x)?([0-9a-f]+)", immediate)
-    assert imm_match
-    base = 16 if imm_match.group(1) else 10
-    return int(imm_match.group(2), base)
 
 
 def is_hexstring(value: str) -> bool:
