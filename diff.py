@@ -2094,7 +2094,7 @@ class AsmProcessorX86(AsmProcessor):
         # Example %edi,0
         # Example movb $0x0,0x0
         if not addr_imm:
-            addr_imm = re.search(r"(?:0x)?(?<![1-9])0$", args)
+            addr_imm = re.search(r"\b(?:0x)?(?<![1-9])0$", args)
 
         # Example movb $0x0,0x0(%si)
         if not addr_imm:
