@@ -4119,7 +4119,7 @@ def align_diffs(old_diff: Diff, new_diff: Diff, config: Config) -> TableData:
         old_chunks = chunk_diff_lines(old_diff.lines)
         new_chunks = chunk_diff_lines(new_diff.lines)
         diff_lines = []
-        empty = OutputLine(Text(), Text(), None, True, False, None, None)
+        empty = OutputLine(Text(), Text(), None, False, False, None, None)
         assert len(old_chunks) == len(new_chunks), "same target"
         for old_chunk, new_chunk in zip(old_chunks, new_chunks):
             if isinstance(old_chunk, list):
