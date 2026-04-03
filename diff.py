@@ -2987,6 +2987,10 @@ PPC_SETTINGS = ArchSettings(
     proc=AsmProcessorPPC,
 )
 
+PPC_XENON_SETTINGS = replace(
+    PPC_SETTINGS, name="ppc_xenon", arch_flags=["-m", "powerpc"]
+)
+
 X86_SETTINGS = ArchSettings(
     name="x86",
     re_int=re.compile(r"[0-9]+"),
@@ -3097,6 +3101,7 @@ ARCH_SETTINGS = [
     ARMEL_SETTINGS,
     AARCH64_SETTINGS,
     PPC_SETTINGS,
+    PPC_XENON_SETTINGS,
     X86_SETTINGS,
     I686_SETTINGS,
     SH2_SETTINGS,
