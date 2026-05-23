@@ -4228,7 +4228,7 @@ def debounced_fs_watch(
 
         def should_notify(self, path: str) -> bool:
             for target in self.file_targets:
-                if os.path.normpath(path) == target:
+                if os.path.abspath(path) == target:
                     return True
             if config.make and any(
                 path.endswith(suffix) for suffix in project.source_extensions
@@ -4250,7 +4250,7 @@ def debounced_fs_watch(
             if os.path.isdir(target):
                 observer.schedule(event_handler, target, recursive=True)  # type: ignore
             else:
-                file_targets.append(os.path.normpath(target))
+                file_targets.append(os.path.abspath(target))
                 target = os.path.dirname(target) or "."
                 if target not in observed:
                     observed.add(target)
