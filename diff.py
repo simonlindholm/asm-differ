@@ -1866,15 +1866,27 @@ class AsmProcessorARM32(AsmProcessor):
             addr = int(addr_match.group(1), 16) if addr_match else -1
             entry_match = re.search(ARM32_JUMP_TABLE_ENTRY_PATTERN, line)
             if jump_table_entries > 0 and entry_match:
-                value = (
-                    entry_match.group(4)
-                    if is_hexstring(entry_match.group(4))
-                    else entry_match.group(2)
-                )
+                try:
+                    # Try parsing argument to .short/.word
+                    value = int(entry_match.group(4), 16)
+                except ValueError:
+                    # No luck; maybe it got disassembled to an instruction,
+                    # from which we need to read the instruction bytes instead.
+                    try:
+                        value = int(entry_match.group(2) or "", 16)
+                    except ValueError:
+                        # Something went wrong; avoid crashing. This has been
+                        # seen to happen in practice when we misparsed the asm
+                        # when searching for a cmp and ended up with the wrong
+                        # number of entries, after which we ran into a line with
+                        # a relocation rather than instruction bytes.
+                        jump_table_entries = 0
+                        break
+
                 table_entry = self.JumpTableEntry(
                     cur_addr=addr,
                     table_start_addr=table_start_addr,
-                    value=int(value, 16),
+                    value=value,
                     is_word=entry_match.group(3) == ".word",
                 )
                 jump_table_entries -= 2 if table_entry.is_word else 1
@@ -1967,13 +1979,13 @@ class AsmProcessorARM32(AsmProcessor):
                 continue
 
             # Add data symbol and its address to the line.
-            line_original = lines_by_line_number[line.data_pool_addr].original
+            value = "?"
+            if line.data_pool_addr in lines_by_line_number:
+                data_parts = lines_by_line_number[line.data_pool_addr].original.split()
+                if len(data_parts) > 1:
+                    value = data_parts[1]
             addr = "{:x}".format(line.data_pool_addr)
-            if line_original.strip():
-                value = line_original.split()[1]
-                line.original = line.normalized_original + f"={value} ({addr})"
-            else:
-                line.original = line.normalized_original + f"=? ({addr})"
+            line.original = line.normalized_original + f"={value} ({addr})"
 
     def post_process(self, lines: List["Line"]) -> None:
         self._post_process_jump_tables(lines)
@@ -3111,14 +3123,6 @@ def immediate_to_int(immediate: str) -> int:
     assert imm_match
     base = 16 if imm_match.group(1) else 10
     return int(imm_match.group(2), base)
-
-
-def is_hexstring(value: str) -> bool:
-    try:
-        int(value, 16)
-        return True
-    except ValueError:
-        return False
 
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
