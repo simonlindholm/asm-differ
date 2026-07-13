@@ -1685,6 +1685,7 @@ class AsmProcessorMIPS(AsmProcessor):
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         if self.seen_jr_ra:
+            self.seen_jr_ra = False
             return True
         if mnemonic == "jr" and args == "ra":
             self.seen_jr_ra = True
