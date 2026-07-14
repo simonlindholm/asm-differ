@@ -10,7 +10,8 @@ class TestSh2(unittest.TestCase):
         config = diff.Config(
             arch=arch,
             diff_obj=True,
-            file="",
+            file=None,
+            ref_file=None,
             make=False,
             source_old_binutils=True,
             diff_section=".text",

@@ -150,9 +150,17 @@ def main_early() -> None:
         "--file",
         dest="file",
         type=str,
-        help="""File path for a file being diffed. When used the map
+        help="""File path for the file being diffed. When used the map
         file isn't searched for the function given. Useful for dynamically
         linked libraries.""",
+    )
+    parser.add_argument(
+        "-F",
+        "--ref-file",
+        dest="ref_file",
+        type=str,
+        help="""File path for the file being diffed against. Defaults to
+        expected/<diffed file>; normally you should never need to override this.""",
     )
     parser.add_argument(
         "-e",
@@ -478,6 +486,7 @@ class Config:
     # Build/objdump options
     diff_obj: bool
     file: Optional[str]
+    ref_file: Optional[str]
     make: bool
     source_old_binutils: bool
     diff_section: str
@@ -572,6 +581,7 @@ def create_config(args: argparse.Namespace, project: ProjectSettings) -> Config:
         # Build/objdump options
         diff_obj=args.diff_obj,
         file=args.file,
+        ref_file=args.ref_file,
         make=args.make,
         source_old_binutils=args.source_old_binutils
         or "llvm-" in project.objdump_executable,
@@ -1549,7 +1559,7 @@ def dump_objfile(
     if not os.path.isfile(objfile):
         fail(f"Not able to find .o file for function: {objfile} is not a file.")
 
-    refobjfile = os.path.join(project.expected_dir, objfile)
+    refobjfile = config.ref_file or os.path.join(project.expected_dir, objfile)
     if config.diff_mode != DiffMode.SINGLE and not os.path.isfile(refobjfile):
         fail(f'Please ensure an OK .o file exists at "{refobjfile}".')
 
