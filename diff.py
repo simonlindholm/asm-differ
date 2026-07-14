@@ -1909,7 +1909,10 @@ class AsmProcessorARM32(AsmProcessor):
         for i in reversed(range(line_no)):
             cmp_match = re.search(ARM32_COMPARE_IMM_PATTERN, raw_lines[i])
             if cmp_match:
-                value = immediate_to_int(cmp_match.group(2))
+                imm_match = re.match(r"#?(0x)?([0-9a-f]+)", cmp_match.group(2))
+                assert imm_match
+                base = 16 if imm_match.group(1) else 10
+                value = int(imm_match.group(2), base)
                 if value > 0:
                     return value + 1
         return 0
@@ -3117,13 +3120,6 @@ ARCH_SETTINGS = [
     SH4EL_SETTINGS,
     M68K_SETTINGS,
 ]
-
-
-def immediate_to_int(immediate: str) -> int:
-    imm_match = re.match(r"#?(0x)?([0-9a-f]+)", immediate)
-    assert imm_match
-    base = 16 if imm_match.group(1) else 10
-    return int(imm_match.group(2), base)
 
 
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
