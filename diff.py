@@ -3073,7 +3073,7 @@ SH2_SETTINGS = ArchSettings(
     name="sh2",
     # match -128-127 or 0-255 preceded by a '#' with a ',' after (8 bit immediates)
     re_int=re.compile(
-        r"(?<=#)(-?(?:12[0-7]|1[01][0-9]|[1-9][0-9]?|0)|(?:25[0-5]|2[0-4][0-9]|1[3-9][0-9]|12[8-9]))(?=,)"
+        r"(?<=#)(-?(?:12[0-8]|1[01][0-9]|[1-9][0-9]?|0)|(?:25[0-5]|2[0-4][0-9]|1[3-9][0-9]|12[8-9]))(?=,)"
     ),
     # match <text>, match ! and after
     re_comment=re.compile(r"<.*?>|!.*"),
