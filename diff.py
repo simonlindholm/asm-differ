@@ -3050,8 +3050,10 @@ I686_SETTINGS = replace(
 
 SH2_SETTINGS = ArchSettings(
     name="sh2",
-    # match -128-127 preceded by a '#' with a ',' after (8 bit immediates)
-    re_int=re.compile(r"(?<=#)(-?(?:1[01][0-9]|12[0-8]|[1-9][0-9]?|0))(?=,)"),
+    # match -128-127 or 0-255 preceded by a '#' with a ',' after (8 bit immediates)
+    re_int=re.compile(
+        r"(?<=#)(-?(?:12[0-7]|1[01][0-9]|[1-9][0-9]?|0)|(?:25[0-5]|2[0-4][0-9]|1[3-9][0-9]|12[8-9]))(?=,)"
+    ),
     # match <text>, match ! and after
     re_comment=re.compile(r"<.*?>|!.*"),
     #   - r0-r15 general purpose registers, r15 is stack pointer during exceptions
@@ -3135,10 +3137,12 @@ ARCH_SETTINGS = [
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
     full = pat.group(0)
 
-    # sh2/sh4 only has 8-bit immediates, just convert them uniformly without
-    # any -hex stuff
+    # sh2/sh4 only has signed 8-bit immediates for some instructions
     if arch.name == "sh2" or arch.name == "sh4" or arch.name == "sh4el":
-        return hex(int(full) & 0xFF)
+        if "add" in row or "mov" in row or "cmp/eq" in row:
+            return hex(int(full))
+        else:
+            return hex(int(full) & 0xFF)
 
     if len(full) <= 1:
         # leave one-digit ints alone
