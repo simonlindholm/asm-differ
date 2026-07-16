@@ -64,13 +64,29 @@ class TestSh2(unittest.TestCase):
         # func_0606B760():
         # 0:   ec 01           mov     #1,r12
         # 2:   71 01           add     #1,r1
-        # 4:   ec ff           mov     #-1,r12
-        # 6:   71 ff           add     #-1,r1
-        # 8:   ec 7f           mov     #127,r12
-        # a:   71 7f           add     #127,r1
-        # c:   ec 80           mov     #-128,r12
-        # e:   71 80           add     #-128,r1
-        sh2_theirs = "func_0606B760():\n   0:\tec 01       \tmov\t#1,r12\n   2:\t71 01       \tadd\t#1,r1\n   4:\tec ff       \tmov\t#-1,r12\n   6:\t71 ff       \tadd\t#-1,r1\n   8:\tec 7f       \tmov\t#127,r12\n   a:\t71 7f       \tadd\t#127,r1\n   c:\tec 80       \tmov\t#-128,r12\n   e:\t71 80       \tadd\t#-128,r1"
+        # 4:   c8 01           tst     #1,r0
+        # 6:   c9 01           and     #1,r0
+        # 8:   cb 01           or      #1,r0
+        # a:   ca 01           xor     #1,r0
+        # c:   ec ff           mov     #-1,r12
+        # e:   71 ff           add     #-1,r1
+        # 10:   c8 ff           tst     #255,r0
+        # 12:   c9 ff           and     #255,r0
+        # 14:   cb ff           or      #255,r0
+        # 16:   ca ff           xor     #255,r0
+        # 18:   ec 7f           mov     #127,r12
+        # 1a:   71 7f           add     #127,r1
+        # 1c:   c8 7f           tst     #127,r0
+        # 1e:   c9 7f           and     #127,r0
+        # 20:   cb 7f           or      #127,r0
+        # 22:   ca 7f           xor     #127,r0
+        # 24:   ec 80           mov     #-128,r12
+        # 26:   71 80           add     #-128,r1
+        # 28:   c8 80           tst     #128,r0
+        # 2a:   c9 80           and     #128,r0
+        # 2c:   cb 80           or      #128,r0
+        # 2e:   ca 80           xor     #128,r0
+        sh2_theirs = "func_0606B760():\n   0:\tec 01       \tmov\t#1,r12\n   2:\t71 01       \tadd\t#1,r1\n   4:\tc8 01       \ttst\t#1,r0\n   6:\tc9 01       \tand\t#1,r0\n   8:\tcb 01       \tor\t#1,r0\n   a:\tca 01       \txor\t#1,r0\n   c:\tec ff       \tmov\t#-1,r12\n   e:\t71 ff       \tadd\t#-1,r1\n  10:\tc8 ff       \ttst\t#255,r0\n  12:\tc9 ff       \tand\t#255,r0\n  14:\tcb ff       \tor\t#255,r0\n  16:\tca ff       \txor\t#255,r0\n  18:\tec 7f       \tmov\t#127,r12\n  1a:\t71 7f       \tadd\t#127,r1\n  1c:\tc8 7f       \ttst\t#127,r0\n  1e:\tc9 7f       \tand\t#127,r0\n  20:\tcb 7f       \tor\t#127,r0\n  22:\tca 7f       \txor\t#127,r0\n  24:\tec 80       \tmov\t#-128,r12\n  26:\t71 80       \tadd\t#-128,r1\n  28:\tc8 80       \ttst\t#128,r0\n  2a:\tc9 80       \tand\t#128,r0\n  2c:\tcb 80       \tor\t#128,r0\n  2e:\tca 80       \txor\t#128,r0"
 
         # just diff with self
         sh2_ours = sh2_theirs
@@ -82,12 +98,28 @@ class TestSh2(unittest.TestCase):
         expected = [
             "0:    mov     #0x1,r12",
             "2:    add     #0x1,r1",
-            "4:    mov     #0xff,r12",
-            "6:    add     #0xff,r1",
-            "8:    mov     #0x7f,r12",
-            "a:    add     #0x7f,r1",
-            "c:    mov     #0x80,r12",
-            "e:    add     #0x80,r1",
+            "4:    tst     #0x1,r0",
+            "6:    and     #0x1,r0",
+            "8:    or      #0x1,r0",
+            "a:    xor     #0x1,r0",
+            "c:    mov     #-0x1,r12",
+            "e:    add     #-0x1,r1",
+            "10:    tst     #0xff,r0",
+            "12:    and     #0xff,r0",
+            "14:    or      #0xff,r0",
+            "16:    xor     #0xff,r0",
+            "18:    mov     #0x7f,r12",
+            "1a:    add     #0x7f,r1",
+            "1c:    tst     #0x7f,r0",
+            "1e:    and     #0x7f,r0",
+            "20:    or      #0x7f,r0",
+            "22:    xor     #0x7f,r0",
+            "24:    mov     #-0x80,r12",
+            "26:    add     #-0x80,r1",
+            "28:    tst     #0x80,r0",
+            "2a:    and     #0x80,r0",
+            "2c:    or      #0x80,r0",
+            "2e:    xor     #0x80,r0",
         ]
 
         i = 0
@@ -139,15 +171,15 @@ class TestSh2(unittest.TestCase):
             "10:    add     #0x6d,r1",
             "12:    add     #0x6f,r1",
             "14:    add     #0x77,r1",
-            "16:    add     #0xf7,r1",
-            "18:    add     #0xf6,r1",
-            "1a:    add     #0xf5,r1",
-            "1c:    add     #0xed,r1",
-            "1e:    add     #0x9c,r1",
-            "20:    add     #0x9b,r1",
-            "22:    add     #0x93,r1",
-            "24:    add     #0x91,r1",
-            "26:    add     #0x89,r1",
+            "16:    add     #-0x9,r1",
+            "18:    add     #-0xa,r1",
+            "1a:    add     #-0xb,r1",
+            "1c:    add     #-0x13,r1",
+            "1e:    add     #-0x64,r1",
+            "20:    add     #-0x65,r1",
+            "22:    add     #-0x6d,r1",
+            "24:    add     #-0x6f,r1",
+            "26:    add     #-0x77,r1",
         ]
 
         i = 0

@@ -438,7 +438,6 @@ import threading
 import time
 import traceback
 
-
 MISSING_PREREQUISITES = (
     "Missing prerequisite python module {}. "
     "Run `python3 -m pip install --user colorama watchdog levenshtein cxxfilt` to install prerequisites (cxxfilt only needed with --source)."
@@ -2221,20 +2220,21 @@ class AsmProcessorX86(AsmProcessor):
             else:
                 repl = f"{repl}+{of}"
 
-        return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
+        return f"{mnemonic}\t{args[:start] + repl + args[end:]}", repl
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         return mnemonic == "ret"
 
 
-# pc-relative mov instructions
+# pc-relative mov instructions, with or without the <label> targets
 # Examples:
 # "mov.l   150 <_bar+0x12>,r4     ! 154 <_main>"
 # "mov.w   266 <_main+0x112>,r4   ! bbaa"
 # "mova    190 <_main+0x3c>,r0"
-SH_POOL_PATTERN = (
-    r"(^.+mov\.?([lwa])\s+)([a-fA-F0-9]+)\s*<.+>(,r[0-9]+)(?:\s+!\s*([a-fA-F0-9]*))?"
-)
+# "mov.l   0x1234,r7"
+# "mov.l   0x4c,r1 ! 605c660"
+# "mova    0x5c,r0"
+SH_POOL_PATTERN = r"(^.+mov\.?([lwa])\s+)(?:0x)?([a-fA-F0-9]+)(\s*<.+>)?(,r[0-9]+)(?:\s+!\s*([a-fA-F0-9]*))?"
 
 # Normalized version of the normal pattern that uses pc-relative notation
 # Examples:
@@ -2319,6 +2319,13 @@ class AsmProcessorSH2(AsmProcessor):
     # as an instruction can be fixed, returns a new list of lines that should
     # make the fixup job a bit easier
     def _collect_and_normalize(self, lines: List[str], is_be: bool) -> List[str]:
+        ignored_rels = {
+            "R_SH_CODE",
+            "R_SH_DATA",
+            "R_SH_LABEL",
+            "R_SH_ALIGN",
+        }
+
         # Catalog all relocs, done first just because there might relocs without
         # mov reference, so we can check for these and join them
         for i, line in enumerate(lines):
@@ -2329,7 +2336,7 @@ class AsmProcessorSH2(AsmProcessor):
             mnemonic = addr_match.group(3) if addr_match else ""
 
             # Reloc line, add to dict
-            if "R_SH_" in mnemonic:
+            if "R_SH_" in mnemonic and mnemonic not in ignored_rels:
                 self._relocs[addr] = line
                 continue
 
@@ -2353,6 +2360,16 @@ class AsmProcessorSH2(AsmProcessor):
             # Reloc line, skip (already collected)
             if "R_SH_" in mnemonic:
                 continue
+
+            # Fixup BSR targets if they have a relocation
+            if mnemonic == "bsr" and addr in self._relocs:
+                rel_line = self._relocs[addr]
+                symbol = rel_line.split("+")[0]
+                if symbol != ".text":
+                    target = int(rel_line.split("+")[-1], 16) + 4
+                    nline = line.split("\tbsr\t")[0]
+                    norm_lines.append(f"{nline}\tbsr\t{target:x}")
+                    continue
 
             # Address reloc has an entry but isn't from a mov reference, add it as one
             if addr in self._relocs and addr not in self._imms:
@@ -2416,14 +2433,14 @@ class AsmProcessorSH2(AsmProcessor):
                     mov_label = self._relocs[addr].split()[-1]
                     mov_comm = ""
                     pc_rel = f"@({mov_label},pc)"
-                    pc_rel += mov_match.group(4)
+                    pc_rel += mov_match.group(5)
                 else:
                     mov_value = -1
 
                     # Can be None if direct values are used but the pool
                     # doesn't get included in the asm
-                    if mov_match.group(5) is not None:
-                        mov_value = int(mov_match.group(5), 16)
+                    if mov_match.group(6) is not None:
+                        mov_value = int(mov_match.group(6), 16)
 
                     self._imms[mov_tgt] = self.ImmEntry(
                         value=mov_value,
@@ -2435,15 +2452,15 @@ class AsmProcessorSH2(AsmProcessor):
                     mov_comm = f" ! {mov_tgt:x}"
                     # Convert to pc-rel notation while we are at it
                     pc_rel = f"@(0x{mov_tgt - addr:x},pc)"
-                    pc_rel += mov_match.group(4)
+                    pc_rel += mov_match.group(5)
 
                 norm_lines.append(fix_line + pc_rel + mov_comm)
                 continue
 
             # Check for jumptables
             if mnemonic == "braf" or mnemonic == "jmp":
-                # search mova up to 4 instructions before
-                mov_lines = lines[i - 1 : i - 5 : -1]
+                # search mova up to 20 instructions before
+                mov_lines = lines[i - 1 : max(-1, i - 20 - 1) : -1]
                 jtbl_match = None
                 is_mova = False
                 jtbl_addr = 0
@@ -2453,11 +2470,14 @@ class AsmProcessorSH2(AsmProcessor):
                     if jtbl_match is not None:
                         is_mova = jtbl_match.group(2) == "a"
                         jtbl_addr = int(jtbl_match.group(3), 16)
+
+                        if not is_mova:
+                            continue
                         break
 
                 if is_mova and addr not in self._relocs:
-                    # Search up to 10 lines before
-                    end = min(i, 10)
+                    # Search up to 60 lines before
+                    end = min(i, 60)
                     jtbl_count = self._test_jtbl(lines[i - 2 : i - end : -1])
 
                     if jtbl_count != -1:
@@ -2491,11 +2511,9 @@ class AsmProcessorSH2(AsmProcessor):
                     jtbl_count = int(mov_match.group(1)) + adjust
                     break
                 # more than 128 cases
-                pat = r"^.+mov.[lw].*<.+>,"
-                pat += cmp_reg + r"\s+!\s*([a-fA-F0-9]*)?"
-                mov_match = re.match(pat, line)
+                mov_match = re.match(SH_POOL_PATTERN, line)
                 if mov_match:
-                    jtbl_count = int(mov_match.group(1), 16) + adjust
+                    jtbl_count = int(mov_match.group(6), 16) + adjust
                     break
 
         return jtbl_count
@@ -2544,7 +2562,7 @@ class AsmProcessorSH2(AsmProcessor):
             )
             return f"{before}{repl}{after}", repl
         elif "R_SH_IND12W" in row:
-            # bra <label>
+            # bra <label> or bsr <label>, the latter is handled during pre_process
             return prev, None
         elif "R_SH_DIR8WPL" in row:
             # pc-rel mov.l <label>
@@ -2658,7 +2676,7 @@ class AsmProcessorM68k(AsmProcessor):
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
-        return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
+        return f"{mnemonic}\t{args[:start] + repl + args[end:]}", repl
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         return mnemonic == "rts" or mnemonic == "rte" or mnemonic == "rtr"
@@ -3050,8 +3068,10 @@ I686_SETTINGS = replace(
 
 SH2_SETTINGS = ArchSettings(
     name="sh2",
-    # match -128-127 preceded by a '#' with a ',' after (8 bit immediates)
-    re_int=re.compile(r"(?<=#)(-?(?:1[01][0-9]|12[0-8]|[1-9][0-9]?|0))(?=,)"),
+    # match -128-127 or 0-255 preceded by a '#' with a ',' after (8 bit immediates)
+    re_int=re.compile(
+        r"(?<=#)(-?(?:12[0-8]|1[01][0-9]|[1-9][0-9]?|0)|(?:25[0-5]|2[0-4][0-9]|1[3-9][0-9]|12[8-9]))(?=,)"
+    ),
     # match <text>, match ! and after
     re_comment=re.compile(r"<.*?>|!.*"),
     #   - r0-r15 general purpose registers, r15 is stack pointer during exceptions
@@ -3082,7 +3102,7 @@ SH4_SETTINGS = replace(
     #   - fr0-fr15, dr0-dr14, xd0-xd14, fv0-fv12 FP registers
     #     dr/xd registers can only be even-numbered, and fv registers can only be a multiple of 4
     re_reg=re.compile(
-        r"r1[0-5]|r[0-9]|fr1[0-5]|fr[0-9]|dr[02468]|dr1[024]|xd[02468]|xd1[024]|fv[048]|fv12"
+        r"r1[0-5]|r[0-9]|fr1[0-5]|fr[0-9]|dr[02468]|dr1[024]|(?<!0)xd[02468]|(?<!0)xd1[024]|fv[048]|fv12"
     ),
     arch_flags=["-m", "sh4"],
 )
@@ -3135,10 +3155,12 @@ ARCH_SETTINGS = [
 def hexify_int(row: str, pat: Match[str], arch: ArchSettings) -> str:
     full = pat.group(0)
 
-    # sh2/sh4 only has 8-bit immediates, just convert them uniformly without
-    # any -hex stuff
+    # sh2/sh4 only has signed 8-bit immediates for some instructions
     if arch.name == "sh2" or arch.name == "sh4" or arch.name == "sh4el":
-        return hex(int(full) & 0xFF)
+        if "add" in row or "mov" in row or "cmp/eq" in row:
+            return hex(int(full))
+        else:
+            return hex(int(full) & 0xFF)
 
     if len(full) <= 1:
         # leave one-digit ints alone
