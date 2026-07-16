@@ -3084,7 +3084,7 @@ SH4_SETTINGS = replace(
     #   - fr0-fr15, dr0-dr14, xd0-xd14, fv0-fv12 FP registers
     #     dr/xd registers can only be even-numbered, and fv registers can only be a multiple of 4
     re_reg=re.compile(
-        r"r1[0-5]|r[0-9]|fr1[0-5]|fr[0-9]|dr[02468]|dr1[024]|xd[02468]|xd1[024]|fv[048]|fv12"
+        r"r1[0-5]|r[0-9]|fr1[0-5]|fr[0-9]|dr[02468]|dr1[024]|(?<!0)xd[02468]|(?<!0)xd1[024]|fv[048]|fv12"
     ),
     arch_flags=["-m", "sh4"],
 )
