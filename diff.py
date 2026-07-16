@@ -2220,7 +2220,7 @@ class AsmProcessorX86(AsmProcessor):
             else:
                 repl = f"{repl}+{of}"
 
-        return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
+        return f"{mnemonic}\t{args[:start] + repl + args[end:]}", repl
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         return mnemonic == "ret"
@@ -2234,9 +2234,7 @@ class AsmProcessorX86(AsmProcessor):
 # "mov.l   0x1234,r7"
 # "mov.l   0x4c,r1 ! 605c660"
 # "mova    0x5c,r0"
-SH_POOL_PATTERN = (
-    r"(^.+mov\.?([lwa])\s+)(?:0x)?([a-fA-F0-9]+)(\s*<.+>)?(,r[0-9]+)(?:\s+!\s*([a-fA-F0-9]*))?"
-)
+SH_POOL_PATTERN = r"(^.+mov\.?([lwa])\s+)(?:0x)?([a-fA-F0-9]+)(\s*<.+>)?(,r[0-9]+)(?:\s+!\s*([a-fA-F0-9]*))?"
 
 # Normalized version of the normal pattern that uses pc-relative notation
 # Examples:
@@ -2327,7 +2325,7 @@ class AsmProcessorSH2(AsmProcessor):
             "R_SH_LABEL",
             "R_SH_ALIGN",
         }
-        
+
         # Catalog all relocs, done first just because there might relocs without
         # mov reference, so we can check for these and join them
         for i, line in enumerate(lines):
@@ -2678,7 +2676,7 @@ class AsmProcessorM68k(AsmProcessor):
         else:
             assert False, f"unknown relocation type '{row}' for line '{prev}'"
 
-        return f"{mnemonic}\t{args[:start]+repl+args[end:]}", repl
+        return f"{mnemonic}\t{args[:start] + repl + args[end:]}", repl
 
     def is_end_of_function(self, mnemonic: str, args: str) -> bool:
         return mnemonic == "rts" or mnemonic == "rte" or mnemonic == "rtr"
