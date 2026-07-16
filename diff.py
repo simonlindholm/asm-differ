@@ -2319,6 +2319,13 @@ class AsmProcessorSH2(AsmProcessor):
     # as an instruction can be fixed, returns a new list of lines that should
     # make the fixup job a bit easier
     def _collect_and_normalize(self, lines: List[str], is_be: bool) -> List[str]:
+        ignored_rels = {
+            "R_SH_CODE",
+            "R_SH_DATA",
+            "R_SH_LABEL",
+            "R_SH_ALIGN",
+        }
+        
         # Catalog all relocs, done first just because there might relocs without
         # mov reference, so we can check for these and join them
         for i, line in enumerate(lines):
@@ -2329,7 +2336,7 @@ class AsmProcessorSH2(AsmProcessor):
             mnemonic = addr_match.group(3) if addr_match else ""
 
             # Reloc line, add to dict
-            if "R_SH_" in mnemonic:
+            if "R_SH_" in mnemonic and mnemonic not in ignored_rels:
                 self._relocs[addr] = line
                 continue
 
@@ -2353,6 +2360,16 @@ class AsmProcessorSH2(AsmProcessor):
             # Reloc line, skip (already collected)
             if "R_SH_" in mnemonic:
                 continue
+
+            # Fixup BSR targets if they have a relocation
+            if mnemonic == "bsr" and addr in self._relocs:
+                rel_line = self._relocs[addr]
+                symbol = rel_line.split("+")[0]
+                if symbol != ".text":
+                    target = int(rel_line.split("+")[-1], 16) + 4
+                    nline = line.split("\tbsr\t")[0]
+                    norm_lines.append(f"{nline}\tbsr\t{target:x}")
+                    continue
 
             # Address reloc has an entry but isn't from a mov reference, add it as one
             if addr in self._relocs and addr not in self._imms:
@@ -2544,7 +2561,7 @@ class AsmProcessorSH2(AsmProcessor):
             )
             return f"{before}{repl}{after}", repl
         elif "R_SH_IND12W" in row:
-            # bra <label>
+            # bra <label> or bsr <label>, the latter is handled during pre_process
             return prev, None
         elif "R_SH_DIR8WPL" in row:
             # pc-rel mov.l <label>
