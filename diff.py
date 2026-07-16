@@ -2227,13 +2227,16 @@ class AsmProcessorX86(AsmProcessor):
         return mnemonic == "ret"
 
 
-# pc-relative mov instructions
+# pc-relative mov instructions, with or without the <label> targets
 # Examples:
 # "mov.l   150 <_bar+0x12>,r4     ! 154 <_main>"
 # "mov.w   266 <_main+0x112>,r4   ! bbaa"
 # "mova    190 <_main+0x3c>,r0"
+# "mov.l   0x1234,r7"
+# "mov.l   0x4c,r1 ! 605c660"
+# "mova    0x5c,r0"
 SH_POOL_PATTERN = (
-    r"(^.+mov\.?([lwa])\s+)([a-fA-F0-9]+)\s*<.+>(,r[0-9]+)(?:\s+!\s*([a-fA-F0-9]*))?"
+    r"(^.+mov\.?([lwa])\s+)(?:0x)?([a-fA-F0-9]+)(\s*<.+>)?(,r[0-9]+)(?:\s+!\s*([a-fA-F0-9]*))?"
 )
 
 # Normalized version of the normal pattern that uses pc-relative notation
@@ -2433,14 +2436,14 @@ class AsmProcessorSH2(AsmProcessor):
                     mov_label = self._relocs[addr].split()[-1]
                     mov_comm = ""
                     pc_rel = f"@({mov_label},pc)"
-                    pc_rel += mov_match.group(4)
+                    pc_rel += mov_match.group(5)
                 else:
                     mov_value = -1
 
                     # Can be None if direct values are used but the pool
                     # doesn't get included in the asm
-                    if mov_match.group(5) is not None:
-                        mov_value = int(mov_match.group(5), 16)
+                    if mov_match.group(6) is not None:
+                        mov_value = int(mov_match.group(6), 16)
 
                     self._imms[mov_tgt] = self.ImmEntry(
                         value=mov_value,
@@ -2452,15 +2455,15 @@ class AsmProcessorSH2(AsmProcessor):
                     mov_comm = f" ! {mov_tgt:x}"
                     # Convert to pc-rel notation while we are at it
                     pc_rel = f"@(0x{mov_tgt - addr:x},pc)"
-                    pc_rel += mov_match.group(4)
+                    pc_rel += mov_match.group(5)
 
                 norm_lines.append(fix_line + pc_rel + mov_comm)
                 continue
 
             # Check for jumptables
             if mnemonic == "braf" or mnemonic == "jmp":
-                # search mova up to 4 instructions before
-                mov_lines = lines[i - 1 : i - 5 : -1]
+                # search mova up to 20 instructions before
+                mov_lines = lines[i - 1 : max(-1, i - 20 - 1) : -1]
                 jtbl_match = None
                 is_mova = False
                 jtbl_addr = 0
@@ -2470,11 +2473,14 @@ class AsmProcessorSH2(AsmProcessor):
                     if jtbl_match is not None:
                         is_mova = jtbl_match.group(2) == "a"
                         jtbl_addr = int(jtbl_match.group(3), 16)
+
+                        if not is_mova:
+                            continue
                         break
 
                 if is_mova and addr not in self._relocs:
-                    # Search up to 10 lines before
-                    end = min(i, 10)
+                    # Search up to 60 lines before
+                    end = min(i, 60)
                     jtbl_count = self._test_jtbl(lines[i - 2 : i - end : -1])
 
                     if jtbl_count != -1:
@@ -2508,11 +2514,9 @@ class AsmProcessorSH2(AsmProcessor):
                     jtbl_count = int(mov_match.group(1)) + adjust
                     break
                 # more than 128 cases
-                pat = r"^.+mov.[lw].*<.+>,"
-                pat += cmp_reg + r"\s+!\s*([a-fA-F0-9]*)?"
-                mov_match = re.match(pat, line)
+                mov_match = re.match(SH_POOL_PATTERN, line)
                 if mov_match:
-                    jtbl_count = int(mov_match.group(1), 16) + adjust
+                    jtbl_count = int(mov_match.group(6), 16) + adjust
                     break
 
         return jtbl_count
