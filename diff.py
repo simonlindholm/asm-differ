@@ -2361,12 +2361,19 @@ class AsmProcessorSH2(AsmProcessor):
             if "R_SH_" in mnemonic:
                 continue
 
-            # Fixup BSR targets if they have a relocation
+            # Fixup BSR targets if they have a relocation, they can only
+            # have relocs into reachable labels so we can just take whatever
+            # displacement the relocation has as the target
             if mnemonic == "bsr" and addr in self._relocs:
                 rel_line = self._relocs[addr]
                 symbol = rel_line.split("+")[0]
                 if symbol != ".text":
-                    target = int(rel_line.split("+")[-1], 16) + 4
+                    if "+" in rel_line:
+                        target = int(rel_line.split("+")[-1], 16) + 4
+                    elif "-" in rel_line:
+                        target = -int(rel_line.split("-")[-1], 16) + 4
+                    else:
+                        target = addr + 4  # This should be impossible
                     nline = line.split("\tbsr\t")[0]
                     norm_lines.append(f"{nline}\tbsr\t{target:x}")
                     continue
@@ -2416,7 +2423,7 @@ class AsmProcessorSH2(AsmProcessor):
                     item = int(str_bytes[1] + str_bytes[0], 16)
 
                 entry = addr_match.group(1) if addr_match else ""
-                entry += f".word 0x{item:04x} ! tgt 0x{base + item:x}"
+                entry += f".word 0x{item:04x} ! tgt {base + item:x}"
                 norm_lines.append(entry)
                 continue
 
@@ -2459,8 +2466,9 @@ class AsmProcessorSH2(AsmProcessor):
 
             # Check for jumptables
             if mnemonic == "braf" or mnemonic == "jmp":
-                # search mova up to 20 instructions before
-                mov_lines = lines[i - 1 : max(-1, i - 20 - 1) : -1]
+                # search mova up to 20 lines before
+                end = min(i, 20)
+                mov_lines = lines[i - 1 : i - end : -1]
                 jtbl_match = None
                 is_mova = False
                 jtbl_addr = 0
@@ -2522,11 +2530,12 @@ class AsmProcessorSH2(AsmProcessor):
         # Endianess is only relevant when pc-relative movs are present
         for line in lines:
             m = re.match(
-                r"^.*([a-fA-F0-9]{2}\s[a-fA-F0-9]{2})\s+mov\.?([alw])\s+[a-fA-F0-9]+\s*<.+>,r([0-9]+).*",
+                r"^.*([a-fA-F0-9]{2}\s[a-fA-F0-9]{2})\s+mov\.?([alw])\s+(?:0x)?[a-fA-F0-9]+(?:\s*<.+>)?,r([0-9]+).*",
                 line,
             )
             if not m:
                 continue
+
             mov_bytes = int(m.group(1).replace(" ", ""), 16)
             mov_kind = (mov_bytes >> 12) & 0xF
             mov_reg = (mov_bytes >> 8) & 0xF
@@ -2603,6 +2612,7 @@ class AsmProcessorSH2(AsmProcessor):
             comm = line.comment
             if comm is not None and comm.startswith("! tgt "):
                 line.branch_target = int(comm[6:], 16)
+                line.original += f" ! ({comm[6:]})"
 
     def _post_process_data_pools(self, lines: List["Line"]) -> None:
         lines_by_line_number = {}
