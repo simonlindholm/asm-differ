@@ -2334,7 +2334,7 @@ class AsmProcessorSH2(AsmProcessor):
         norm_lines = []
         jtbl_cnt = 0
         curr_jtbl_addr = 0
-        jtbl_search = deque(maxlen=20)
+        jtbl_search: deque[str] = deque(maxlen=20)
         skip_next = False
 
         for line in lines:
