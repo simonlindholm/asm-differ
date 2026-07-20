@@ -9,6 +9,7 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Deque,
     Sequence,
     Match,
     NoReturn,
@@ -2334,7 +2335,7 @@ class AsmProcessorSH2(AsmProcessor):
         norm_lines = []
         jtbl_cnt = 0
         curr_jtbl_addr = 0
-        jtbl_search: deque[str] = deque(maxlen=20)
+        jtbl_search: Deque[str] = deque(maxlen=20)
         skip_next = False
 
         for line in lines:
@@ -2531,7 +2532,7 @@ class AsmProcessorSH2(AsmProcessor):
 
         return -1
 
-    def _bytelist_to_value(self, str_bytes: list[str]) -> int:
+    def _bytelist_to_value(self, str_bytes: List[str]) -> int:
         if self.config.arch.big_endian:
             return int("".join(str_bytes), 16)
         else:
