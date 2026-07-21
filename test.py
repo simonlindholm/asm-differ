@@ -188,7 +188,7 @@ class TestSh2(unittest.TestCase):
             i += 1
 
     def test_sh2_switch(self) -> None:
-        # test that small switch tables get interpreted
+        # test that small switch tables get interpreted (GCC)
         # 00000000 <_jtbl_test>:
         #    0:    2f e6           mov.l    r14,@-r15
         #    2:    e1 05           mov    #5,r1
@@ -284,6 +284,129 @@ class TestSh2(unittest.TestCase):
         # bra     a
         print(loaded["rows"][2]["base"]["text"][1]["text"] == "~>")
         print(loaded["rows"][2]["base"]["text"][1]["key"] == "10")
+
+
+class TestSh4(unittest.TestCase):
+    def get_config(self) -> diff.Config:
+        arch = diff.get_arch("sh4el")
+        formatter = diff.JsonFormatter(arch_str="sh4el")
+        config = diff.Config(
+            arch=arch,
+            diff_obj=True,
+            file=None,
+            ref_file=None,
+            make=False,
+            source_old_binutils=True,
+            diff_section=".text",
+            inlines=False,
+            max_function_size_lines=25000,
+            max_function_size_bytes=100000,
+            formatter=formatter,
+            diff_mode=diff.DiffMode.NORMAL,
+            base_shift=0,
+            skip_lines=0,
+            compress=None,
+            show_rodata_refs=True,
+            show_branches=True,
+            show_line_numbers=False,
+            show_source=False,
+            stop_at_ret=None,
+            ignore_large_imms=False,
+            ignore_addr_diffs=True,
+            algorithm="levenshtein",
+            reg_categories={},
+            diff_function_symbols=False,
+        )
+        return config
+
+    def test_sh4_switch(self) -> None:
+        # test that small switch tables get interpreted (SHC)
+        # 00000000 <_jtbl_test>:
+        # _jtbl_test():
+        #    0:    43 60           mov    r4,r0
+        #    2:    10 e1           mov    #16,r1
+        #    4:    12 30           cmp/hs    r1,r0
+        #    6:    23 89           bt    50 <_jtbl_test+0x50>
+        #    8:    00 40           shll    r0
+        #    a:    03 61           mov    r0,r1
+        #    c:    01 c7           mova    14 <_jtbl_test+0x14>,r0
+        #    e:    1d 00           mov.w    @(r0,r1),r0
+        #   10:    23 00           braf    r0
+        #   12:    09 00           nop
+        #   14:    20 00           .word 0x0020
+        #   16:    24 00           mov.b    r2,@(r0,r0)
+        #   18:    28 00           clrmac
+        #   1a:    2c 00           mov.b    @(r0,r2),r0
+        #   1c:    30 00           .word 0x0030
+        #   1e:    34 00           mov.b    r3,@(r0,r0)
+        #   20:    34 00           mov.b    r3,@(r0,r0)
+        #   22:    34 00           mov.b    r3,@(r0,r0)
+        #   24:    34 00           mov.b    r3,@(r0,r0)
+        #   26:    34 00           mov.b    r3,@(r0,r0)
+        #   28:    34 00           mov.b    r3,@(r0,r0)
+        #   2a:    34 00           mov.b    r3,@(r0,r0)
+        #   2c:    38 00           ldtlb
+        #   2e:    38 00           ldtlb
+        #   30:    38 00           ldtlb
+        #   32:    38 00           ldtlb
+        #   34:    0b 00           rts
+        #   36:    02 e0           mov    #2,r0
+        #   38:    04 a0           bra    44 <_jtbl_test+0x44>
+        #   3a:    09 00           nop
+        #   3c:    0b 00           rts
+        #   3e:    00 e0           mov    #0,r0
+        #   40:    0b 00           rts
+        #   42:    01 e0           mov    #1,r0
+        #   44:    0b 00           rts
+        #   46:    05 e0           mov    #5,r0
+        #   48:    0b 00           rts
+        #   4a:    07 e0           mov    #7,r0
+        #   4c:    0b 00           rts
+        #   4e:    06 e0           mov    #6,r0
+        #   50:    ff e0           mov    #-1,r0
+        #   52:    0b 00           rts
+        #   54:    09 00           nop
+        objdump_raw = "00000000 <_jtbl_test>:\n_jtbl_test():\n   0:\t43 60       \tmov\tr4,r0\n   2:\t10 e1       \tmov\t#16,r1\n   4:\t12 30       \tcmp/hs\tr1,r0\n   6:\t23 89       \tbt\t50 <_jtbl_test+0x50>\n   8:\t00 40       \tshll\tr0\n   a:\t03 61       \tmov\tr0,r1\n   c:\t01 c7       \tmova\t14 <_jtbl_test+0x14>,r0\n   e:\t1d 00       \tmov.w\t@(r0,r1),r0\n  10:\t23 00       \tbraf\tr0\n  12:\t09 00       \tnop\t\n  14:\t20 00       \t.word 0x0020\n  16:\t24 00       \tmov.b\tr2,@(r0,r0)\n  18:\t28 00       \tclrmac\t\n  1a:\t2c 00       \tmov.b\t@(r0,r2),r0\n  1c:\t30 00       \t.word 0x0030\n  1e:\t34 00       \tmov.b\tr3,@(r0,r0)\n  20:\t34 00       \tmov.b\tr3,@(r0,r0)\n  22:\t34 00       \tmov.b\tr3,@(r0,r0)\n  24:\t34 00       \tmov.b\tr3,@(r0,r0)\n  26:\t34 00       \tmov.b\tr3,@(r0,r0)\n  28:\t34 00       \tmov.b\tr3,@(r0,r0)\n  2a:\t34 00       \tmov.b\tr3,@(r0,r0)\n  2c:\t38 00       \tldtlb\t\n  2e:\t38 00       \tldtlb\t\n  30:\t38 00       \tldtlb\t\n  32:\t38 00       \tldtlb\t\n  34:\t0b 00       \trts\t\n  36:\t02 e0       \tmov\t#2,r0\n  38:\t04 a0       \tbra\t44 <_jtbl_test+0x44>\n  3a:\t09 00       \tnop\t\n  3c:\t0b 00       \trts\t\n  3e:\t00 e0       \tmov\t#0,r0\n  40:\t0b 00       \trts\t\n  42:\t01 e0       \tmov\t#1,r0\n  44:\t0b 00       \trts\t\n  46:\t05 e0       \tmov\t#5,r0\n  48:\t0b 00       \trts\t\n  4a:\t07 e0       \tmov\t#7,r0\n  4c:\t0b 00       \trts\t\n  4e:\t06 e0       \tmov\t#6,r0\n  50:\tff e0       \tmov\t#-1,r0\n  52:\t0b 00       \trts\t\n  54:\t09 00       \tnop\t"
+
+        config = self.get_config()
+        processor = config.arch.proc(config)
+        sh4_theirs = processor.preprocess_objdump(objdump_raw)
+
+        # just diff with self
+        sh4_ours = sh4_theirs
+
+        config.arch.proc(config)
+        display = diff.Display(sh4_theirs, sh4_ours, config)
+        loaded = json.loads(display.run_diff()[0])
+
+        expected = [
+            "14:    .word   0x0020 ! (34) ",
+            "16:    .word   0x0024 ! (38) ",
+            "18:    .word   0x0028 ! (3c) ",
+            "1a:    .word   0x002c ! (40) ",
+            "1c:    .word   0x0030 ! (44) ",
+            "1e:    .word   0x0034 ! (48) ",
+            "20:    .word   0x0034 ! (48) ",
+            "22:    .word   0x0034 ! (48) ",
+            "24:    .word   0x0034 ! (48) ",
+            "26:    .word   0x0034 ! (48) ",
+            "28:    .word   0x0034 ! (48) ",
+            "2a:    .word   0x0034 ! (48) ",
+            "2c:    .word   0x0038 ! (4c) ",
+            "2e:    .word   0x0038 ! (4c) ",
+            "30:    .word   0x0038 ! (4c) ",
+            "32:    .word   0x0038 ! (4c) ",
+        ]
+
+        # check if literal pool is correctly guessed
+        i = 0
+        for text in loaded["rows"][10:26]:
+            row = text["base"]["text"][0]["text"]
+            row += text["base"]["text"][1]["text"]
+            row += text["base"]["text"][2]["text"]
+
+            assert row == expected[i]
+            i += 1
 
 
 if __name__ == "__main__":
