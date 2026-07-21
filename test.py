@@ -187,6 +187,73 @@ class TestSh2(unittest.TestCase):
             assert text["base"]["text"][0]["text"] == expected[i]
             i += 1
 
+    def test_sh2_switch(self) -> None:
+        # test that small switch tables get interpreted
+        # 00000000 <_jtbl_test>:
+        #    0:    2f e6           mov.l    r14,@-r15
+        #    2:    e1 05           mov    #5,r1
+        #    4:    34 16           cmp/hi    r1,r4
+        #    6:    8d 17           bt.s    38 <_jtbl_test+0x38>
+        #    8:    6e f3           mov    r15,r14
+        #    a:    61 43           mov    r4,r1
+        #    c:    31 1c           add    r1,r1
+        #    e:    c7 02           mova    18 <_jtbl_test+0x18>,r0
+        #   10:    01 1d           mov.w    @(r0,r1),r1
+        #   12:    30 1c           add    r1,r0
+        #   14:    40 2b           jmp    @r0
+        #   16:    00 09           nop
+        #   18:    00 10           .word 0x0010
+        #   1a:    00 1c           mov.b    @(r0,r1),r0
+        #   1c:    00 1c           mov.b    @(r0,r1),r0
+        #   1e:    00 0c           mov.b    @(r0,r0),r0
+        #   20:    00 14           mov.b    r1,@(r0,r0)
+        #   22:    00 18           sett
+        #   24:    a0 09           bra    3a <_jtbl_test+0x3a>
+        #   26:    e0 01           mov    #1,r0
+        #   28:    a0 07           bra    3a <_jtbl_test+0x3a>
+        #   2a:    e0 02           mov    #2,r0
+        #   2c:    a0 05           bra    3a <_jtbl_test+0x3a>
+        #   2e:    e0 05           mov    #5,r0
+        #   30:    a0 03           bra    3a <_jtbl_test+0x3a>
+        #   32:    e0 06           mov    #6,r0
+        #   34:    a0 01           bra    3a <_jtbl_test+0x3a>
+        #   36:    e0 00           mov    #0,r0
+        #   38:    e0 ff           mov    #-1,r0
+        #   3a:    6f e3           mov    r14,r15
+        #   3c:    00 0b           rts
+        #   3e:    6e f6           mov.l    @r15+,r14
+        objdump_raw = "00000000 <_jtbl_test>:\n   0:\t2f e6       \tmov.l\tr14,@-r15\n   2:\te1 05       \tmov\t#5,r1\n   4:\t34 16       \tcmp/hi\tr1,r4\n   6:\t8d 17       \tbt.s\t38 <_jtbl_test+0x38>\n   8:\t6e f3       \tmov\tr15,r14\n   a:\t61 43       \tmov\tr4,r1\n   c:\t31 1c       \tadd\tr1,r1\n   e:\tc7 02       \tmova\t18 <_jtbl_test+0x18>,r0\n  10:\t01 1d       \tmov.w\t@(r0,r1),r1\n  12:\t30 1c       \tadd\tr1,r0\n  14:\t40 2b       \tjmp\t@r0\n  16:\t00 09       \tnop\t\n  18:\t00 10       \t.word 0x0010\n  1a:\t00 1c       \tmov.b\t@(r0,r1),r0\n  1c:\t00 1c       \tmov.b\t@(r0,r1),r0\n  1e:\t00 0c       \tmov.b\t@(r0,r0),r0\n  20:\t00 14       \tmov.b\tr1,@(r0,r0)\n  22:\t00 18       \tsett\t\n  24:\ta0 09       \tbra\t3a <_jtbl_test+0x3a>\n  26:\te0 01       \tmov\t#1,r0\n  28:\ta0 07       \tbra\t3a <_jtbl_test+0x3a>\n  2a:\te0 02       \tmov\t#2,r0\n  2c:\ta0 05       \tbra\t3a <_jtbl_test+0x3a>\n  2e:\te0 05       \tmov\t#5,r0\n  30:\ta0 03       \tbra\t3a <_jtbl_test+0x3a>\n  32:\te0 06       \tmov\t#6,r0\n  34:\ta0 01       \tbra\t3a <_jtbl_test+0x3a>\n  36:\te0 00       \tmov\t#0,r0\n  38:\te0 ff       \tmov\t#-1,r0\n  3a:\t6f e3       \tmov\tr14,r15\n  3c:\t00 0b       \trts\t\n  3e:\t6e f6       \tmov.l\t@r15+,r14"
+
+        config = self.get_config()
+        processor = config.arch.proc(config)
+        sh2_theirs = processor.preprocess_objdump(objdump_raw)
+
+        # just diff with self
+        sh2_ours = sh2_theirs
+
+        config.arch.proc(config)
+        display = diff.Display(sh2_theirs, sh2_ours, config)
+        loaded = json.loads(display.run_diff()[0])
+
+        expected = [
+            "18:    .word   0x0010 ! (28) ",
+            "1a:    .word   0x001c ! (34) ",
+            "1c:    .word   0x001c ! (34) ",
+            "1e:    .word   0x000c ! (24) ",
+            "20:    .word   0x0014 ! (2c) ",
+            "22:    .word   0x0018 ! (30) ",
+        ]
+
+        # check if literal pool is correctly guessed
+        i = 0
+        for text in loaded["rows"][12:18]:
+            row = text["base"]["text"][0]["text"]
+            row += text["base"]["text"][1]["text"]
+            row += text["base"]["text"][2]["text"]
+
+            assert row == expected[i]
+            i += 1
+
     def test_branch(self) -> None:
         # test that bt.s and bra get ~>
         # func():
