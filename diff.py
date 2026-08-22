@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # PYTHON_ARGCOMPLETE_OK
+
+# SPDX-FileCopyrightText: 2019-2024 asm-differ contributors
+# SPDX-License-Identifier: Unlicense
+
 import argparse
 import enum
 import sys
