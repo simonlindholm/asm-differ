@@ -1950,6 +1950,13 @@ class AsmProcessorARM32(AsmProcessor):
         # Ignore imm; ARM typically uses RELA relocations that ignore addends
         # embedded in the code.
         repl = row.split()[-1]
+        if "R_ARM_PC24" in row:
+            # The bl instruction encoding embeds an offset which is -8 compared
+            # to that of the asm representation (being relative to pc+8 instead
+            # of pc). Thus, we need to adjust the relocation by +8 to get it
+            # into asm representation form.
+            repl, addend = extract_reloc_addend(repl)
+            repl += format_reloc_addend(addend + 8)
         return before + repl + after, repl
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
@@ -3190,6 +3197,25 @@ def parse_relocated_line(line: str) -> Tuple[str, str, str]:
     return before, imm, after
 
 
+def format_reloc_addend(addend: int) -> str:
+    if addend == 0:
+        return ""
+    elif addend < 0:
+        return hex(addend)
+    else:
+        return "+" + hex(addend)
+
+
+def extract_reloc_addend(value: str) -> Tuple[str, int]:
+    parts = value.split("+")
+    if len(parts) == 2:
+        return parts[0], int(parts[1], 0)
+    parts = value.split("-")
+    if len(parts) == 2:
+        return parts[0], -int(parts[1], 0)
+    return value, 0
+
+
 def reloc_addend_from_imm(imm: str, before: str, arch: ArchSettings) -> str:
     """For architectures like MIPS where relocations have addends embedded in
     the code as immediates, convert such an immediate into an addition/
@@ -3204,12 +3230,7 @@ def reloc_addend_from_imm(imm: str, before: str, arch: ArchSettings) -> str:
         addend = int(imm, 16)
     else:
         addend = int(imm, 0)
-    if addend == 0:
-        return ""
-    elif addend < 0:
-        return hex(addend)
-    else:
-        return "+" + hex(addend)
+    return format_reloc_addend(addend)
 
 
 def pad_mnemonic(line: str) -> str:
