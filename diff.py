@@ -1939,7 +1939,7 @@ class AsmProcessorARM32(AsmProcessor):
             # related symbol, but this serves as a stop-gap.)
             if not prev.strip():
                 # More recent objdump doesn't seem to be emitting .word? Or maybe
-                # I'm just looking at ELFs without proper STT_OBJECT markers.
+                # I'm just looking at ELFs without proper $d symbol markers.
                 # In any case, this case seems safe enough to handle. The ELF
                 # I was looking at also uses RELA relocations, so we don't even
                 # need to parse the underlying bytes from the previous row.
@@ -1947,7 +1947,9 @@ class AsmProcessorARM32(AsmProcessor):
                 return ".word " + sym, sym
             return prev, None
         before, imm, after = parse_relocated_line(prev)
-        repl = row.split()[-1] + reloc_addend_from_imm(imm, before, self.config.arch)
+        # Ignore imm; ARM typically uses RELA relocations that ignore addends
+        # embedded in the code.
+        repl = row.split()[-1]
         return before + repl + after, repl
 
     def _normalize_arch_specific(self, mnemonic: str, row: str) -> str:
