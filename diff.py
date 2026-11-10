@@ -4400,8 +4400,9 @@ class Display:
         try:
             procb.wait()
         except KeyboardInterrupt:
-            # less doesn't exit on SIGINT; make sure it doesn't outlive us
-            # and keep the terminal hostage
+            # Send SIGTERM to less so it cleans up the terminal on Ctrl-C.
+            # otherwise the terminal is stuck in a bad state where inputs
+            # aren't visible
             procb.terminate()
             procb.wait()
             raise
