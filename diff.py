@@ -4397,8 +4397,16 @@ class Display:
     def run_sync(self) -> None:
         output, _ = self.run_diff()
         proca, procb = self.run_less(output)
-        procb.wait()
-        proca.wait()
+        try:
+            procb.wait()
+        except KeyboardInterrupt:
+            # less doesn't exit on SIGINT; make sure it doesn't outlive us
+            # and keep the terminal hostage
+            procb.terminate()
+            procb.wait()
+            raise
+        finally:
+            proca.wait()
 
     def run_async(self, watch_queue: "queue.Queue[Optional[float]]") -> None:
         self.watch_queue = watch_queue
@@ -4418,8 +4426,9 @@ class Display:
             ret = procb.wait()
             proca.wait()
             self.less_proc = None
-            if ret != 0:
-                # fix the terminal
+            if ret < 0:
+                # less died from a signal without restoring the terminal
+                # (e.g. SIGKILL from outside), so fix it the hard way
                 os.system("tput reset")
             if ret != 0 and self.pending_update is not None:
                 # killed by program with the intent to refresh
@@ -4456,13 +4465,15 @@ class Display:
         self.pending_update = output
         if not self.less_proc:
             return
-        self.less_proc.kill()
+        # use SIGTERM instead of SIGKILL so less restores the terminal properly
+        self.less_proc.terminate()
         self.ready_queue.get()
 
     def terminate(self) -> None:
         if not self.less_proc:
             return
-        self.less_proc.kill()
+        # use SIGTERM instead of SIGKILL so less restores the terminal properly
+        self.less_proc.terminate()
         self.ready_queue.get()
 
 
