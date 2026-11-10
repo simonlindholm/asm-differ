@@ -1,6 +1,25 @@
 import unittest
 import diff
 import json
+import os
+import platform
+import random
+import re
+import select
+import shlex
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+from typing import List, Optional
+
+if sys.platform != "win32":
+    import fcntl
+    import pty
+    import termios
 
 
 class TestSh2(unittest.TestCase):
@@ -407,6 +426,340 @@ class TestSh4(unittest.TestCase):
 
             assert row == expected[i]
             i += 1
+
+
+class TestFixture:
+    """
+    A directory for running diff.py on generated objects.
+    """
+
+    __test__ = False  # not a test case, despite the name
+
+    FUNC = "bench_fn"
+    REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+
+    def __init__(self, workdir: str) -> None:
+        if not os.path.exists(workdir):
+            os.makedirs(workdir)
+        self.workdir = workdir
+
+    @staticmethod
+    def host_arch() -> Optional[str]:
+        """diff.py arch for objects compiled on this machine, None if unsupported."""
+        # platform.machine() (lowercased) -> diff.py arch of the objects gcc
+        # builds natively on that machine
+        HOST_ARCHES = {
+            "x86_64": "x86",
+            "amd64": "x86",
+            "aarch64": "aarch64",
+            "arm64": "aarch64",
+        }
+        return HOST_ARCHES.get(platform.machine().lower())
+
+    def setup(self, lines: int, num_variants: int) -> List[bytes]:
+        """
+        Populate the directory and return the contents of the my.o variants.
+        my.o starts out as the first variant.
+        """
+        arch = self.host_arch()
+        if arch is None:
+            raise RuntimeError(f"unsupported host architecture: {platform.machine()}")
+        with open(os.path.join(self.workdir, "diff_settings.py"), "w") as f:
+            f.write(
+                "def apply(config, args):\n"
+                f"    config['arch'] = {arch!r}\n"
+                "    config['objdump_executable'] = 'objdump'\n"
+            )
+        # diff.py imports diff_settings from its own directory first, which is
+        # the repo's example settings. Run the repo's diff.py through a launcher
+        # here so this dir's diff_settings.py is picked up instead.
+        with open(os.path.join(self.workdir, "run_diff.py"), "w") as f:
+            f.write(
+                "import runpy\n"
+                f"runpy.run_path({os.path.join(self.REPO_DIR, 'diff.py')!r}, "
+                "run_name='__main__')\n"
+            )
+        self._compile_obj("ref", seed=0, lines=lines)
+        variants: List[bytes] = []
+        for i in range(num_variants):
+            path = self._compile_obj(f"var{i}", seed=i + 1, lines=lines)
+            with open(path, "rb") as f:
+                variants.append(f.read())
+        self.write_obj(variants[0])
+        return variants
+
+    def write_obj(self, data: bytes) -> None:
+        """Replace my.o, rewriting it in place like a compiler/linker would."""
+        with open(os.path.join(self.workdir, "my.o"), "wb") as f:
+            f.write(data)
+
+    def command(self, python: str, watch: bool = True) -> str:
+        """Shell command that runs diff.py on this fixture, in watch mode by default."""
+        watch_flags = "-w -y " if watch else ""
+        return (
+            f"cd {shlex.quote(self.workdir)} && {shlex.quote(python)} run_diff.py "
+            f"-o -f my.o --ref-file ref.o {watch_flags}{self.FUNC}"
+        )
+
+    def _compile_obj(self, name: str, seed: int, lines: int) -> str:
+        c_path = os.path.join(self.workdir, f"{name}.c")
+        o_path = os.path.join(self.workdir, f"{name}.o")
+        with open(c_path, "w") as f:
+            f.write(self._gen_source(seed, lines))
+        subprocess.run(["gcc", "-O1", "-c", c_path, "-o", o_path], check=True)
+        return o_path
+
+    def _gen_source(self, seed: int, lines: int) -> str:
+        rng = random.Random(seed)
+        body = "\n".join(
+            (
+                f"    sink = {rng.randrange(1 << 16)};"
+                if rng.random() < 0.3
+                else f"    sink = {i * 7};"
+            )
+            for i in range(lines)
+        )
+        return f"volatile int sink;\nvoid {self.FUNC}(void) {{\n{body}\n}}\n"
+
+
+class TestTerminal(unittest.TestCase):
+    """
+    Test various terminal UI behavior
+    """
+
+    ENTER = b"\x1b[?1049h"  # switch to alternate screen
+    LEAVE = b"\x1b[?1049l"  # switch back to normal screen
+    RESET = b"\x1bc"  # full terminal reset (tput reset)
+
+    class _PtyShell:
+        """An interactive bash (with job control) running in a pseudo-terminal."""
+
+        PROMPT = b"PROMPT> "
+
+        def __init__(self) -> None:
+            self.pid, self.fd = pty.fork()
+            if self.pid == 0:
+                os.environ.update(TERM="xterm-256color", PS1=self.PROMPT.decode())
+                os.environ.pop("LESS", None)
+                os.execvp("bash", ["bash", "--norc", "--noprofile", "-i"])
+            winsize = struct.pack("HHHH", 40, 200, 0, 0)
+            fcntl.ioctl(self.fd, termios.TIOCSWINSZ, winsize)
+            self.buf = b""
+            self.read_until(self.PROMPT, 0, timeout=5)
+
+        def mark(self) -> int:
+            """Position in the output, to wait for output that comes after it."""
+            return len(self.buf)
+
+        def _read(self, timeout: float) -> bool:
+            """Read available output into buf. False if the pty is closed."""
+            r, _, _ = select.select([self.fd], [], [], timeout)
+            if not r:
+                return True
+            try:
+                data = os.read(self.fd, 65536)
+            except OSError:
+                return False
+            self.buf += data
+            return bool(data)
+
+        def wait_for(self, pattern: bytes, start: int, timeout: float) -> bool:
+            """Wait until pattern shows up in the output after start."""
+            end = time.time() + timeout
+            while pattern not in self.buf[start:]:
+                remaining = end - time.time()
+                if remaining <= 0 or not self._read(min(remaining, 0.05)):
+                    return pattern in self.buf[start:]
+            return True
+
+        def read_until(self, pattern: bytes, start: int, timeout: float) -> bytes:
+            """Like wait_for(), but fails on timeout. Returns the output after start."""
+            if not self.wait_for(pattern, start, timeout):
+                raise AssertionError(
+                    f"timed out waiting for {pattern!r}; got {self.buf[-300:]!r}"
+                )
+            return self.buf[start:]
+
+        def send(self, data: bytes) -> None:
+            os.write(self.fd, data)
+
+        def tty_flags(self) -> List[bytes]:
+            """echo/icanon flags of the tty as seen by a command run from the shell."""
+            start = self.mark()
+            # E''ND so the echoed command line doesn't match the marker
+            self.send(
+                b"stty -a | tr ' ;' '\\n\\n' | grep -xE -- '-?(echo|icanon)'"
+                b" | tr '\\n' ' '; echo E''ND\n"
+            )
+            out = self.read_until(b"END\r\n", start, timeout=5)
+            m = re.search(rb"((?:-?\w+ )+)END\r\n", out)
+            return m.group(1).split() if m else []
+
+        def close(self) -> None:
+            self.send(b"exit\n")
+            end = time.time() + 5
+            while time.time() < end:
+                if os.waitpid(self.pid, os.WNOHANG)[0] != 0:
+                    break
+                # keep reading so bash never blocks on writing output
+                self._read(0.05)
+            else:
+                # e.g. a failed test left a stopped job, so bash refuses to exit
+                os.kill(self.pid, signal.SIGKILL)
+                os.waitpid(self.pid, 0)
+            os.close(self.fd)
+
+    fixture: TestFixture
+    variants: List[bytes]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        reason = cls._skip_reason()
+        if reason:
+            raise unittest.SkipTest(reason)
+        cls.fixture = TestFixture(tempfile.mkdtemp(prefix="asm-differ-watch-test-"))
+        cls.variants = cls.fixture.setup(lines=200, num_variants=3)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.fixture.workdir, ignore_errors=True)
+
+    @staticmethod
+    def _skip_reason() -> str:
+        if sys.platform == "win32":
+            return "needs a POSIX pty"
+        if TestFixture.host_arch() is None:
+            return f"no diff.py arch for host machine {platform.machine()}"
+        for tool in ["bash", "gcc", "objdump", "less", "stty"]:
+            if not shutil.which(tool):
+                return f"needs {tool}"
+        return ""
+
+    def _refresh(self, shell: "TestTerminal._PtyShell", data: bytes) -> bytes:
+        """
+        Replace my.o and wait for the new less to draw. Returns the output from
+        the write on.
+        """
+        start = shell.mark()
+        # retry in case the write happened before the file watcher was ready
+        for _ in range(3):
+            self.fixture.write_obj(data)
+            if shell.wait_for(b"TARGET", start, timeout=3):
+                return shell.buf[start:]
+        self.fail("watch mode did not refresh after my.o changed")
+
+    # === no cases ===
+
+    def _run_case(self, exit_key: bytes, suspend: bool) -> None:
+        self.fixture.write_obj(self.variants[0])
+        shell = self._PtyShell()
+        self.addCleanup(shell.close)
+        start = shell.mark()
+        shell.send(self.fixture.command(sys.executable).encode() + b"\n")
+        shell.read_until(b"TARGET", start, timeout=15)
+        for i in range(3):
+            self._refresh(shell, self.variants[1 + i % 2])
+        # the old less leaves before the new one draws, so a leave would
+        # already be in the output by now
+        out = shell.buf[start:]
+        self.assertEqual(out.count(self.ENTER), 1, "enters alt screen once")
+        self.assertNotIn(self.LEAVE, out, "no alt screen leave during refreshes")
+        self.assertNotIn(self.RESET, out, "no terminal reset during refreshes")
+
+        if suspend:
+            mark = shell.mark()
+            shell.send(b"\x1a")
+            out = shell.read_until(shell.PROMPT, mark, timeout=5)
+            leave_at = out.find(self.LEAVE)
+            self.assertTrue(
+                0 <= leave_at < out.find(shell.PROMPT),
+                "Ctrl-Z leaves alt screen before the shell prompt",
+            )
+            self.assertIn(b"Stopped", out)
+            # al''ive so the echoed command line doesn't match
+            mark = shell.mark()
+            shell.send(b"echo al''ive\n")
+            shell.read_until(b"alive\r\n", mark, timeout=5)
+
+            mark = shell.mark()
+            shell.send(b"fg\n")
+            out = shell.read_until(b"TARGET", mark, timeout=5)
+            enter_at = out.find(self.ENTER)
+            self.assertGreaterEqual(enter_at, 0, "fg re-enters alt screen")
+            self.assertIn(b"TARGET", out[enter_at:], "less repaints after fg")
+
+            out = self._refresh(shell, self.variants[0])
+            self.assertNotIn(self.LEAVE, out, "refresh after fg stays on alt screen")
+
+        mark = shell.mark()
+        shell.send(exit_key)
+        out = shell.read_until(shell.PROMPT, mark, timeout=10)
+        self.assertIn(self.LEAVE, out, "leaves alt screen on exit")
+        flags = shell.tty_flags()
+        self.assertIn(b"echo", flags)
+        self.assertIn(b"icanon", flags)
+
+    def test_quit(self) -> None:
+        """
+        Refreshes stay on the alternate screen without a terminal reset, and
+        quitting with q leaves the alternate screen and restores echo and line
+        mode for the shell.
+        """
+        self._run_case(b"q", suspend=False)
+
+    def test_ctrl_c(self) -> None:
+        """
+        Refreshes stay on the alternate screen without a terminal reset, and
+        Ctrl-C leaves the alternate screen and restores echo and line mode for
+        the shell.
+        """
+        self._run_case(b"\x03", suspend=False)
+
+    def test_suspend_then_quit(self) -> None:
+        """
+        Like test_quit, plus Ctrl-Z in between: Ctrl-Z leaves the alternate
+        screen before the shell prompt shows up and the shell is usable; fg
+        switches back to the alternate screen, less repaints, and refreshes
+        keep working; then q exits cleanly.
+        """
+        self._run_case(b"q", suspend=True)
+
+    def test_suspend_then_ctrl_c(self) -> None:
+        """Like test_suspend_then_quit, but exits with Ctrl-C after fg."""
+        self._run_case(b"\x03", suspend=True)
+
+    # === no watch cases ===
+
+    def _run_no_watch_case(self, exit_key: bytes) -> None:
+        self.fixture.write_obj(self.variants[0])
+        shell = self._PtyShell()
+        self.addCleanup(shell.close)
+        start = shell.mark()
+        shell.send(self.fixture.command(sys.executable, watch=False).encode() + b"\n")
+        out = shell.read_until(b"TARGET", start, timeout=15)
+        self.assertIn(self.ENTER, out[: out.find(b"TARGET")], "less enters alt screen")
+
+        mark = shell.mark()
+        shell.send(exit_key)
+        out = shell.read_until(shell.PROMPT, mark, timeout=10)
+        self.assertIn(self.LEAVE, out, "leaves alt screen on exit")
+        flags = shell.tty_flags()
+        self.assertIn(b"echo", flags)
+        self.assertIn(b"icanon", flags)
+
+    def test_no_watch_quit(self) -> None:
+        """
+        Without -w, less switches to the alternate screen itself, and quitting
+        with q leaves it and restores echo and line mode for the shell.
+        """
+        self._run_no_watch_case(b"q")
+
+    def test_no_watch_ctrl_c(self) -> None:
+        """
+        Without -w, Ctrl-C makes diff.py terminate less, which leaves the
+        alternate screen and restores echo and line mode for the shell.
+        """
+        self._run_no_watch_case(b"\x03")
 
 
 if __name__ == "__main__":
